@@ -327,7 +327,7 @@ class Decoder(nn.Module):
         - pred_traj: tensor of shape (self.seq_len, batch, 2)
         """
         batch = last_pos.size(0)
-        pred_traj_fake_rel = []
+        pred_traj = []
 
         decoder_input = self.spatial_embedding(last_pos_rel)
         decoder_input = decoder_input.view(1, batch, self.embedding_dim) # 1, 493, 16
@@ -352,11 +352,11 @@ class Decoder(nn.Module):
 
             decoder_input = self.spatial_embedding(rel_pos)
             decoder_input = decoder_input.view(1, batch, self.embedding_dim)
-            pred_traj_fake_rel.append(rel_pos.view(batch, -1))
+            pred_traj.append(curr_pos.view(batch, -1))
             last_pos = curr_pos
 
-        pred_traj_fake_rel = torch.stack(pred_traj_fake_rel, dim=0)
-        return pred_traj_fake_rel
+        pred_traj = torch.stack(pred_traj, dim=0)
+        return pred_traj
 
 # -----------------------------------------------------------------
 

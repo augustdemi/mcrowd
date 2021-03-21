@@ -247,7 +247,7 @@ class Solver(object):
 
             # 첫번째 iteration 디코더 인풋 = (obs_traj_rel의 마지막 값, (hidden_state, cell_state))
             # where hidden_state = "인코더의 마지막 hidden_layer아웃풋과 그것으로 만든 max_pooled값을 concat해서 mlp 통과시켜만든 feature인 noise_input에다 noise까지 추가한값)"
-            pred_fut_traj_rel = self.decoderMy(
+            pred_fut_traj = self.decoderMy(
                 last_pos,
                 last_pos_rel,
                 dist_fc_inputMx,
@@ -258,9 +258,7 @@ class Solver(object):
 
             ################## total loss for vae ####################
             # predict relative traj and make loss with abs. traj.
-            pred_fut_traj = relative_to_abs(
-                pred_fut_traj_rel, obs_traj[-1]
-            )
+
             loss_recon = F.mse_loss(pred_fut_traj, fut_traj, reduction='sum').div(batch)
             loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
             loss_kl = torch.clamp(loss_kl, min=0.07)
@@ -567,18 +565,16 @@ class Solver(object):
 
                     # 첫번째 iteration 디코더 인풋 = (obs_traj_rel의 마지막 값, (hidden_state, cell_state))
                     # where hidden_state = "인코더의 마지막 hidden_layer아웃풋과 그것으로 만든 max_pooled값을 concat해서 mlp 통과시켜만든 feature인 noise_input에다 noise까지 추가한값)"
-                    pred_fut_traj_rel = self.decoderMy(
+                    pred_fut_traj = self.decoderMy(
                         last_pos,
                         last_pos_rel,
                         dist_fc_inputMx,
                         relaxed_p_dist.rsample(),
                         seq_start_end
                     )
-                    pred_fut_traj = relative_to_abs(
-                        pred_fut_traj_rel, obs_traj[-1]
-                    )
 
-                    loss_recon += F.mse_loss(pred_fut_traj, fut_traj_rel, reduction='sum').div(batch_size)
+
+                    loss_recon += F.mse_loss(pred_fut_traj, fut_traj, reduction='sum').div(batch_size)
                     loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch_size)
                     loss_kl = torch.clamp(loss_kl, min=0.07)
                     vae_loss += (loss_recon + self.kl_weight * loss_kl)
@@ -587,16 +583,14 @@ class Solver(object):
 
                 coll_20samples = [] # (20, # seq, 12)
                 for _ in range(num_samples):
-                    pred_fut_traj_rel = self.decoderMy(
+                    pred_fut_traj = self.decoderMy(
                         obs_traj[-1],
                         obs_traj_rel[-1],
                         dist_fc_inputMx,
                         relaxed_p_dist.rsample(),
                         seq_start_end,
                     )
-                    pred_fut_traj = relative_to_abs(
-                        pred_fut_traj_rel, obs_traj[-1]
-                    )
+
                     ade.append(displacement_error(
                         pred_fut_traj, fut_traj, mode='raw'
                     ))
