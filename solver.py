@@ -260,6 +260,7 @@ class Solver(object):
 
             ################## total loss for vae ####################
             loss_recon = F.mse_loss(pred_fut_traj, fut_traj, reduction='sum').div(batch)
+            # test
             loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
             loss_kl = torch.clamp(loss_kl, min=0.07)
             vae_loss = loss_recon + self.kl_weight * loss_kl
