@@ -32,7 +32,7 @@ class Solver(object):
         # self.use_cuda = args.cuda and torch.cuda.is_available()
         self.device = args.device
         self.temp=1.99
-        self.kl_weight=1.0
+        self.kl_weight=args.kl_weight
 
         self.max_iter = int(args.max_iter)
 
