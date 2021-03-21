@@ -1,0 +1,18 @@
+[iter 20 (epoch 0)] vae_loss: 0.599 (recon: 0.598, kl: 0.002)
+
+[iter 20 (epoch 0)] vae_loss: 0.599 (recon: 0.598, kl: 0.002)
+
+[iter 20 (epoch 0)] vae_loss: 0.599 (recon: 0.598, kl: 0.002)
+
+[iter 20 (epoch 0)] vae_loss: 0.599 (recon: 0.598, kl: 0.002)
+
+[iter 40 (epoch 0)] vae_loss: 0.291 (recon: 0.290, kl: 0.001)
+
+[iter 60 (epoch 1)] vae_loss: 0.267 (recon: 0.266, kl: 0.000)
+
+[iter 80 (epoch 1)] vae_loss: 0.152 (recon: 0.152, kl: 0.000)
+
+[iter 100 (epoch 2)] vae_loss: 0.148 (recon: 0.147, kl: 0.000)
+
+[iter 40 (epoch 0)] vae_loss: 0.290 (recon: 0.290, kl: 0.000)
+
