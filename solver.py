@@ -254,13 +254,14 @@ class Solver(object):
                 relaxed_q_dist.rsample(),
                 seq_start_end
             )
+
+
+            ################## total loss for vae ####################
+            # predict relative traj and make loss with abs. traj.
             pred_fut_traj = relative_to_abs(
                 pred_fut_traj_rel, obs_traj[-1]
             )
-
-            ################## total loss for vae ####################
             loss_recon = F.mse_loss(pred_fut_traj, fut_traj, reduction='sum').div(batch)
-            # test
             loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
             loss_kl = torch.clamp(loss_kl, min=0.07)
             vae_loss = loss_recon + self.kl_weight * loss_kl
