@@ -2,7 +2,6 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="47df05c7-4ed5-4514-912a-992d4843ca6f" name="Default" comment="">
-      <change type="NEW" beforePath="" afterPath="$PROJECT_DIR$/.gitignore" />
       <change type="MODIFICATION" beforePath="$PROJECT_DIR$/.idea/workspace.xml" afterPath="$PROJECT_DIR$/.idea/workspace.xml" />
     </list>
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
@@ -33,7 +32,7 @@
             <entry file="file://$PROJECT_DIR$/solver.py">
               <provider selected="true" editor-type-id="text-editor">
                 <state relative-caret-position="1624">
-                  <caret line="596" column="21" lean-forward="true" selection-start-line="596" selection-start-column="21" selection-end-line="596" selection-end-column="21" />
+                  <caret line="596" column="21" lean-forward="false" selection-start-line="596" selection-start-column="21" selection-end-line="596" selection-end-column="21" />
                   <folding>
                     <element signature="e#0#9#0" expanded="true" />
                     <element signature="e#30562#35568#0" expanded="false" />
@@ -46,7 +45,7 @@
             <entry file="file://$PROJECT_DIR$/.gitignore">
               <provider selected="true" editor-type-id="text-editor">
                 <state relative-caret-position="51">
-                  <caret line="3" column="4" lean-forward="true" selection-start-line="3" selection-start-column="4" selection-end-line="3" selection-end-column="4" />
+                  <caret line="3" column="4" lean-forward="false" selection-start-line="3" selection-start-column="4" selection-end-line="3" selection-end-column="4" />
                   <folding />
                 </state>
               </provider>
@@ -56,7 +55,7 @@
             <entry file="file://$PROJECT_DIR$/utils_sgan.py">
               <provider selected="true" editor-type-id="text-editor">
                 <state relative-caret-position="248">
-                  <caret line="82" column="35" lean-forward="true" selection-start-line="82" selection-start-column="35" selection-end-line="82" selection-end-column="35" />
+                  <caret line="82" column="35" lean-forward="false" selection-start-line="82" selection-start-column="35" selection-end-line="82" selection-end-column="35" />
                   <folding />
                 </state>
               </provider>
@@ -298,16 +297,6 @@
             <path>
               <item name="mcrowd" type="b2602c69:ProjectViewProjectNode" />
               <item name="mcrowd" type="462c0819:PsiDirectoryNode" />
-            </path>
-            <path>
-              <item name="mcrowd" type="b2602c69:ProjectViewProjectNode" />
-              <item name="mcrowd" type="462c0819:PsiDirectoryNode" />
-              <item name="data" type="462c0819:PsiDirectoryNode" />
-            </path>
-            <path>
-              <item name="mcrowd" type="b2602c69:ProjectViewProjectNode" />
-              <item name="mcrowd" type="462c0819:PsiDirectoryNode" />
-              <item name="records" type="462c0819:PsiDirectoryNode" />
             </path>
           </expand>
           <select />
@@ -937,7 +926,7 @@
     <entry file="file://$PROJECT_DIR$/utils_sgan.py">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="248">
-          <caret line="82" column="35" lean-forward="true" selection-start-line="82" selection-start-column="35" selection-end-line="82" selection-end-column="35" />
+          <caret line="82" column="35" lean-forward="false" selection-start-line="82" selection-start-column="35" selection-end-line="82" selection-end-column="35" />
           <folding />
         </state>
       </provider>
@@ -963,7 +952,7 @@
     <entry file="file://$PROJECT_DIR$/solver.py">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="1624">
-          <caret line="596" column="21" lean-forward="true" selection-start-line="596" selection-start-column="21" selection-end-line="596" selection-end-column="21" />
+          <caret line="596" column="21" lean-forward="false" selection-start-line="596" selection-start-column="21" selection-end-line="596" selection-end-column="21" />
           <folding>
             <element signature="e#0#9#0" expanded="true" />
             <element signature="e#30562#35568#0" expanded="false" />
@@ -974,7 +963,7 @@
     <entry file="file://$PROJECT_DIR$/.gitignore">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="51">
-          <caret line="3" column="4" lean-forward="true" selection-start-line="3" selection-start-column="4" selection-end-line="3" selection-end-column="4" />
+          <caret line="3" column="4" lean-forward="false" selection-start-line="3" selection-start-column="4" selection-end-line="3" selection-end-column="4" />
           <folding />
         </state>
       </provider>
