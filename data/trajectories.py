@@ -25,8 +25,8 @@ def seq_collate(data):
     # LSTM input format: seq_len, batch, input_size
     obs_traj = torch.cat(obs_seq_list, dim=0).permute(2, 0, 1)
     pred_traj = torch.cat(pred_seq_list, dim=0).permute(2, 0, 1)
-    obs_traj_rel = torch.cat(obs_seq_rel_list, dim=0).permute(2, 0, 1)
-    pred_traj_rel = torch.cat(pred_seq_rel_list, dim=0).permute(2, 0, 1)
+    obs_traj_state = torch.cat(obs_seq_rel_list, dim=0).permute(2, 0, 1)
+    pred_traj_state = torch.cat(pred_seq_rel_list, dim=0).permute(2, 0, 1)
     non_linear_ped = torch.cat(non_linear_ped_list)
     loss_mask = torch.cat(loss_mask_list, dim=0)
     seq_start_end = torch.LongTensor(seq_start_end)
@@ -35,7 +35,7 @@ def seq_collate(data):
     fut_frames = np.concatenate(fut_frames, 0)
 
     out = [
-        obs_traj, pred_traj, obs_traj_rel, pred_traj_rel, non_linear_ped,
+        obs_traj, pred_traj, obs_traj_state, pred_traj_state, non_linear_ped,
         loss_mask, seq_start_end, obs_frames, fut_frames
     ]
 
@@ -74,6 +74,17 @@ def poly_fit(traj, traj_len, threshold):
         return 0.0
 
 
+def derivative_of(x, dt=1):
+
+    if x[~np.isnan(x)].shape[-1] < 2:
+        return np.zeros_like(x)
+
+    dx = np.full_like(x, np.nan)
+    dx[~np.isnan(x)] = np.gradient(x[~np.isnan(x)], dt)
+
+    return dx
+
+
 class TrajectoryDataset(Dataset):
     """Dataloder for the Trajectory datasets"""
     def __init__(
@@ -106,7 +117,7 @@ class TrajectoryDataset(Dataset):
         all_files = [os.path.join(self.data_dir, _path) for _path in all_files]
         num_peds_in_seq = []
         seq_list = []
-        seq_list_rel = []
+        seq_list_state = []
         loss_mask_list = []
         non_linear_ped = []
         obs_frame_num = []
@@ -125,7 +136,7 @@ class TrajectoryDataset(Dataset):
                     frame_data[idx:idx + self.seq_len], axis=0) # frame을 seq_len만큼씩 잘라서 볼것 = curr_seq_data. 각 frame이 가진 데이터(agent)수는 다를수 잇음. 하지만 각 데이터의 길이는 4(frame #, agent id, pos_x, pos_y)
                 peds_in_curr_seq = np.unique(curr_seq_data[:, 1]) # unique agent id
 
-                curr_seq_rel = np.zeros((len(peds_in_curr_seq), 2, self.seq_len))
+                curr_seq_state = np.zeros((len(peds_in_curr_seq), 6, self.seq_len))
                 curr_seq = np.zeros((len(peds_in_curr_seq), 2, self.seq_len))
                 curr_loss_mask = np.zeros((len(peds_in_curr_seq), self.seq_len))
                 num_peds_considered = 0
@@ -140,11 +151,15 @@ class TrajectoryDataset(Dataset):
                     curr_ped_seq = np.transpose(curr_ped_seq[:, 2:])#pos_x, pos_y of all rows -> transpose : (2, n) where n = 현재 sliding frames의 ped_id한사람의 데이터수 = seq_len(위의 continue조건을 지나쳤으니)
                     curr_ped_seq = curr_ped_seq
                     # Make coordinates relative
-                    rel_curr_ped_seq = np.zeros(curr_ped_seq.shape)
-                    rel_curr_ped_seq[:, 1:] = curr_ped_seq[:, 1:] - curr_ped_seq[:, :-1] #한 프레임 동안 이동한 상대거리 pos_x(i) - pos_x(i-1), pos_y(i) - pos_y(i-1) for i = 1,.., n-1
+                    vx = derivative_of(curr_ped_seq[0])
+                    vy = derivative_of(curr_ped_seq[1])
+                    ax = derivative_of(vx)
+                    ay = derivative_of(vy)
+                    state = np.stack([curr_ped_seq[0], curr_ped_seq[1], vx, vy, ax, ay])
+
                     _idx = num_peds_considered
                     curr_seq[_idx, :, pad_front:pad_end] = curr_ped_seq # continue를 지나왔기때문에 결국 pad_front:pad_end = 0:16임.
-                    curr_seq_rel[_idx, :, pad_front:pad_end] = rel_curr_ped_seq
+                    curr_seq_state[_idx, :, pad_front:pad_end] = state
                     # Linear vs Non-Linear Trajectory
                     _non_linear_ped.append(poly_fit(curr_ped_seq, pred_len, threshold))
                     curr_loss_mask[_idx, pad_front:pad_end] = 1
@@ -156,14 +171,14 @@ class TrajectoryDataset(Dataset):
                     # 다음 list의 initialize는 peds_in_curr_seq만큼 해뒀었지만, 조건을 만족하는 slide의 agent만 차례로 append 되었기 때문에 num_peds_considered만큼만 잘라서 씀
                     loss_mask_list.append(curr_loss_mask[:num_peds_considered])
                     seq_list.append(curr_seq[:num_peds_considered])
-                    seq_list_rel.append(curr_seq_rel[:num_peds_considered])
+                    seq_list_state.append(curr_seq_state[:num_peds_considered])
                     obs_frame_num.append(np.ones((num_peds_considered, self.obs_len)) * frames[idx:idx + self.obs_len])
                     fut_frame_num.append(np.ones((num_peds_considered, self.pred_len)) * frames[idx + self.obs_len:idx + self.seq_len])
 
 
         self.num_seq = len(seq_list) # = slide (seq. of 16 frames) 수 = 2692
         seq_list = np.concatenate(seq_list, axis=0) # (32686, 2, 16)
-        seq_list_rel = np.concatenate(seq_list_rel, axis=0)
+        seq_list_state = np.concatenate(seq_list_state, axis=0)
         loss_mask_list = np.concatenate(loss_mask_list, axis=0)
         non_linear_ped = np.asarray(non_linear_ped) # (32686,): 1 or 0
         self.obs_frame_num = np.concatenate(obs_frame_num, axis=0)
@@ -174,10 +189,10 @@ class TrajectoryDataset(Dataset):
             seq_list[:, :, :self.obs_len]).type(torch.float)
         self.pred_traj = torch.from_numpy(
             seq_list[:, :, self.obs_len:]).type(torch.float)
-        self.obs_traj_rel = torch.from_numpy(
-            seq_list_rel[:, :, :self.obs_len]).type(torch.float)
-        self.pred_traj_rel = torch.from_numpy(
-            seq_list_rel[:, :, self.obs_len:]).type(torch.float)
+        self.obs_traj_state = torch.from_numpy(
+            seq_list_state[:, :, :self.obs_len]).type(torch.float)
+        self.pred_traj_state = torch.from_numpy(
+            seq_list_state[:, :, self.obs_len:]).type(torch.float)
         self.loss_mask = torch.from_numpy(loss_mask_list).type(torch.float)
         self.non_linear_ped = torch.from_numpy(non_linear_ped).type(torch.float)
         # frame seq순, 그리고 agent id순으로 쌓아온 데이터에 대한 index를 부여하기 위해 cumsum으로 index생성 ==> 한 슬라이드(16 seq. of frames)에서 고려된 agent의 data를 start, end로 끊어내서 index로 골래내기 위해
@@ -196,7 +211,7 @@ class TrajectoryDataset(Dataset):
         start, end = self.seq_start_end[index]
         out = [
             self.obs_traj[start:end, :].to(self.device) , self.pred_traj[start:end, :].to(self.device),
-            self.obs_traj_rel[start:end, :].to(self.device), self.pred_traj_rel[start:end, :].to(self.device),
+            self.obs_traj_state[start:end, :].to(self.device), self.pred_traj_state[start:end, :].to(self.device),
             self.non_linear_ped[start:end].to(self.device), self.loss_mask[start:end, :].to(self.device), self.obs_frame_num[start:end], self.fut_frame_num[start:end]
         ]
         return out
