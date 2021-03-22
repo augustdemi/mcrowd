@@ -283,7 +283,8 @@ class Encoder(nn.Module):
         return dist_fc_input, stats
 
 
-class Decoder(nn.Module):
+
+class Decoder_abs(nn.Module):
     """Decoder is part of TrajectoryGenerator"""
     def __init__(
         self, seq_len, embedding_dim=64, dec_h_dim=128, mlp_dim=1024, num_layers=1,
@@ -357,6 +358,82 @@ class Decoder(nn.Module):
 
         pred_traj = torch.stack(pred_traj, dim=0)
         return pred_traj
+
+
+class Decoder(nn.Module):
+    """Decoder is part of TrajectoryGenerator"""
+    def __init__(
+        self, seq_len, embedding_dim=64, dec_h_dim=128, mlp_dim=1024, num_layers=1,
+        dropout=0.0, pool_dim=1024, enc_h_dim=32, z_dim=32,
+        activation='relu', batch_norm=False, device='cpu'
+    ):
+        super(Decoder, self).__init__()
+
+        self.seq_len = seq_len
+        self.mlp_dim = mlp_dim
+        self.dec_h_dim = dec_h_dim
+        self.enc_h_dim = enc_h_dim
+        self.embedding_dim = embedding_dim
+        # self.dec_inp_dim = embedding_dim
+        self.dec_inp_dim = embedding_dim + mlp_dim + z_dim
+        self.device=device
+        self.num_layers = num_layers
+
+        self.decoder = nn.LSTM(
+            self.dec_inp_dim, dec_h_dim, num_layers, dropout=dropout
+        )
+
+        self.mlp = make_mlp(
+            [mlp_dim + z_dim, mlp_dim, dec_h_dim], #mlp_dim + z_dim = enc_hidden_feat after mlp + z
+            activation=activation,
+            batch_norm=batch_norm,
+            dropout=dropout
+        )
+        self.spatial_embedding = nn.Linear(2, embedding_dim)
+        self.hidden2pos = nn.Linear(dec_h_dim, 2)
+
+    def forward(self, last_pos, last_pos_rel, enc_h_feat, z, seq_start_end):
+        """
+        Inputs:
+        - last_pos: Tensor of shape (batch, 2)
+        - last_pos_rel: Tensor of shape (batch, 2)
+        - enc_h_feat: hidden feature from the encoder
+        - z: sample from the posterior/prior dist.
+        - seq_start_end: A list of tuples which delimit sequences within batch
+        Output:
+        - pred_traj: tensor of shape (self.seq_len, batch, 2)
+        """
+        batch = last_pos.size(0)
+        pred_traj_fake_rel = []
+
+        decoder_input = self.spatial_embedding(last_pos_rel)
+        decoder_input = decoder_input.view(1, batch, self.embedding_dim) # 1, 493, 16
+
+        # x_feat+z(=zx) initial state생성(FC)
+        zx = torch.cat([enc_h_feat, z], dim=1) # 493, 96
+        decoder_h=self.mlp(zx).unsqueeze(0) # 1, 493, 128
+        decoder_c = torch.zeros(self.num_layers, decoder_h.shape[1], self.dec_h_dim).to(self.device)
+
+        state_tuple = (decoder_h, decoder_c)
+        zx = zx.unsqueeze(0)
+        for i in range(self.seq_len):
+            # decoder_input(=last poistion emb=a0)은 update된 last position emb으로 계속 업뎃, state_tuple은 decoder로 업뎃
+            # 차이점: fixed zx가 반복적으로 쓰이지 않음. z는  initial state생성시에만 쓰이고 안쓰임. decoder_input에  zx를 concat해서 인풋해줘야함.
+            # output, state_tuple = self.decoder(decoder_input, state_tuple)
+            output, state_tuple = self.decoder(torch.cat([zx, decoder_input], dim=2), state_tuple) #1, 493, 112
+
+
+            rel_pos = self.hidden2pos(output.view(-1, self.dec_h_dim))
+            curr_pos = rel_pos + last_pos
+
+
+            decoder_input = self.spatial_embedding(rel_pos)
+            decoder_input = decoder_input.view(1, batch, self.embedding_dim)
+            pred_traj_fake_rel.append(rel_pos.view(batch, -1))
+            last_pos = curr_pos
+
+        pred_traj_fake_rel = torch.stack(pred_traj_fake_rel, dim=0)
+        return pred_traj_fake_rel
 
 # -----------------------------------------------------------------
 
