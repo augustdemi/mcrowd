@@ -577,6 +577,8 @@ class Solver(object):
                     loss_kl = torch.clamp(loss_kl, min=0.07)
                     elbo = loglikelihood - self.kl_weight * loss_kl
                     vae_loss -=elbo
+                    loss_recon -=loglikelihood
+                    loss_kl +=loss_kl
 
 
                 coll_20samples = [] # (20, # seq, 12)
