@@ -164,7 +164,8 @@ class TrajectoryDataset(Dataset):
                     fut_frame_num.append(np.ones((num_peds_considered, self.pred_len)) * frames[idx + self.obs_len:idx + self.seq_len])
                 ped_ids = np.array(ped_ids)
                 if 'test' in path and len(ped_ids) > 0:
-                    print("frame idx:", idx, " frame num:", ",".join(np.unique(curr_seq_data[:, 0]).astype(int).astype(str)), " ped_ids: ", ",".join(ped_ids.astype(int).astype(str)))
+                    a = (np.unique(curr_seq_data[:, 0]) - 780) / 10
+                    print("frame idx:", idx, " frame num:", ",".join(a.astype(int).astype(str)), ' t: ', a[7],  " ped_ids: ", ",".join(ped_ids.astype(int).astype(str)))
 
 
         self.num_seq = len(seq_list) # = slide (seq. of 16 frames) 수 = 2692
