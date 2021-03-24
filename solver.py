@@ -233,9 +233,9 @@ class Solver(object):
 
 
             (encX_h_feat, logitX) \
-                = self.encoderMx(obs_traj, seq_start_end)
+                = self.encoderMx(obs_traj, seq_start_end, train=True)
             (encY_h_feat, logitY) \
-                = self.encoderMy(obs_traj[-1], fut_traj_rel, seq_start_end, encX_h_feat)
+                = self.encoderMy(obs_traj[-1], fut_traj_rel, seq_start_end, encX_h_feat, train=True)
 
             p_dist = discrete(logits=logitX)
             q_dist = discrete(logits=logitY)
