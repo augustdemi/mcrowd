@@ -254,7 +254,8 @@ class Solver(object):
             )
 
             ################## total loss for vae ####################
-            loglikelihood = fut_rel_pos_dist.log_prob(torch.reshape(fut_traj_rel, [batch, self.pred_len, 2])).sum().div(batch)
+            # loglikelihood = fut_rel_pos_dist.log_prob(torch.reshape(fut_traj_rel, [batch, self.pred_len, 2])).sum().div(batch)
+            loglikelihood = torch.clamp(fut_rel_pos_dist.log_prob(torch.reshape(fut_traj_rel, [batch, self.pred_len, 2])), max=6).sum().div(batch)
             loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
             loss_kl = torch.clamp(loss_kl, min=0.07)
             elbo = loglikelihood - self.kl_weight * loss_kl
