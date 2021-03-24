@@ -432,22 +432,22 @@ class Solver(object):
                     )
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
 
-                    pred_fut_traj_rel = torch.reshape(pred_fut_traj_rel, [-1, batch_size, self.pred_len, 2])
-                    pred_fut_traj = integrate_samples(
-                        pred_fut_traj_rel, obs_traj[-1][:, :2]
-                    ) # (1, 173, 12, 2), ([173, 2]) => 1, 173, 12, 2
-                    pred_fut_traj = torch.reshape(pred_fut_traj, [self.pred_len, batch_size, 2]) #fut_traj[:,:,:2]의 shape [12, 173, 2]에 맞추기
+                    # pred_fut_traj_rel = torch.reshape(pred_fut_traj_rel, [-1, batch_size, self.pred_len, 2])
+                    # pred_fut_traj = integrate_samples(
+                    #     pred_fut_traj_rel, obs_traj[-1][:, :2]
+                    # ) # (1, 173, 12, 2), ([173, 2]) => 1, 173, 12, 2
+                    # pred_fut_traj = torch.reshape(pred_fut_traj, [self.pred_len, batch_size, 2]) #fut_traj[:,:,:2]의 shape [12, 173, 2]에 맞추기
 
                     # pred_fut_traj_rel = torch.reshape(pred_fut_traj_rel, [self.pred_len, batch_size, 2])
-                    # pred_fut_traj = relative_to_abs(
-                    #     pred_fut_traj_rel, obs_traj[-1]
-                    # )
+                    pred_fut_traj = relative_to_abs(
+                        pred_fut_traj_rel, obs_traj[-1][:, :2]
+                    )
 
 
-                    # a = integrate_samples(
-                    #     torch.reshape(fut_traj_rel, [-1, batch_size, self.pred_len, 2]), obs_traj[-1][:, :2]
-                    # ).squeeze(0).permute((1,0,2))
-                    # d = a - fut_traj[:, :, :2]
+                    a = integrate_samples(
+                        torch.reshape(fut_traj_rel, [-1, batch_size, self.pred_len, 2]), obs_traj[-1][:, :2]
+                    ).squeeze(0).permute((1,0,2))
+                    d = a - fut_traj[:, :, :2]
 
                     ade.append(displacement_error(
                         pred_fut_traj, fut_traj[:,:,:2], mode='raw'
