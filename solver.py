@@ -448,8 +448,8 @@ class Solver(object):
                 all_fde.append(torch.stack(fde))
 
 
-            all_ade=torch.cat(all_ade, dim=1).numpy()
-            all_fde=torch.cat(all_fde, dim=1).numpy()
+            all_ade=torch.cat(all_ade, dim=1).cpu().numpy()
+            all_fde=torch.cat(all_fde, dim=1).cpu().numpy()
 
             ade_min = np.min(all_ade, axis=0).mean()/self.pred_len
             fde_min = np.min(all_fde, axis=0).mean()
