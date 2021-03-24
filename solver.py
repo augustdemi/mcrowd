@@ -14,6 +14,8 @@ from torch.distributions import RelaxedOneHotCategorical as concrete
 from torch.distributions import OneHotCategorical as discrete
 from torch.distributions import kl_divergence
 
+from gmm2d import GMM2D
+
 ###############################################################################
 
 class Solver(object):
@@ -247,7 +249,8 @@ class Solver(object):
             fut_rel_pos_dist = self.decoderMy(
                 obs_traj[-1],
                 encX_h_feat,
-                relaxed_q_dist.rsample()
+                relaxed_q_dist.rsample(),
+                num_samples=1
             )
 
             ################## total loss for vae ####################
@@ -410,12 +413,17 @@ class Solver(object):
                         = self.encoderMy(obs_traj[-1], fut_traj_rel, seq_start_end, encX_h_feat)
 
                     q_dist = discrete(logits=logitY)
-
                     fut_rel_pos_dist = self.decoderMy(
                         obs_traj[-1],
                         encX_h_feat,
                         relaxed_p_dist.rsample()
                     )
+                    # fut_rel_pos_dist = self.decoderMy(
+                    #     obs_traj[-1],
+                    #     encX_h_feat,
+                    #     relaxed_p_dist.rsample((num_samples,)),
+                    #     num_samples=num_samples
+                    # )
 
                     ################## total loss for vae ####################
                     loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_rel).sum().div(batch_size)
@@ -433,7 +441,7 @@ class Solver(object):
                         encX_h_feat,
                         relaxed_p_dist.rsample()
                     )
-                    pred_fut_traj_rel = fut_rel_pos_dist.rsample()
+                    pred_fut_traj_rel = fut_rel_pos_dist.rsample().squeeze()
 
                     pred_fut_traj = relative_to_abs(
                         pred_fut_traj_rel, obs_traj[-1]
