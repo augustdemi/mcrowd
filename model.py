@@ -206,11 +206,12 @@ class Encoder(nn.Module):
         self.embedding_dim = embedding_dim
         self.num_layers = num_layers
         self.pooling_type = pooling_type
+        n_state=6
 
         self.spatial_embedding = nn.Linear(2, embedding_dim)
 
         self.rnn_encoder = nn.LSTM(
-            input_size=2, hidden_size=32
+            input_size=n_state, hidden_size=32
         )
 
         if pooling_type=='pool':
@@ -286,8 +287,8 @@ class EncoderY(nn.Module):
         self.num_layers = num_layers
         self.pooling_type = pooling_type
         self.device = device
+        n_state=6
 
-        self.spatial_embedding = nn.Linear(2, embedding_dim)
 
         self.rnn_encoder = nn.LSTM(
             input_size=2, hidden_size=32, num_layers=1, bidirectional=True
@@ -319,8 +320,8 @@ class EncoderY(nn.Module):
         # )
         self.fc2 = nn.Linear(input_dim, zS_dim)
 
-        self.initial_h_model = nn.Linear(2, 32)
-        self.initial_c_model = nn.Linear(2, 32)
+        self.initial_h_model = nn.Linear(n_state, 32)
+        self.initial_c_model = nn.Linear(n_state, 32)
 
 
     def forward(self, last_obs_rel_traj, fut_rel_traj, seq_start_end, obs_enc_feat, train=False):
@@ -380,6 +381,7 @@ class Decoder(nn.Module):
         self.num_layers = num_layers
         self.z_dim=z_dim
         self.num_components=1
+        n_state=6
 
         self.rnn_decoder = nn.GRUCell(
             input_size=self.dec_inp_dim, hidden_size=dec_h_dim
@@ -392,13 +394,15 @@ class Decoder(nn.Module):
         #     dropout=dropout
         # )
         self.dec_hidden = nn.Linear(32 + z_dim, dec_h_dim)
-        self.to_vel = nn.Linear(2, 2)
+        self.to_vel = nn.Linear(n_state, 2)
 
-        self.spatial_embedding = nn.Linear(2, self.embedding_dim)
         self.fc_mu = nn.Linear(dec_h_dim, 2)
         self.fc_std = nn.Linear(dec_h_dim, 2)
         self.fc_log_pis = nn.Linear(dec_h_dim, self.num_components)
-        self.fc_corrs = nn.Linear(dec_h_dim, self.num_components)
+        self.fc_corrs = nn.Sequential(
+            nn.Linear(dec_h_dim, self.num_components),
+            nn.Tanh()
+        )
 
 
     def forward(self, last_state, enc_h_feat, z, num_samples=1):
@@ -415,12 +419,10 @@ class Decoder(nn.Module):
         num_components=1
         # zx = torch.cat([enc_h_feat, z], dim=1) # 493, 89(64+25)
         z = torch.reshape(z, (-1, self.z_dim))
-        zx = torch.cat([z, enc_h_feat.repeat(num_samples * num_components, 1)], dim=1)
-        decoder_h=self.dec_hidden(zx) # 493, 128
+        zx = torch.cat([enc_h_feat.repeat(num_samples * num_components, 1), z], dim=1)
+        state=self.dec_hidden(zx) # 493, 128
         a_0 = self.to_vel(last_state)
 
-
-        state = decoder_h
         input_ = torch.cat([zx, a_0.repeat(num_samples * num_components, 1)], dim=1)  # 6400, 99(97+2)
 
         log_pis, mus, log_sigmas, corrs, a_sample = [], [], [], [], []
@@ -428,47 +430,35 @@ class Decoder(nn.Module):
         for j in range(self.seq_len):
             h_state = self.rnn_decoder(input_, state) # 6400, 128 or 256,128 (test time: 20,128)
 
-            log_pi_t = self.fc_log_pis(h_state)
-            mu_t = self.fc_mu(h_state)
-            log_sigma_t = self.fc_std(h_state)
-            corr_t = torch.tanh(self.fc_corrs(h_state))
+            log_pi_t = self.fc_log_pis(h_state) # 577, 1
+            mu_t = self.fc_mu(h_state) # 577, 2
+            log_sigma_t = self.fc_std(h_state) # 577, 2
+            # corr_t = torch.tanh(self.fc_corrs(h_state))
+            corr_t = self.fc_corrs(h_state) # 577, 1
 
 
             gmm = GMM2D(log_pi_t, mu_t, log_sigma_t, corr_t)  # [k;bs, pred_dim]
-            a_t = gmm.rsample() # 6400, 2 or 256,2 (test time:20,2)
+            a_t = gmm.rsample() #577, 2 (test time:20,2)
 
             log_pis.append(
-                torch.ones_like(corr_t.reshape(num_samples, num_components, -1).permute(0, 2, 1).reshape(-1, 1))
+                torch.ones_like(corr_t)
             )
 
             # mu_t = 6400(256*25),2 -> reshape: 256,50
-            mus.append(
-                mu_t.reshape(
-                    num_samples, num_components, -1, 2
-                ).permute(0, 2, 1, 3).reshape(-1, 2 * num_components)
-            )
-            log_sigmas.append(
-                log_sigma_t.reshape(
-                    num_samples, num_components, -1, 2
-                ).permute(0, 2, 1, 3).reshape(-1, 2 * num_components))
-            corrs.append(
-                corr_t.reshape(
-                    num_samples, num_components, -1
-                ).permute(0, 2, 1).reshape(-1, num_components))
+            mus.append(mu_t)
+            log_sigmas.append(log_sigma_t)
+            corrs.append(corr_t)
 
             input_ = torch.cat([zx, a_t], dim=1) # 6400, 99(97+2)
             state = h_state
 
-        log_pis = torch.stack(log_pis, dim=1) # [256, 12, 1, 25]
-        mus = torch.stack(mus, dim=1) # [256, 50] 12개 쌓아서 [256, 12, 50]
+        log_pis = torch.stack(log_pis, dim=1) # [256, 12, 1, 25*1]
+        mus = torch.stack(mus, dim=1) # [256, 50] 12개 쌓아서 [256, 12, 25*2]
         log_sigmas = torch.stack(log_sigmas, dim=1) # 256, 12, 50
         corrs = torch.stack(corrs, dim=1) # 256, 12, 25
 
-        rel_pos_dist = GMM2D(torch.reshape(log_pis, [num_samples, -1, self.seq_len, num_components]),
-                       torch.reshape(mus, [num_samples, -1, self.seq_len, num_components * 2]),
-                       torch.reshape(log_sigmas, [num_samples, -1, self.seq_len, num_components * 2]),
-                       torch.reshape(corrs, [num_samples, -1, self.seq_len, num_components])) # 256,12,25
-
+        rel_pos_dist = GMM2D(log_pis.unsqueeze(0), mus.unsqueeze(0), log_sigmas.unsqueeze(0), corrs.unsqueeze(0))
+        #rel_pos_dist.mus.shape = [1, 577, 12, 1, 2]
 
         return rel_pos_dist
 

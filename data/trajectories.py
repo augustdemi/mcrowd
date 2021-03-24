@@ -3,9 +3,10 @@ import os
 import math
 
 import numpy as np
-
 import torch
 from torch.utils.data import Dataset
+
+from utils import derivative_of
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,7 @@ class TrajectoryDataset(Dataset):
     """Dataloder for the Trajectory datasets"""
     def __init__(
         self, data_dir, obs_len=8, pred_len=12, skip=1, threshold=0.002,
-        min_ped=0, delim='\t', device='cpu'
+        min_ped=0, delim='\t', device='cpu', dt=1
     ):
         """
         Args:
@@ -101,6 +102,8 @@ class TrajectoryDataset(Dataset):
         self.seq_len = self.obs_len + self.pred_len
         self.delim = delim
         self.device = device
+        n_pred_state=2
+        n_state=6
 
         all_files = os.listdir(self.data_dir)
         all_files = [os.path.join(self.data_dir, _path) for _path in all_files]
@@ -126,8 +129,8 @@ class TrajectoryDataset(Dataset):
                     frame_data[idx:idx + self.seq_len], axis=0) # frame을 seq_len만큼씩 잘라서 볼것 = curr_seq_data. 각 frame이 가진 데이터(agent)수는 다를수 잇음. 하지만 각 데이터의 길이는 4(frame #, agent id, pos_x, pos_y)
                 peds_in_curr_seq = np.unique(curr_seq_data[:, 1]) # unique agent id
 
-                curr_seq_rel = np.zeros((len(peds_in_curr_seq), 2, self.seq_len))
-                curr_seq = np.zeros((len(peds_in_curr_seq), 2, self.seq_len))
+                curr_seq_rel = np.zeros((len(peds_in_curr_seq), n_pred_state, self.seq_len))
+                curr_seq = np.zeros((len(peds_in_curr_seq), n_state, self.seq_len))
                 curr_loss_mask = np.zeros((len(peds_in_curr_seq), self.seq_len))
                 num_peds_considered = 0
                 _non_linear_ped = []
@@ -140,16 +143,19 @@ class TrajectoryDataset(Dataset):
                     if pad_end - pad_front != self.seq_len: # seq_len만큼의 sliding동안 매 프레임마다 agent가 존재하지 않은 데이터였던것.
                         continue
                     ped_ids.append(ped_id)
-                    curr_ped_seq = np.transpose(curr_ped_seq[:, 2:])#pos_x, pos_y of all rows -> transpose : (2, n) where n = 현재 sliding frames의 ped_id한사람의 데이터수 = seq_len(위의 continue조건을 지나쳤으니)
-                    curr_ped_seq = curr_ped_seq
+                    curr_ped_seq = curr_ped_seq[:, 2:]
+                    # x,y,x',y',x'',y''
+                    x = curr_ped_seq[:, 0]
+                    y = curr_ped_seq[:, 1]
+                    vx = derivative_of(x, dt)
+                    vy = derivative_of(y, dt)
+                    ax = derivative_of(vx, dt)
+                    ay = derivative_of(vy, dt)
+
                     # Make coordinates relative
-                    rel_curr_ped_seq = np.zeros(curr_ped_seq.shape)
-                    rel_curr_ped_seq[:, 1:] = curr_ped_seq[:, 1:] - curr_ped_seq[:, :-1] #한 프레임 동안 이동한 상대거리 pos_x(i) - pos_x(i-1), pos_y(i) - pos_y(i-1) for i = 1,.., n-1
                     _idx = num_peds_considered
-                    curr_seq[_idx, :, pad_front:pad_end] = curr_ped_seq # continue를 지나왔기때문에 결국 pad_front:pad_end = 0:16임.
-                    curr_seq_rel[_idx, :, pad_front:pad_end] = rel_curr_ped_seq
-                    # Linear vs Non-Linear Trajectory
-                    _non_linear_ped.append(poly_fit(curr_ped_seq, pred_len, threshold))
+                    curr_seq[_idx, :, pad_front:pad_end] = np.stack([x, y, vx, vy, ax, ay])
+                    curr_seq_rel[_idx, :, pad_front:pad_end] = np.stack([vx, vy])
                     curr_loss_mask[_idx, pad_front:pad_end] = 1
                     num_peds_considered += 1
 
@@ -162,17 +168,16 @@ class TrajectoryDataset(Dataset):
                     seq_list_rel.append(curr_seq_rel[:num_peds_considered])
                     obs_frame_num.append(np.ones((num_peds_considered, self.obs_len)) * frames[idx:idx + self.obs_len])
                     fut_frame_num.append(np.ones((num_peds_considered, self.pred_len)) * frames[idx + self.obs_len:idx + self.seq_len])
-                ped_ids = np.array(ped_ids)
-                if 'test' in path and len(ped_ids) > 0:
-                    a = (np.unique(curr_seq_data[:, 0]) - 780) / 10
-                    print("frame idx:", idx, " frame num:", ",".join(a.astype(int).astype(str)), ' t: ', a[7],  " ped_ids: ", ",".join(ped_ids.astype(int).astype(str)))
+                # ped_ids = np.array(ped_ids)
+                # if 'test' in path and len(ped_ids) > 0:
+                #     a = (np.unique(curr_seq_data[:, 0]) - 780) / 10
+                #     print("frame idx:", idx, " frame num:", ",".join(a.astype(int).astype(str)), ' t: ', a[7],  " ped_ids: ", ",".join(ped_ids.astype(int).astype(str)))
 
 
         self.num_seq = len(seq_list) # = slide (seq. of 16 frames) 수 = 2692
         seq_list = np.concatenate(seq_list, axis=0) # (32686, 2, 16)
         seq_list_rel = np.concatenate(seq_list_rel, axis=0)
         loss_mask_list = np.concatenate(loss_mask_list, axis=0)
-        non_linear_ped = np.asarray(non_linear_ped) # (32686,): 1 or 0
         self.obs_frame_num = np.concatenate(obs_frame_num, axis=0)
         self.fut_frame_num = np.concatenate(fut_frame_num, axis=0)
 
@@ -186,7 +191,6 @@ class TrajectoryDataset(Dataset):
         self.pred_traj_rel = torch.from_numpy(
             seq_list_rel[:, :, self.obs_len:]).type(torch.float)
         self.loss_mask = torch.from_numpy(loss_mask_list).type(torch.float)
-        self.non_linear_ped = torch.from_numpy(non_linear_ped).type(torch.float)
         # frame seq순, 그리고 agent id순으로 쌓아온 데이터에 대한 index를 부여하기 위해 cumsum으로 index생성 ==> 한 슬라이드(16 seq. of frames)에서 고려된 agent의 data를 start, end로 끊어내서 index로 골래내기 위해
         cum_start_idx = [0] + np.cumsum(num_peds_in_seq).tolist() # num_peds_in_seq = 각 slide(16개 frames)별로 고려된 agent수.따라서 len(num_peds_in_seq) = slide 수 = 2692 = self.num_seq
         self.seq_start_end = [
@@ -204,6 +208,6 @@ class TrajectoryDataset(Dataset):
         out = [
             self.obs_traj[start:end, :].to(self.device) , self.pred_traj[start:end, :].to(self.device),
             self.obs_traj_rel[start:end, :].to(self.device), self.pred_traj_rel[start:end, :].to(self.device),
-            self.non_linear_ped[start:end].to(self.device), self.loss_mask[start:end, :].to(self.device), self.obs_frame_num[start:end], self.fut_frame_num[start:end]
+            self.loss_mask[start:end].to(self.device), self.loss_mask[start:end, :].to(self.device), self.obs_frame_num[start:end], self.fut_frame_num[start:end]
         ]
         return out

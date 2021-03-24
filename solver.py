@@ -5,7 +5,7 @@ import torch.optim as optim
 from utils import DataGather, mkdirs, grid2gif2, apply_poe, sample_gaussian, sample_gumbel_softmax
 from model import *
 from loss import kl_two_gaussian, displacement_error, final_displacement_error
-from utils_sgan import relative_to_abs, get_dset_path
+from utils_sgan import relative_to_abs, integrate_samples
 from data.loader import data_loader
 from eval_util import ploot
 
@@ -184,7 +184,7 @@ class Solver(object):
 
         # prepare dataloader (iterable)
         print('Start loading data...')
-        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'train')
+        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
         val_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
 
         # long_dtype, float_dtype = get_dtypes(args)
@@ -192,8 +192,8 @@ class Solver(object):
         print("Initializing train dataset")
         _, self.train_loader = data_loader(self.args, train_path)
         print("Initializing val dataset")
-        _, self.val_loader = data_loader(self.args, val_path)
-        # self.val_loader = self.train_loader
+        # _, self.val_loader = data_loader(self.args, val_path)
+        self.val_loader = self.train_loader
 
         print(
             'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
@@ -255,9 +255,13 @@ class Solver(object):
 
             ################## total loss for vae ####################
             # loglikelihood = fut_rel_pos_dist.log_prob(torch.reshape(fut_traj_rel, [batch, self.pred_len, 2])).sum().div(batch)
-            loglikelihood = torch.clamp(fut_rel_pos_dist.log_prob(torch.reshape(fut_traj_rel, [batch, self.pred_len, 2])), max=6).sum().div(batch)
+            log_p_yt_xz=torch.clamp(fut_rel_pos_dist.log_prob(torch.reshape(fut_traj_rel, [batch, self.pred_len, 2])), max=6)
+            print(">>>max:", log_p_yt_xz.max(), log_p_yt_xz.min(), log_p_yt_xz.mean())
+            loglikelihood = log_p_yt_xz.sum().div(batch)
             loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
             loss_kl = torch.clamp(loss_kl, min=0.07)
+            print('log_likelihood:', loglikelihood.item(), ' kl:', loss_kl.item())
+
             elbo = loglikelihood - self.kl_weight * loss_kl
             vae_loss = -elbo
 
@@ -267,16 +271,10 @@ class Solver(object):
             self.optim_vae.step()
 
 
-            # print the losses
-            # if iteration % self.print_iter == 0:
-
-
             # save model parameters
             if iteration % self.ckpt_save_iter == 0:
                 self.save_checkpoint(iteration)
 
-            # save output images (recon, synth, etc.)
-            # if iteration % self.eval_metrics_iter == 0:
 
             # (visdom) insert current line stats
             if self.viz_on and (iteration % self.viz_ll_iter == 0):
@@ -445,16 +443,23 @@ class Solver(object):
                         relaxed_p_dist.rsample()
                     )
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
-                    pred_fut_traj_rel = torch.reshape(pred_fut_traj_rel, [self.pred_len, batch_size, 2])
 
-                    pred_fut_traj = relative_to_abs(
-                        pred_fut_traj_rel, obs_traj[-1]
+
+                    pred_fut_traj = integrate_samples(
+                        pred_fut_traj_rel, obs_traj[-1][:, :2]
                     )
+                    pred_fut_traj = torch.reshape(pred_fut_traj, [self.pred_len, batch_size, 2])
+
+                    # pred_fut_traj_rel = torch.reshape(pred_fut_traj_rel, [self.pred_len, batch_size, 2])
+                    # pred_fut_traj = relative_to_abs(
+                    #     pred_fut_traj_rel, obs_traj[-1]
+                    # )
+
                     ade.append(displacement_error(
-                        pred_fut_traj, fut_traj, mode='raw'
+                        pred_fut_traj, fut_traj[:,:,:2], mode='raw'
                     ))
                     fde.append(final_displacement_error(
-                        pred_fut_traj[-1], fut_traj[-1], mode='raw'
+                        pred_fut_traj[-1], fut_traj[-1,:,:2], mode='raw'
                     ))
                 all_ade.append(torch.stack(ade))
                 all_fde.append(torch.stack(fde))
@@ -543,6 +548,8 @@ class Solver(object):
                     pred_fut_traj = relative_to_abs(
                         pred_fut_traj_rel, obs_traj[-1]
                     )
+
+
                     ade.append(displacement_error(
                         pred_fut_traj, fut_traj, mode='raw'
                     ))

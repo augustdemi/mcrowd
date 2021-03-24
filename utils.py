@@ -482,5 +482,12 @@ def transform(image, resize=None):
     return image
 
 
+def derivative_of(x, dt=1):
 
-    # svhn_img = self.transformB(svhn_img)
+    if x[~np.isnan(x)].shape[-1] < 2:
+        return np.zeros_like(x)
+
+    dx = np.full_like(x, np.nan)
+    dx[~np.isnan(x)] = np.gradient(x[~np.isnan(x)], dt)
+
+    return dx

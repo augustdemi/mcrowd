@@ -94,3 +94,13 @@ def relative_to_abs(rel_traj, start_pos):
     start_pos = torch.unsqueeze(start_pos, dim=1)
     abs_traj = displacement + start_pos
     return abs_traj.permute(1, 0, 2)
+
+
+def integrate_samples(v, p_0, dt=1):
+    """
+    Integrates deterministic samples of velocity.
+
+    :param v: Velocity samples
+    :return: Position samples
+    """
+    return torch.cumsum(v, dim=2) * dt + p_0.unsqueeze(1)
