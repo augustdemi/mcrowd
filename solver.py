@@ -184,7 +184,7 @@ class Solver(object):
 
         # prepare dataloader (iterable)
         print('Start loading data...')
-        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
+        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'train')
         val_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
 
         # long_dtype, float_dtype = get_dtypes(args)
@@ -192,8 +192,8 @@ class Solver(object):
         print("Initializing train dataset")
         _, self.train_loader = data_loader(self.args, train_path)
         print("Initializing val dataset")
-        # _, self.val_loader = data_loader(self.args, val_path)
-        self.val_loader = self.train_loader
+        _, self.val_loader = data_loader(self.args, val_path)
+        # self.val_loader = self.train_loader
 
         print(
             'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
