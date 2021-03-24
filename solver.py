@@ -137,7 +137,7 @@ class Solver(object):
                 num_layers=args.num_layers,
                 dropout=args.dropout,
                 pooling_type=pooling_type).to(self.device)
-            self.encoderMy = Encoder(
+            self.encoderMy = EncoderY(
                 args.zS_dim,
                 embedding_dim=args.embedding_dim,
                 enc_h_dim=args.encoder_h_dim,
@@ -147,7 +147,7 @@ class Solver(object):
                 num_layers=args.num_layers,
                 dropout=args.dropout,
                 pooling_type=pooling_type,
-                coditioned=True).to(self.device)
+                device=self.device).to(self.device)
             self.decoderMy = Decoder(
                 args.pred_len,
                 embedding_dim=args.embedding_dim,
@@ -232,10 +232,10 @@ class Solver(object):
             batch = obs_traj_rel.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
 
-            (dist_fc_inputMx, logitX) \
+            (encX_h_feat, logitX) \
                 = self.encoderMx(obs_traj_rel, seq_start_end)
-            (dist_fc_inputMy, logitY) \
-                = self.encoderMy(fut_traj_rel, seq_start_end, coditioned_h=dist_fc_inputMx)
+            (encY_h_feat, logitY) \
+                = self.encoderMy(obs_traj_rel[-1], fut_traj_rel, seq_start_end, encX_h_feat)
 
             p_dist = discrete(logits=logitX)
             q_dist = discrete(logits=logitY)
@@ -248,11 +248,9 @@ class Solver(object):
             # 첫번째 iteration 디코더 인풋 = (obs_traj_rel의 마지막 값, (hidden_state, cell_state))
             # where hidden_state = "인코더의 마지막 hidden_layer아웃풋과 그것으로 만든 max_pooled값을 concat해서 mlp 통과시켜만든 feature인 noise_input에다 noise까지 추가한값)"
             fut_rel_pos_dist = self.decoderMy(
-                last_pos,
                 last_pos_rel,
-                dist_fc_inputMx,
-                relaxed_q_dist.rsample(),
-                seq_start_end
+                encX_h_feat,
+                relaxed_q_dist.rsample()
             )
 
             ################## total loss for vae ####################
@@ -314,7 +312,7 @@ class Solver(object):
                                         fde_avg=fde_avg,
                                         ade_std=ade_std,
                                         fde_std=fde_std,
-                                        test_loss_recon=test_loss_recon.item(),
+                                        test_loss_recon=-test_loss_recon.item(),
                                         test_loss_kl=test_loss_kl.item(),
                                         test_total_loss=test_vae_loss.item(),
                                         )
@@ -548,27 +546,22 @@ class Solver(object):
                 ade, fde = [], []
                 total_traj += fut_traj.size(1)
 
-                (dist_fc_inputMx, logitX) \
+
+                (encX_h_feat, logitX) \
                     = self.encoderMx(obs_traj_rel, seq_start_end)
+
                 p_dist = discrete(logits=logitX)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
                 if loss:
-                    (dist_fc_inputMy, logitY) \
-                        = self.encoderMy(fut_traj_rel, seq_start_end, coditioned_h=dist_fc_inputMx)
+                    (encY_h_feat, logitY) \
+                        = self.encoderMy(obs_traj_rel[-1], fut_traj_rel, seq_start_end, encX_h_feat)
 
                     q_dist = discrete(logits=logitY)
-                    last_pos = obs_traj[-1]  # (batchsize, 2)
-                    last_pos_rel = obs_traj_rel[-1]  # (batchsize, 2)
-                    # Predict Trajectory
 
-                    # 첫번째 iteration 디코더 인풋 = (obs_traj_rel의 마지막 값, (hidden_state, cell_state))
-                    # where hidden_state = "인코더의 마지막 hidden_layer아웃풋과 그것으로 만든 max_pooled값을 concat해서 mlp 통과시켜만든 feature인 noise_input에다 noise까지 추가한값)"
                     fut_rel_pos_dist = self.decoderMy(
-                        last_pos,
-                        last_pos_rel,
-                        dist_fc_inputMx,
-                        relaxed_p_dist.rsample(),
-                        seq_start_end
+                        obs_traj_rel[-1],
+                        encX_h_feat,
+                        relaxed_p_dist.rsample()
                     )
 
                     ################## total loss for vae ####################
@@ -577,19 +570,18 @@ class Solver(object):
                     loss_kl = torch.clamp(loss_kl, min=0.07)
                     elbo = loglikelihood - self.kl_weight * loss_kl
                     vae_loss -=elbo
-                    loss_recon -=loglikelihood
+                    loss_recon +=loglikelihood
                     loss_kl +=loss_kl
 
 
                 coll_20samples = [] # (20, # seq, 12)
                 for _ in range(num_samples):
                     fut_rel_pos_dist = self.decoderMy(
-                        obs_traj[-1],
                         obs_traj_rel[-1],
-                        dist_fc_inputMx,
-                        relaxed_p_dist.rsample(),
-                        seq_start_end,
+                        encX_h_feat,
+                        relaxed_p_dist.rsample()
                     )
+
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
                     pred_fut_traj = relative_to_abs(
                         pred_fut_traj_rel, obs_traj[-1]

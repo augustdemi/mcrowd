@@ -197,7 +197,7 @@ class Encoder(nn.Module):
     """Encoder:spatial emb -> lstm -> pooling -> fc for posterior / conditional prior"""
     def __init__(
         self, zS_dim, embedding_dim=64, enc_h_dim=64, mlp_dim=32, pool_dim=32,
-            batch_norm=False, num_layers=1, dropout=0.0, activation='relu', pooling_type='pool', coditioned=False,
+            batch_norm=False, num_layers=1, dropout=0.0, activation='relu', pooling_type='pool'
     ):
         super(Encoder, self).__init__()
 
@@ -209,8 +209,8 @@ class Encoder(nn.Module):
 
         self.spatial_embedding = nn.Linear(2, embedding_dim)
 
-        self.encoder = nn.LSTM(
-            embedding_dim, enc_h_dim, num_layers, dropout=dropout
+        self.rnn_encoder = nn.LSTM(
+            input_size=2, hidden_size=32
         )
 
         if pooling_type=='pool':
@@ -229,8 +229,6 @@ class Encoder(nn.Module):
             )
 
         input_dim = enc_h_dim + pool_dim
-        if coditioned:
-            input_dim += mlp_dim
 
         self.fc1 = make_mlp(
             [input_dim, mlp_dim],
@@ -238,16 +236,10 @@ class Encoder(nn.Module):
             batch_norm=batch_norm,
             dropout=dropout
         )
-        self.fc2 = nn.Linear(mlp_dim, zS_dim)
+        self.fc2 = nn.Linear(input_dim, zS_dim)
 
 
-    def init_hidden(self, batch, device):
-        return (
-            torch.zeros(self.num_layers, batch, self.h_dim).to(device),
-            torch.zeros(self.num_layers, batch, self.h_dim).to(device)
-        )
-
-    def forward(self, rel_traj, seq_start_end, coditioned_h=None):
+    def forward(self, rel_traj, seq_start_end):
         """
         Inputs:
         - obs_traj: Tensor of shape (obs_len, batch, 2)
@@ -255,30 +247,124 @@ class Encoder(nn.Module):
         - final_h: Tensor of shape (self.num_layers, batch, self.h_dim)
         """
         # Encode observed Trajectory
-        batch = rel_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
-        obs_traj_embedding = self.spatial_embedding(rel_traj.contiguous().view(-1, 2))
-        obs_traj_embedding = obs_traj_embedding.view(
-            -1, batch, self.embedding_dim
-        )
-        state_tuple = self.init_hidden(batch, rel_traj.device.type)
-        output, state = self.encoder(obs_traj_embedding, state_tuple)
-        final_encoder_h = state[0] #lstm의 마지막 layer의 output of last seq.
+        # batch = rel_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
+
+        _, (final_encoder_h, _) = self.rnn_encoder(rel_traj) # [8, 656, 16], 두개의 [1, 656, 32]
 
         # pooling
         if self.pooling_type:
-            end_pos = rel_traj[-1, :, :]
-            pool_h = self.pool_net(final_encoder_h, seq_start_end, end_pos) # 702, pool_dim(default=1024)
+            end_pos = rel_traj[-1, :, :] # 656, 2
+            pool_h = self.pool_net(final_encoder_h, seq_start_end, end_pos) # 656, 32
             # Construct input hidden states for decoder
-            dist_fc_input = torch.cat([final_encoder_h.view(-1, self.h_dim), pool_h], dim=1)
+            dist_fc_input = torch.cat([final_encoder_h.squeeze(0), pool_h], dim=1) # [656, 64]
         else:
             dist_fc_input = final_encoder_h.view(-1, self.h_dim)
 
-        if coditioned_h is not None:
-            dist_fc_input = torch.cat([dist_fc_input, coditioned_h], dim=1)
+
+        # state = F.dropout(state,
+        #                   p=1. - self.hyperparams['rnn_kwargs']['dropout_keep_prob'],
+        #                   training=(mode == ModeKeys.TRAIN))
 
 
         # final distribution
-        dist_fc_input = self.fc1(dist_fc_input)
+        # dist_fc_input = self.fc1(dist_fc_input)
+        stats = self.fc2(dist_fc_input) # 64(32 without attn) to z dim
+
+        return dist_fc_input, stats
+
+
+class EncoderY(nn.Module):
+    """Encoder:spatial emb -> lstm -> pooling -> fc for posterior / conditional prior"""
+    def __init__(
+        self, zS_dim, embedding_dim=64, enc_h_dim=64, mlp_dim=32, pool_dim=32,
+            batch_norm=False, num_layers=1, dropout=0.0, activation='relu', pooling_type='pool', device='cpu'
+    ):
+        super(EncoderY, self).__init__()
+
+        self.zS_dim=zS_dim
+        self.h_dim = enc_h_dim
+        self.embedding_dim = embedding_dim
+        self.num_layers = num_layers
+        self.pooling_type = pooling_type
+        self.device = device
+
+        self.spatial_embedding = nn.Linear(2, embedding_dim)
+
+        self.rnn_encoder = nn.LSTM(
+            input_size=2, hidden_size=32, num_layers=1, bidirectional=True
+        )
+
+        if pooling_type=='pool':
+            self.pool_net = PoolHiddenNet(
+                embedding_dim=self.embedding_dim,
+                h_dim=enc_h_dim,
+                pool_dim=pool_dim,
+                batch_norm=batch_norm
+            )
+        elif pooling_type=='attn':
+            self.pool_net = AttentionHiddenNet(
+                embedding_dim=self.embedding_dim,
+                h_dim=enc_h_dim,
+                pool_dim=pool_dim,
+                batch_norm=batch_norm
+            )
+
+        input_dim = 128+64
+
+
+        # self.fc1 = make_mlp(
+        #     [input_dim, mlp_dim],
+        #     activation=activation,
+        #     batch_norm=batch_norm,
+        #     dropout=dropout
+        # )
+        self.fc2 = nn.Linear(input_dim, zS_dim)
+
+        self.initial_h_model = nn.Linear(2, 32)
+        self.initial_c_model = nn.Linear(2, 32)
+
+
+    def forward(self, last_obs_rel_traj, fut_rel_traj, seq_start_end, obs_enc_feat):
+        """
+        Inputs:
+        - obs_traj: Tensor of shape (obs_len, batch, 2)
+        Output:
+        - final_h: Tensor of shape (self.num_layers, batch, self.h_dim)
+        """
+        # Encode observed Trajectory
+
+        initial_h = self.initial_h_model(last_obs_rel_traj) # 81, 32
+        initial_h = torch.stack([initial_h, torch.zeros_like(initial_h, device=self.device)], dim=0) # 2, 81, 32
+
+        initial_c = self.initial_c_model(last_obs_rel_traj)
+        initial_c = torch.stack([initial_c, torch.zeros_like(initial_c, device=self.device)], dim=0)
+        state_tuple=(initial_h, initial_c)
+
+        _, state = self.rnn_encoder(fut_rel_traj, state_tuple)
+
+        state = torch.cat(state, dim=0).permute(1, 0, 2)  # 2,81,32두개 -> 4, 81,32 -> 81,4,32
+        state_size = state.size()
+        final_encoder_h = torch.reshape(state, (-1, state_size[1] * state_size[2]))  # [81, 128]
+
+
+        # pooling
+        # if self.pooling_type:
+        #     end_pos = fut_rel_traj[-1, :, :]
+        #     pool_h = self.pool_net(final_encoder_h, seq_start_end, end_pos) # 702, pool_dim(default=1024)
+        #     # Construct input hidden states for decoder
+        #     dist_fc_input = torch.cat([final_encoder_h.squeeze(0), pool_h], dim=1)
+        # else:
+        #     dist_fc_input = final_encoder_h.view(-1, self.h_dim)
+
+        dist_fc_input = torch.cat([final_encoder_h, obs_enc_feat], dim=1)
+
+        # state = F.dropout(state,
+        #                   p=1. - self.hyperparams['rnn_kwargs']['dropout_keep_prob'],
+        #                   training=(mode == ModeKeys.TRAIN))
+
+
+        # final distribution
+        # dist_fc_input = self.fc1(dist_fc_input)
         stats = self.fc2(dist_fc_input)
 
         return dist_fc_input, stats
@@ -300,16 +386,16 @@ class Decoder(nn.Module):
         self.enc_h_dim = enc_h_dim
         self.embedding_dim = 2
         # self.dec_inp_dim = embedding_dim
-        self.dec_inp_dim = self.embedding_dim + mlp_dim + z_dim
+        self.dec_inp_dim = 64 + z_dim + 2
         self.device=device
         self.num_layers = num_layers
 
-        self.decoder = nn.GRUCell(
-            self.dec_inp_dim, dec_h_dim
+        self.rnn_decoder = nn.GRUCell(
+            input_size=self.dec_inp_dim, hidden_size=dec_h_dim
         )
 
         self.mlp = make_mlp(
-            [mlp_dim + z_dim, mlp_dim, dec_h_dim], #mlp_dim + z_dim = enc_hidden_feat after mlp + z
+            [64 + z_dim, dec_h_dim], #mlp_dim + z_dim = enc_hidden_feat after mlp + z
             activation=activation,
             batch_norm=batch_norm,
             dropout=dropout
@@ -318,7 +404,7 @@ class Decoder(nn.Module):
         self.fc_mu = nn.Linear(dec_h_dim, 2)
         self.fc_std = nn.Linear(dec_h_dim, 2)
 
-    def forward(self, last_pos, last_pos_rel, enc_h_feat, z, seq_start_end):
+    def forward(self, last_pos_rel, enc_h_feat, z):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
@@ -329,36 +415,23 @@ class Decoder(nn.Module):
         Output:
         - pred_traj: tensor of shape (self.seq_len, batch, 2)
         """
-        batch = last_pos.size(0)
-        pred_traj_fake_rel = []
-
-        rel_pos = self.spatial_embedding(last_pos_rel)
-        # decoder_input = decoder_input.view(1, batch, self.embedding_dim) # 1, 493, 16
 
         # x_feat+z(=zx) initial state생성(FC)
-        zx = torch.cat([enc_h_feat, z], dim=1) # 493, 96
+        zx = torch.cat([enc_h_feat, z], dim=1) # 493, 89(64+25)
         decoder_h=self.mlp(zx) # 493, 128
 
         mus = []
         stds = []
         for i in range(self.seq_len):
-            # decoder_input(=last poistion emb=a0)은 update된 last position emb으로 계속 업뎃, state_tuple은 decoder로 업뎃
-            # 차이점: fixed zx가 반복적으로 쓰이지 않음. z는  initial state생성시에만 쓰이고 안쓰임. decoder_input에  zx를 concat해서 인풋해줘야함.
-            # output, state_tuple = self.decoder(decoder_input, state_tuple)
-            decoder_h= self.decoder(torch.cat([zx, rel_pos], dim=1), decoder_h) #1, 493, 112
-
-
+            decoder_h= self.rnn_decoder(torch.cat([zx, last_pos_rel], dim=1), decoder_h) #493, 128
             mu= self.fc_mu(decoder_h)
             logVar = self.fc_std(decoder_h)
             std = torch.sqrt(torch.exp(logVar))
-            # rel_pos = sample_gaussian(self.device, mu, torch.sqrt(torch.exp(logVar)))
-            normal = Normal(mu, std)
-            rel_pos = normal.rsample()
+            # normal = Normal(mu, std)
+            # rel_pos = normal.rsample()
             mus.append(mu)
             stds.append(std)
-            # pred_traj_fake_rel.append(rel_pos)
 
-        # pred_traj_fake_rel = torch.stack(pred_traj_fake_rel, dim=0)
         mus = torch.stack(mus, dim=0)
         stds = torch.stack(stds, dim=0)
         rel_pos_dist =  Normal(mus, stds)
