@@ -400,8 +400,8 @@ class Decoder(nn.Module):
         #     batch_norm=batch_norm,
         #     dropout=dropout
         # )
-        self.dec_hidden = nn.Linear(dec_h_dim, dec_h_dim)
-        self.to_vel = nn.Linear(dec_h_dim, 2)
+        self.dec_hidden = nn.Linear(32 + z_dim, dec_h_dim)
+        self.to_vel = nn.Linear(2, 2)
 
         self.spatial_embedding = nn.Linear(2, self.embedding_dim)
         self.fc_mu = nn.Linear(dec_h_dim, 2)
