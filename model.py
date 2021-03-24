@@ -230,16 +230,16 @@ class Encoder(nn.Module):
 
         input_dim = enc_h_dim + pool_dim
 
-        # self.fc1 = make_mlp(
-        #     [input_dim, mlp_dim],
-        #     activation=activation,
-        #     batch_norm=batch_norm,
-        #     dropout=dropout
-        # )
-        self.fc2 = nn.Linear(input_dim, zS_dim)
+        self.fc1 = make_mlp(
+            [input_dim, mlp_dim],
+            activation=activation,
+            batch_norm=batch_norm,
+            dropout=0.1
+        )
+        self.fc2 = nn.Linear(mlp_dim, zS_dim)
 
 
-    def forward(self, rel_traj, seq_start_end):
+    def forward(self, rel_traj, seq_start_end, train=False):
         """
         Inputs:
         - obs_traj: Tensor of shape (obs_len, batch, 2)
@@ -251,6 +251,10 @@ class Encoder(nn.Module):
 
         _, (final_encoder_h, _) = self.rnn_encoder(rel_traj) # [8, 656, 16], 두개의 [1, 656, 32]
 
+        final_encoder_h = F.dropout(final_encoder_h,
+                            p=0.25,
+                            training=train)  # [bs, max_time, enc_rnn_dim]
+
         # pooling
         if self.pooling_type:
             end_pos = rel_traj[-1, :, :] # 656, 2
@@ -261,13 +265,8 @@ class Encoder(nn.Module):
             dist_fc_input = final_encoder_h.view(-1, self.h_dim)
 
 
-        # state = F.dropout(state,
-        #                   p=1. - self.hyperparams['rnn_kwargs']['dropout_keep_prob'],
-        #                   training=(mode == ModeKeys.TRAIN))
-
-
         # final distribution
-        # dist_fc_input = self.fc1(dist_fc_input)
+        dist_fc_input = self.fc1(dist_fc_input)
         stats = self.fc2(dist_fc_input) # 64(32 without attn) to z dim
 
         return dist_fc_input, stats
@@ -324,7 +323,7 @@ class EncoderY(nn.Module):
         self.initial_c_model = nn.Linear(2, 32)
 
 
-    def forward(self, last_obs_rel_traj, fut_rel_traj, seq_start_end, obs_enc_feat):
+    def forward(self, last_obs_rel_traj, fut_rel_traj, seq_start_end, obs_enc_feat, train=False):
         """
         Inputs:
         - obs_traj: Tensor of shape (obs_len, batch, 2)
@@ -346,21 +345,11 @@ class EncoderY(nn.Module):
         state_size = state.size()
         final_encoder_h = torch.reshape(state, (-1, state_size[1] * state_size[2]))  # [81, 128]
 
-
-        # pooling
-        # if self.pooling_type:
-        #     end_pos = fut_rel_traj[-1, :, :]
-        #     pool_h = self.pool_net(final_encoder_h, seq_start_end, end_pos) # 702, pool_dim(default=1024)
-        #     # Construct input hidden states for decoder
-        #     dist_fc_input = torch.cat([final_encoder_h.squeeze(0), pool_h], dim=1)
-        # else:
-        #     dist_fc_input = final_encoder_h.view(-1, self.h_dim)
+        final_encoder_h = F.dropout(final_encoder_h,
+                            p=0.25,
+                            training=train)  # [bs, max_time, enc_rnn_dim]
 
         dist_fc_input = torch.cat([final_encoder_h, obs_enc_feat], dim=1)
-
-        # state = F.dropout(state,
-        #                   p=1. - self.hyperparams['rnn_kwargs']['dropout_keep_prob'],
-        #                   training=True)
 
 
         # final distribution
