@@ -233,9 +233,9 @@ class Solver(object):
 
 
             (encX_h_feat, logitX) \
-                = self.encoderMx(obs_traj_rel, seq_start_end)
+                = self.encoderMx(obs_traj, seq_start_end)
             (encY_h_feat, logitY) \
-                = self.encoderMy(obs_traj_rel[-1], fut_traj_rel, seq_start_end, encX_h_feat)
+                = self.encoderMy(obs_traj[-1], fut_traj, seq_start_end, encX_h_feat)
 
             p_dist = discrete(logits=logitX)
             q_dist = discrete(logits=logitY)
@@ -548,18 +548,18 @@ class Solver(object):
 
 
                 (encX_h_feat, logitX) \
-                    = self.encoderMx(obs_traj_rel, seq_start_end)
+                    = self.encoderMx(obs_traj, seq_start_end)
 
                 p_dist = discrete(logits=logitX)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
                 if loss:
                     (encY_h_feat, logitY) \
-                        = self.encoderMy(obs_traj_rel[-1], fut_traj_rel, seq_start_end, encX_h_feat)
+                        = self.encoderMy(obs_traj[-1], fut_traj, seq_start_end, encX_h_feat)
 
                     q_dist = discrete(logits=logitY)
 
                     fut_rel_pos_dist = self.decoderMy(
-                        obs_traj_rel[-1],
+                        obs_traj[-1],
                         encX_h_feat,
                         relaxed_p_dist.rsample()
                     )
@@ -577,7 +577,7 @@ class Solver(object):
                 coll_20samples = [] # (20, # seq, 12)
                 for _ in range(num_samples):
                     fut_rel_pos_dist = self.decoderMy(
-                        obs_traj_rel[-1],
+                        obs_traj[-1],
                         encX_h_feat,
                         relaxed_p_dist.rsample()
                     )
@@ -611,7 +611,7 @@ class Solver(object):
                             diff_agent_idx = np.triu_indices(num_ped, k=1)
                             diff_agent_dist = dist[diff_agent_idx]
                             curr_coll_rate = (diff_agent_dist < threshold).sum() / len(diff_agent_dist)
-                            # if (diff_agent_dist < threshold).sum() > 0:
+                            # if (diff_agent_dist < threshold ).sum() > 0:
                             #     print(idx)
                             #     print(diff_agent_dist)
                             #     print('---------------------')
