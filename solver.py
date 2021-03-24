@@ -249,15 +249,17 @@ class Solver(object):
             fut_rel_pos_dist = self.decoderMy(
                 obs_traj[-1],
                 encX_h_feat,
-                relaxed_q_dist.rsample(),
-                num_samples=1
+                relaxed_q_dist.rsample()
             )
 
             ################## total loss for vae ####################
             # loglikelihood = fut_rel_pos_dist.log_prob(torch.reshape(fut_traj_rel, [batch, self.pred_len, 2])).sum().div(batch)
-            log_p_yt_xz=torch.clamp(fut_rel_pos_dist.log_prob(torch.reshape(fut_traj_rel, [batch, self.pred_len, 2])), max=6)
-            print(">>>max:", log_p_yt_xz.max(), log_p_yt_xz.min(), log_p_yt_xz.mean())
-            loglikelihood = log_p_yt_xz.sum().div(batch)
+
+            # log_p_yt_xz=torch.clamp(fut_rel_pos_dist.log_prob(torch.reshape(fut_traj_rel, [batch, self.pred_len, 2])), max=6)
+            # print(">>>max:", log_p_yt_xz.max(), log_p_yt_xz.min(), log_p_yt_xz.mean())
+            # loglikelihood = log_p_yt_xz.sum().div(batch)
+            loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_rel).sum().div(batch)
+
             loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
             loss_kl = torch.clamp(loss_kl, min=0.07)
             print('log_likelihood:', loglikelihood.item(), ' kl:', loss_kl.item())
@@ -445,15 +447,15 @@ class Solver(object):
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
 
 
-                    pred_fut_traj = integrate_samples(
-                        pred_fut_traj_rel, obs_traj[-1][:, :2]
-                    )
-                    pred_fut_traj = torch.reshape(pred_fut_traj, [self.pred_len, batch_size, 2])
+                    # pred_fut_traj = integrate_samples(
+                    #     pred_fut_traj_rel, obs_traj[-1][:, :2]
+                    # )
+                    # pred_fut_traj = torch.reshape(pred_fut_traj, [self.pred_len, batch_size, 2])
 
                     # pred_fut_traj_rel = torch.reshape(pred_fut_traj_rel, [self.pred_len, batch_size, 2])
-                    # pred_fut_traj = relative_to_abs(
-                    #     pred_fut_traj_rel, obs_traj[-1]
-                    # )
+                    pred_fut_traj = relative_to_abs(
+                        pred_fut_traj_rel, obs_traj[-1]
+                    )
 
                     ade.append(displacement_error(
                         pred_fut_traj, fut_traj[:,:,:2], mode='raw'
