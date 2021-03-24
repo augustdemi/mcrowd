@@ -224,6 +224,10 @@ class Solver(object):
                 epoch +=1
                 iterator = iter(data_loader)
 
+            ade_min, fde_min, \
+            ade_avg, fde_avg, \
+            ade_std, fde_std, \
+            test_loss_recon, test_loss_kl, test_vae_loss = self.evaluate_dist(self.val_loader, 20, loss=True)
             # ============================================
             #          TRAIN THE VAE (ENC & DEC)
             # ============================================
@@ -262,7 +266,7 @@ class Solver(object):
 
             loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
             loss_kl = torch.clamp(loss_kl, min=0.07)
-            print('log_likelihood:', loglikelihood.item(), ' kl:', loss_kl.item())
+            # print('log_likelihood:', loglikelihood.item(), ' kl:', loss_kl.item())
 
             elbo = loglikelihood - self.kl_weight * loss_kl
             vae_loss = -elbo
@@ -354,23 +358,6 @@ class Solver(object):
         return np.concatenate([np.stack([sum_min, sum_avg, sum_std]).transpose(1,0), seq_start_end.cpu().numpy()], axis=1)
 
 
-    def evaluate_helper_indiv(self, error, seq_start_end):
-        sum_min = 0
-        sum_avg = 0
-        sum_std = 0
-        error = torch.stack(error, dim=1)
-
-        for (start, end) in seq_start_end:
-            start = start.item()
-            end = end.item()
-            _error = error[start:end]
-            _error = torch.sum(_error, dim=0)
-            sum_min += torch.min(_error)
-            sum_avg += torch.mean(_error)
-            sum_std += torch.std(_error)
-        return sum_min, sum_avg, sum_std
-
-
     def repeat(self, tensor, num_reps):
         """
         Inputs:
@@ -445,16 +432,22 @@ class Solver(object):
                     )
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
 
-
-                    # pred_fut_traj = integrate_samples(
-                    #     pred_fut_traj_rel, obs_traj[-1][:, :2]
-                    # )
-                    # pred_fut_traj = torch.reshape(pred_fut_traj, [self.pred_len, batch_size, 2])
+                    pred_fut_traj_rel = torch.reshape(pred_fut_traj_rel, [-1, batch_size, self.pred_len, 2])
+                    pred_fut_traj = integrate_samples(
+                        pred_fut_traj_rel, obs_traj[-1][:, :2]
+                    ) # (1, 173, 12, 2), ([173, 2]) => 1, 173, 12, 2
+                    pred_fut_traj = torch.reshape(pred_fut_traj, [self.pred_len, batch_size, 2]) #fut_traj[:,:,:2]의 shape [12, 173, 2]에 맞추기
 
                     # pred_fut_traj_rel = torch.reshape(pred_fut_traj_rel, [self.pred_len, batch_size, 2])
-                    pred_fut_traj = relative_to_abs(
-                        pred_fut_traj_rel, obs_traj[-1]
-                    )
+                    # pred_fut_traj = relative_to_abs(
+                    #     pred_fut_traj_rel, obs_traj[-1]
+                    # )
+
+
+                    # a = integrate_samples(
+                    #     torch.reshape(fut_traj_rel, [-1, batch_size, self.pred_len, 2]), obs_traj[-1][:, :2]
+                    # ).squeeze(0).permute((1,0,2))
+                    # d = a - fut_traj[:, :, :2]
 
                     ade.append(displacement_error(
                         pred_fut_traj, fut_traj[:,:,:2], mode='raw'
