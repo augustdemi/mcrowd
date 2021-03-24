@@ -241,14 +241,11 @@ class Solver(object):
             q_dist = discrete(logits=logitY)
             relaxed_q_dist = concrete(logits=logitY, temperature=self.temp)
 
-            last_pos = obs_traj[-1]  # (batchsize, 2)
-            last_pos_rel = obs_traj_rel[-1]  # (batchsize, 2)
-            # Predict Trajectory
 
             # 첫번째 iteration 디코더 인풋 = (obs_traj_rel의 마지막 값, (hidden_state, cell_state))
             # where hidden_state = "인코더의 마지막 hidden_layer아웃풋과 그것으로 만든 max_pooled값을 concat해서 mlp 통과시켜만든 feature인 noise_input에다 noise까지 추가한값)"
             fut_rel_pos_dist = self.decoderMy(
-                last_pos_rel,
+                obs_traj_rel[-1],
                 encX_h_feat,
                 relaxed_q_dist.rsample()
             )
@@ -559,7 +556,7 @@ class Solver(object):
                     q_dist = discrete(logits=logitY)
 
                     fut_rel_pos_dist = self.decoderMy(
-                        obs_traj[-1],
+                        obs_traj_rel[-1],
                         encX_h_feat,
                         relaxed_p_dist.rsample()
                     )
@@ -577,7 +574,7 @@ class Solver(object):
                 coll_20samples = [] # (20, # seq, 12)
                 for _ in range(num_samples):
                     fut_rel_pos_dist = self.decoderMy(
-                        obs_traj[-1],
+                        obs_traj_rel[-1],
                         encX_h_feat,
                         relaxed_p_dist.rsample()
                     )
