@@ -563,12 +563,12 @@ class Solver(object):
 
                     ################## total loss for vae ####################
                     loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_rel).sum().div(batch_size)
-                    loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch_size)
-                    loss_kl = torch.clamp(loss_kl, min=0.07)
-                    elbo = loglikelihood - self.kl_weight * loss_kl
+                    kld = kl_divergence(q_dist, p_dist).sum().div(batch_size)
+                    kld = torch.clamp(kld, min=0.07)
+                    elbo = loglikelihood - self.kl_weight * kld
                     vae_loss -=elbo
                     loss_recon +=loglikelihood
-                    loss_kl +=loss_kl
+                    loss_kl +=kld
 
 
                 coll_20samples = [] # (20, # seq, 12)
