@@ -464,10 +464,10 @@ class Decoder(nn.Module):
         log_sigmas = torch.stack(log_sigmas, dim=1) # 256, 12, 50
         corrs = torch.stack(corrs, dim=1) # 256, 12, 25
 
-        rel_pos_dist = GMM2D(torch.reshape(log_pis, [num_samples, self.seq_len, -1, num_components]),
-                       torch.reshape(mus, [num_samples, self.seq_len, -1, num_components * 2]),
-                       torch.reshape(log_sigmas, [num_samples, self.seq_len, -1, num_components * 2]),
-                       torch.reshape(corrs, [num_samples, self.seq_len, -1, num_components])) # 256,12,25
+        rel_pos_dist = GMM2D(torch.reshape(log_pis, [num_samples, -1, self.seq_len, num_components]),
+                       torch.reshape(mus, [num_samples, -1, self.seq_len, num_components * 2]),
+                       torch.reshape(log_sigmas, [num_samples, -1, self.seq_len, num_components * 2]),
+                       torch.reshape(corrs, [num_samples, -1, self.seq_len, num_components])) # 256,12,25
 
 
         return rel_pos_dist

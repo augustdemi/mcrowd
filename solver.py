@@ -254,7 +254,7 @@ class Solver(object):
             )
 
             ################## total loss for vae ####################
-            loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_rel).sum().div(batch)
+            loglikelihood = fut_rel_pos_dist.log_prob(torch.reshape(fut_traj_rel, [batch, self.pred_len, 2])).sum().div(batch)
             loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
             loss_kl = torch.clamp(loss_kl, min=0.07)
             elbo = loglikelihood - self.kl_weight * loss_kl
@@ -426,7 +426,9 @@ class Solver(object):
                     # )
 
                     ################## total loss for vae ####################
-                    loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_rel).sum().div(batch_size)
+                    loglikelihood = fut_rel_pos_dist.log_prob(
+                        torch.reshape(fut_traj_rel, [batch_size, self.pred_len, 2])).sum().div(batch_size)
+
                     kld = kl_divergence(q_dist, p_dist).sum().div(batch_size)
                     kld = torch.clamp(kld, min=0.07)
                     elbo = loglikelihood - self.kl_weight * kld
@@ -441,7 +443,8 @@ class Solver(object):
                         encX_h_feat,
                         relaxed_p_dist.rsample()
                     )
-                    pred_fut_traj_rel = fut_rel_pos_dist.rsample().squeeze()
+                    pred_fut_traj_rel = fut_rel_pos_dist.rsample()
+                    pred_fut_traj_rel = torch.reshape(pred_fut_traj_rel, [self.pred_len, batch_size, 2])
 
                     pred_fut_traj = relative_to_abs(
                         pred_fut_traj_rel, obs_traj[-1]
