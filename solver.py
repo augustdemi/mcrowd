@@ -235,7 +235,7 @@ class Solver(object):
             (encX_h_feat, logitX) \
                 = self.encoderMx(obs_traj, seq_start_end)
             (encY_h_feat, logitY) \
-                = self.encoderMy(obs_traj[-1], fut_traj, seq_start_end, encX_h_feat)
+                = self.encoderMy(obs_traj[-1], fut_traj_rel, seq_start_end, encX_h_feat)
 
             p_dist = discrete(logits=logitX)
             q_dist = discrete(logits=logitY)
@@ -245,7 +245,7 @@ class Solver(object):
             # 첫번째 iteration 디코더 인풋 = (obs_traj_rel의 마지막 값, (hidden_state, cell_state))
             # where hidden_state = "인코더의 마지막 hidden_layer아웃풋과 그것으로 만든 max_pooled값을 concat해서 mlp 통과시켜만든 feature인 noise_input에다 noise까지 추가한값)"
             fut_rel_pos_dist = self.decoderMy(
-                obs_traj_rel[-1],
+                obs_traj[-1],
                 encX_h_feat,
                 relaxed_q_dist.rsample()
             )
@@ -546,17 +546,17 @@ class Solver(object):
 
                 (encX_h_feat, logitX) \
                     = self.encoderMx(obs_traj, seq_start_end)
-
                 p_dist = discrete(logits=logitX)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
+
                 if loss:
                     (encY_h_feat, logitY) \
-                        = self.encoderMy(obs_traj[-1], fut_traj, seq_start_end, encX_h_feat)
+                        = self.encoderMy(obs_traj[-1], fut_traj_rel, seq_start_end, encX_h_feat)
 
                     q_dist = discrete(logits=logitY)
 
                     fut_rel_pos_dist = self.decoderMy(
-                        obs_traj_rel[-1],
+                        obs_traj[-1],
                         encX_h_feat,
                         relaxed_p_dist.rsample()
                     )
@@ -574,11 +574,10 @@ class Solver(object):
                 coll_20samples = [] # (20, # seq, 12)
                 for _ in range(num_samples):
                     fut_rel_pos_dist = self.decoderMy(
-                        obs_traj_rel[-1],
+                        obs_traj[-1],
                         encX_h_feat,
                         relaxed_p_dist.rsample()
                     )
-
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
                     pred_fut_traj = relative_to_abs(
                         pred_fut_traj_rel, obs_traj[-1]

@@ -230,12 +230,12 @@ class Encoder(nn.Module):
 
         input_dim = enc_h_dim + pool_dim
 
-        self.fc1 = make_mlp(
-            [input_dim, mlp_dim],
-            activation=activation,
-            batch_norm=batch_norm,
-            dropout=dropout
-        )
+        # self.fc1 = make_mlp(
+        #     [input_dim, mlp_dim],
+        #     activation=activation,
+        #     batch_norm=batch_norm,
+        #     dropout=dropout
+        # )
         self.fc2 = nn.Linear(input_dim, zS_dim)
 
 
@@ -360,7 +360,7 @@ class EncoderY(nn.Module):
 
         # state = F.dropout(state,
         #                   p=1. - self.hyperparams['rnn_kwargs']['dropout_keep_prob'],
-        #                   training=(mode == ModeKeys.TRAIN))
+        #                   training=True)
 
 
         # final distribution
@@ -394,17 +394,20 @@ class Decoder(nn.Module):
             input_size=self.dec_inp_dim, hidden_size=dec_h_dim
         )
 
-        self.mlp = make_mlp(
-            [32 + z_dim, dec_h_dim], #mlp_dim + z_dim = enc_hidden_feat after mlp + z
-            activation=activation,
-            batch_norm=batch_norm,
-            dropout=dropout
-        )
+        # self.mlp = make_mlp(
+        #     [32 + z_dim, dec_h_dim], #mlp_dim + z_dim = enc_hidden_feat after mlp + z
+        #     activation=activation,
+        #     batch_norm=batch_norm,
+        #     dropout=dropout
+        # )
+        self.dec_hidden = nn.Linear(dec_h_dim, dec_h_dim)
+        self.to_vel = nn.Linear(dec_h_dim, 2)
+
         self.spatial_embedding = nn.Linear(2, self.embedding_dim)
         self.fc_mu = nn.Linear(dec_h_dim, 2)
         self.fc_std = nn.Linear(dec_h_dim, 2)
 
-    def forward(self, last_pos_rel, enc_h_feat, z):
+    def forward(self, last_state, enc_h_feat, z):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
@@ -418,17 +421,16 @@ class Decoder(nn.Module):
 
         # x_feat+z(=zx) initial state생성(FC)
         zx = torch.cat([enc_h_feat, z], dim=1) # 493, 89(64+25)
-        decoder_h=self.mlp(zx) # 493, 128
-
+        decoder_h=self.dec_hidden(zx) # 493, 128
+        a = self.to_vel(last_state)
         mus = []
         stds = []
         for i in range(self.seq_len):
-            decoder_h= self.rnn_decoder(torch.cat([zx, last_pos_rel], dim=1), decoder_h) #493, 128
+            decoder_h= self.rnn_decoder(torch.cat([zx, a], dim=1), decoder_h) #493, 128
             mu= self.fc_mu(decoder_h)
             logVar = self.fc_std(decoder_h)
             std = torch.sqrt(torch.exp(logVar))
-            # normal = Normal(mu, std)
-            # rel_pos = normal.rsample()
+            a = Normal(mu, std).rsample()
             mus.append(mu)
             stds.append(std)
 
