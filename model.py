@@ -309,7 +309,7 @@ class EncoderY(nn.Module):
                 batch_norm=batch_norm
             )
 
-        input_dim = 128+64
+        input_dim = 128+32
 
 
         # self.fc1 = make_mlp(
@@ -386,7 +386,7 @@ class Decoder(nn.Module):
         self.enc_h_dim = enc_h_dim
         self.embedding_dim = 2
         # self.dec_inp_dim = embedding_dim
-        self.dec_inp_dim = 64 + z_dim + 2
+        self.dec_inp_dim = 32 + z_dim + 2
         self.device=device
         self.num_layers = num_layers
 
@@ -395,7 +395,7 @@ class Decoder(nn.Module):
         )
 
         self.mlp = make_mlp(
-            [64 + z_dim, dec_h_dim], #mlp_dim + z_dim = enc_hidden_feat after mlp + z
+            [32 + z_dim, dec_h_dim], #mlp_dim + z_dim = enc_hidden_feat after mlp + z
             activation=activation,
             batch_norm=batch_norm,
             dropout=dropout
