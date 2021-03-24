@@ -257,25 +257,6 @@ class Solver(object):
             elbo = loglikelihood - self.kl_weight * loss_kl
             vae_loss = -elbo
 
-            #### dist loss ####
-            # pred_fut_traj = relative_to_abs(
-            #     pred_fut_traj_rel, obs_traj[-1]
-            # )
-            # for _, (start, end) in enumerate(seq_start_end):
-            #     start = start.item()
-            #     end = end.item()
-            #     num_ped = end - start
-            #     one_frame_slide = pred_fut_traj[:, start:end, :]  # (pred_len, num_ped, 2)
-            #     skip_idx=[num_ped*idx + idx for idx in range(num_ped)]
-            #     for i in range(self.pred_len):
-            #         curr_frame = one_frame_slide[i]  # frame of time=i #(num_ped,2)
-            #         curr1 = curr_frame.repeat(num_ped, 1)
-            #         curr2 = self.repeat(curr_frame, num_ped)
-            #         dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1))
-            #         inv_dist = 1 / dist[[idx for idx in range(len(dist)) if idx not in skip_idx]]
-            #         dist = torch.inverse(dist)
-            #         torch.sigmoid()
-
 
             self.optim_vae.zero_grad()
             vae_loss.backward()
@@ -295,10 +276,10 @@ class Solver(object):
 
             # (visdom) insert current line stats
             if self.viz_on and (iteration % self.viz_ll_iter == 0):
-                ade_min, fde_min, _, _, \
-                ade_avg, fde_avg, _, _, \
-                ade_std, fde_std, _, _, \
-                test_loss_recon, test_loss_kl, test_vae_loss = self.evaluate_dist_collision(self.val_loader, 20, 0.1, loss=True)
+                ade_min, fde_min, \
+                ade_avg, fde_avg, \
+                ade_std, fde_std, \
+                test_loss_recon, test_loss_kl, test_vae_loss = self.evaluate_dist(self.val_loader, 20, loss=True)
                 self.line_gather.insert(iter=iteration,
                                         loss_recon=-loglikelihood.item(),
                                         loss_kl=loss_kl.item(),
@@ -369,6 +350,21 @@ class Solver(object):
         return np.concatenate([np.stack([sum_min, sum_avg, sum_std]).transpose(1,0), seq_start_end.cpu().numpy()], axis=1)
 
 
+    def evaluate_helper_indiv(self, error, seq_start_end):
+        sum_min = 0
+        sum_avg = 0
+        sum_std = 0
+        error = torch.stack(error, dim=1)
+
+        for (start, end) in seq_start_end:
+            start = start.item()
+            end = end.item()
+            _error = error[start:end]
+            _error = torch.sum(_error, dim=0)
+            sum_min += torch.min(_error)
+            sum_avg += torch.mean(_error)
+            sum_std += torch.std(_error)
+        return sum_min, sum_avg, sum_std
 
 
     def repeat(self, tensor, num_reps):
@@ -383,6 +379,94 @@ class Solver(object):
         tensor = tensor.unsqueeze(dim=1).repeat(1, num_reps, 1)
         tensor = tensor.view(-1, col_len)
         return tensor
+
+
+
+
+    def evaluate_dist(self, data_loader, num_samples, loss=False):
+        self.set_mode(train=False)
+        total_traj = 0
+
+        loss_recon = loss_kl = vae_loss = 0
+
+        all_ade =[]
+        all_fde =[]
+        with torch.no_grad():
+            b=0
+            for batch in data_loader:
+                b+=1
+                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, non_linear_ped,
+                 loss_mask, seq_start_end, obs_frames, pred_frames) = batch
+                batch_size = obs_traj_rel.size(1)
+                total_traj += fut_traj.size(1)
+
+                (encX_h_feat, logitX) \
+                    = self.encoderMx(obs_traj, seq_start_end)
+                p_dist = discrete(logits=logitX)
+                relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
+
+                if loss:
+                    (encY_h_feat, logitY) \
+                        = self.encoderMy(obs_traj[-1], fut_traj_rel, seq_start_end, encX_h_feat)
+
+                    q_dist = discrete(logits=logitY)
+
+                    fut_rel_pos_dist = self.decoderMy(
+                        obs_traj[-1],
+                        encX_h_feat,
+                        relaxed_p_dist.rsample()
+                    )
+
+                    ################## total loss for vae ####################
+                    loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_rel).sum().div(batch_size)
+                    kld = kl_divergence(q_dist, p_dist).sum().div(batch_size)
+                    kld = torch.clamp(kld, min=0.07)
+                    elbo = loglikelihood - self.kl_weight * kld
+                    vae_loss -=elbo
+                    loss_recon +=loglikelihood
+                    loss_kl +=kld
+
+                ade, fde = [], []
+                for _ in range(num_samples):
+                    fut_rel_pos_dist = self.decoderMy(
+                        obs_traj[-1],
+                        encX_h_feat,
+                        relaxed_p_dist.rsample()
+                    )
+                    pred_fut_traj_rel = fut_rel_pos_dist.rsample()
+
+                    pred_fut_traj = relative_to_abs(
+                        pred_fut_traj_rel, obs_traj[-1]
+                    )
+                    ade.append(displacement_error(
+                        pred_fut_traj, fut_traj, mode='raw'
+                    ))
+                    fde.append(final_displacement_error(
+                        pred_fut_traj[-1], fut_traj[-1], mode='raw'
+                    ))
+                all_ade.append(torch.stack(ade))
+                all_fde.append(torch.stack(fde))
+
+
+            all_ade=torch.cat(all_ade, dim=1).numpy()
+            all_fde=torch.cat(all_fde, dim=1).numpy()
+
+            ade_min = np.min(all_ade, axis=0).mean()/self.pred_len
+            fde_min = np.min(all_fde, axis=0).mean()
+            ade_avg = np.mean(all_ade, axis=0).mean()/self.pred_len
+            fde_avg = np.mean(all_fde, axis=0).mean()
+            ade_std = np.std(all_ade, axis=0).mean()/self.pred_len
+            fde_std = np.std(all_fde, axis=0).mean()
+        self.set_mode(train=True)
+        if loss:
+            return ade_min, fde_min, \
+                   ade_avg, fde_avg, \
+                   ade_std, fde_std, \
+                   loss_recon/b, loss_kl/b, vae_loss/b
+        else:
+            return ade_min, fde_min, \
+                   ade_avg, fde_avg, \
+                   ade_std, fde_std
 
 
 
