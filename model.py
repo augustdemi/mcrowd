@@ -231,13 +231,15 @@ class Encoder(nn.Module):
 
         input_dim = enc_h_dim + pool_dim
 
-        self.fc1 = make_mlp(
-            [input_dim, mlp_dim],
-            activation=activation,
-            batch_norm=batch_norm,
-            dropout=0.1
-        )
-        self.fc2 = nn.Linear(mlp_dim, zS_dim)
+        # self.fc1 = make_mlp(
+        #     [input_dim, mlp_dim],
+        #     activation=activation,
+        #     batch_norm=batch_norm,
+        #     dropout=0.1
+        # )
+        # self.fc2 = nn.Linear(mlp_dim, zS_dim)
+
+        self.fc2 = nn.Linear(input_dim, zS_dim)
 
 
     def forward(self, rel_traj, seq_start_end, train=False):
@@ -267,7 +269,7 @@ class Encoder(nn.Module):
 
 
         # final distribution
-        dist_fc_input = self.fc1(dist_fc_input)
+        # dist_fc_input = self.fc1(dist_fc_input)
         stats = self.fc2(dist_fc_input) # 64(32 without attn) to z dim
 
         return dist_fc_input, stats
