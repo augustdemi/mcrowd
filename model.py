@@ -423,7 +423,8 @@ class Decoder(nn.Module):
         state=self.dec_hidden(zx) # 493, 128
         a_0 = self.to_vel(last_state)
 
-        input_ = torch.cat([zx, a_0.repeat(num_samples * self.num_components, 1)], dim=1)  # 6400, 99(97+2)
+        # input_ = torch.cat([zx, a_0.repeat(num_samples * self.num_components, 1)], dim=1)  # 6400, 99(97+2)
+        input_ = torch.cat([zx, a_0], dim=1)  # 6400, 99(97+2)
 
         log_pis, mus, log_sigmas, corrs, a_sample = [], [], [], [], []
 
