@@ -79,7 +79,7 @@ class TrajectoryDataset(Dataset):
     """Dataloder for the Trajectory datasets"""
     def __init__(
         self, data_dir, obs_len=8, pred_len=12, skip=1, threshold=0.002,
-        min_ped=0, delim='\t', device='cpu', dt=1
+        min_ped=0, delim='\t', device='cpu', dt=0.4
     ):
         """
         Args:

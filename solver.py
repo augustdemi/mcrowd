@@ -34,6 +34,7 @@ class Solver(object):
         # self.use_cuda = args.cuda and torch.cuda.is_available()
         self.device = args.device
         self.temp=1.99
+        self.dt=0.4
         self.kl_weight=args.kl_weight
 
         self.max_iter = int(args.max_iter)
@@ -224,10 +225,6 @@ class Solver(object):
                 epoch +=1
                 iterator = iter(data_loader)
 
-            ade_min, fde_min, \
-            ade_avg, fde_avg, \
-            ade_std, fde_std, \
-            test_loss_recon, test_loss_kl, test_vae_loss = self.evaluate_dist(self.val_loader, 20, loss=True)
             # ============================================
             #          TRAIN THE VAE (ENC & DEC)
             # ============================================
@@ -255,6 +252,15 @@ class Solver(object):
                 encX_h_feat,
                 relaxed_q_dist.rsample()
             )
+
+
+            ################# validate integration #################
+            # a = integrate_samples(fut_traj_rel, obs_traj[-1][:, :2])
+            # d = a - fut_traj[:, :, :2]
+            # b = relative_to_abs(fut_traj_rel, obs_traj[-1][:, :2])
+            # e = b - fut_traj[:, :, :2]
+            # d==e
+            ####################################################################
 
             ################## total loss for vae ####################
             # loglikelihood = fut_rel_pos_dist.log_prob(torch.reshape(fut_traj_rel, [batch, self.pred_len, 2])).sum().div(batch)
@@ -432,22 +438,8 @@ class Solver(object):
                     )
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
 
-                    # pred_fut_traj_rel = torch.reshape(pred_fut_traj_rel, [-1, batch_size, self.pred_len, 2])
-                    # pred_fut_traj = integrate_samples(
-                    #     pred_fut_traj_rel, obs_traj[-1][:, :2]
-                    # ) # (1, 173, 12, 2), ([173, 2]) => 1, 173, 12, 2
-                    # pred_fut_traj = torch.reshape(pred_fut_traj, [self.pred_len, batch_size, 2]) #fut_traj[:,:,:2]의 shape [12, 173, 2]에 맞추기
+                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
 
-                    # pred_fut_traj_rel = torch.reshape(pred_fut_traj_rel, [self.pred_len, batch_size, 2])
-                    pred_fut_traj = relative_to_abs(
-                        pred_fut_traj_rel, obs_traj[-1][:, :2]
-                    )
-
-
-                    a = integrate_samples(
-                        torch.reshape(fut_traj_rel, [-1, batch_size, self.pred_len, 2]), obs_traj[-1][:, :2]
-                    ).squeeze(0).permute((1,0,2))
-                    d = a - fut_traj[:, :, :2]
 
                     ade.append(displacement_error(
                         pred_fut_traj, fut_traj[:,:,:2], mode='raw'
