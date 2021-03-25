@@ -396,7 +396,7 @@ class Decoder(nn.Module):
         self.fc_mu = nn.Linear(dec_h_dim, n_pred_state)
         self.fc_std = nn.Linear(dec_h_dim, n_pred_state)
 
-    def forward(self, last_state, enc_h_feat, z, fut_state=None, train=True):
+    def forward(self, last_state, enc_h_feat, z, fut_state=None, train=False):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
