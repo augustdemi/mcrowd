@@ -377,7 +377,7 @@ class Decoder(nn.Module):
         self.enc_h_dim = enc_h_dim
         self.embedding_dim = 2
         # self.dec_inp_dim = embedding_dim
-        self.dec_inp_dim = 32 + z_dim + 2
+        self.dec_inp_dim = 32 + z_dim + 6
         self.device=device
         self.num_layers = num_layers
         n_state=6
@@ -398,6 +398,13 @@ class Decoder(nn.Module):
         self.fc_mu = nn.Linear(dec_h_dim, 2)
         self.fc_std = nn.Linear(dec_h_dim, 2)
 
+        self.mlp = make_mlp(
+            [32 + z_dim, dec_h_dim], #mlp_dim + z_dim = enc_hidden_feat after mlp + z
+            activation=activation,
+            batch_norm=batch_norm,
+            dropout=dropout
+        )
+
     def forward(self, last_state, enc_h_feat, z):
         """
         Inputs:
@@ -409,19 +416,18 @@ class Decoder(nn.Module):
         Output:
         - pred_traj: tensor of shape (self.seq_len, batch, 2)
         """
-
-        # x_feat+z(=zx) initial state생성(FC)
         zx = torch.cat([enc_h_feat, z], dim=1) # 493, 89(64+25)
-        decoder_h=self.dec_hidden(zx) # 493, 128
-        a = self.to_vel(last_state)
+        decoder_h=self.mlp(zx) # 493, 128
+
         mus = []
         stds = []
         for i in range(self.seq_len):
-            decoder_h= self.rnn_decoder(torch.cat([zx, a], dim=1), decoder_h) #493, 128
+            decoder_h= self.rnn_decoder(torch.cat([zx, last_state], dim=1), decoder_h) #493, 128
             mu= self.fc_mu(decoder_h)
             logVar = self.fc_std(decoder_h)
             std = torch.sqrt(torch.exp(logVar))
-            a = Normal(mu, std).rsample()
+            # normal = Normal(mu, std)
+            # rel_pos = normal.rsample()
             mus.append(mu)
             stds.append(std)
 
@@ -429,3 +435,4 @@ class Decoder(nn.Module):
         stds = torch.stack(stds, dim=0)
         rel_pos_dist =  Normal(mus, stds)
         return rel_pos_dist
+
