@@ -80,7 +80,7 @@ class GMM2D(td.Distribution):
                            dim=-1)) # 6400, 1, 2, or [20,1,2] in test
         component_cat_samples = self.pis_cat_dist.sample(sample_shape) # 6400
 
-        one_hot_component_cat_samples = torch.eye(self.components, device=component_cat_samples.device)[component_cat_samples]
+        one_hot_component_cat_samples = torch.eye(self.components, device=self.device)[component_cat_samples]
         selector = torch.unsqueeze(one_hot_component_cat_samples, dim=-1) # [6400, 1(self.components), 1]
         return torch.sum(mvn_samples*selector, dim=-2) # 6400, 1, 2 --> [6400, 2]
 
