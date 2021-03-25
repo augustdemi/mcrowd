@@ -250,7 +250,8 @@ class Solver(object):
             fut_rel_pos_dist = self.decoderMy(
                 obs_traj[-1],
                 encX_h_feat,
-                relaxed_q_dist.rsample()
+                relaxed_q_dist.rsample(),
+                fut_traj,
             )
 
 
