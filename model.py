@@ -405,7 +405,7 @@ class Decoder(nn.Module):
         )
 
 
-    def forward(self, last_state, enc_h_feat, z, num_samples=1):
+    def forward(self, last_state, enc_h_feat, z, fut_traj, train=False, num_samples=1):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
@@ -436,7 +436,10 @@ class Decoder(nn.Module):
             corr_t = self.fc_corrs(h_state) # 577, 1
 
             gmm = GMM2D(log_pi_t, mu_t, log_sigma_t, corr_t)  # [k;bs, pred_dim]
-            a_t = gmm.rsample() #577, 2 (test time:20,2)
+            if train:
+                a_t = fut_traj[:,:,2:4]
+            else:
+                a_t = gmm.rsample() #577, 2 (test time:20,2)
 
             log_pis.append(
                 torch.ones_like(corr_t)
