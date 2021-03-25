@@ -340,7 +340,7 @@ class EncoderY(nn.Module):
         initial_c = torch.stack([initial_c, torch.zeros_like(initial_c, device=self.device)], dim=0)
         state_tuple=(initial_h, initial_c)
 
-        _, state = self.rnn_encoder(fut_rel_traj, state_tuple)
+        _, state = self.rnn_encoder(fut_rel_traj)
 
         state = torch.cat(state, dim=0).permute(1, 0, 2)  # 2,81,32두개 -> 4, 81,32 -> 81,4,32
         state_size = state.size()
