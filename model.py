@@ -405,7 +405,7 @@ class Decoder(nn.Module):
         )
 
 
-    def forward(self, last_state, enc_h_feat, z, fut_traj, train=False, num_samples=1):
+    def forward(self, last_state, enc_h_feat, z, fut_traj=None, train=False, num_samples=1):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
