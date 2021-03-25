@@ -333,14 +333,14 @@ class EncoderY(nn.Module):
         """
         # Encode observed Trajectory
 
-        initial_h = self.initial_h_model(last_obs_rel_traj) # 81, 32
-        initial_h = torch.stack([initial_h, torch.zeros_like(initial_h, device=self.device)], dim=0) # 2, 81, 32
+        # initial_h = self.initial_h_model(last_obs_rel_traj) # 81, 32
+        # initial_h = torch.stack([initial_h, torch.zeros_like(initial_h, device=self.device)], dim=0) # 2, 81, 32
+        #
+        # initial_c = self.initial_c_model(last_obs_rel_traj)
+        # initial_c = torch.stack([initial_c, torch.zeros_like(initial_c, device=self.device)], dim=0)
+        # state_tuple=(initial_h, initial_c)
 
-        initial_c = self.initial_c_model(last_obs_rel_traj)
-        initial_c = torch.stack([initial_c, torch.zeros_like(initial_c, device=self.device)], dim=0)
-        state_tuple=(initial_h, initial_c)
-
-        _, state = self.rnn_encoder(fut_rel_traj, state_tuple)
+        _, state = self.rnn_encoder(fut_rel_traj)
 
         state = torch.cat(state, dim=0).permute(1, 0, 2)  # 2,81,32두개 -> 4, 81,32 -> 81,4,32
         state_size = state.size()
