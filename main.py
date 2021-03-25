@@ -49,7 +49,7 @@ def create_parser():
       help='cpu/cuda' )
     
     # training hyperparameters
-    parser.add_argument( '--batch_size', default=64, type=int,
+    parser.add_argument( '--batch_size', default=32, type=int,
       help='batch size' )
     parser.add_argument( '--lr_VAE', default=1e-3, type=float,
       help='learning rate of the VAE' )
@@ -60,7 +60,7 @@ def create_parser():
 
 
     # model hyperparameters
-    parser.add_argument( '--zS_dim', default=32, type=int,
+    parser.add_argument( '--zS_dim', default=22, type=int,
       help='dimension of the shared latent representation' )
 
 
@@ -69,13 +69,13 @@ def create_parser():
     parser.add_argument( '--ckpt_load_iter', default=0, type=int,
       help='iter# to load the previously saved model ' + 
         '(default=0 to start from the scratch)' )
-    parser.add_argument( '--max_iter', default=1100, type=float,
+    parser.add_argument( '--max_iter', default=10000, type=float,
       help='maximum number of batch iterations' )
-    parser.add_argument( '--ckpt_save_iter', default=10, type=int,
+    parser.add_argument( '--ckpt_save_iter', default=1000, type=int,
       help='checkpoint saved every # iters' )
-    parser.add_argument( '--output_save_iter', default=50, type=int, 
+    parser.add_argument( '--output_save_iter', default=1000, type=int,
       help='output saved every # iters' )
-    parser.add_argument( '--print_iter', default=20, type=int,
+    parser.add_argument( '--print_iter', default=10, type=int,
       help='print losses iter' )
     # parser.add_argument( '--eval_metrics_iter', default=50, type=int,
     #   help='evaluate metrics every # iters' )
@@ -104,21 +104,21 @@ def create_parser():
     # dataset
     parser.add_argument( '--dataset_dir', default='../datasets', type=str,
       help='dataset directory' )
-    parser.add_argument( '--dataset_name', default='eth', type=str,
+    parser.add_argument( '--dataset_name', default='zara1', type=str,
       help='dataset name' )
     parser.add_argument( '--num_workers', default=0, type=int,
       help='dataloader num_workers' )
 
     # Encoder
-    parser.add_argument('--embedding_dim', default=16, type=int)
     parser.add_argument('--encoder_h_dim', default=32, type=int)
-    parser.add_argument('--decoder_h_dim', default=128, type=int)
+    parser.add_argument('--decoder_h_dim', default=120, type=int)
     parser.add_argument('--num_layers', default=1, type=int)
-    parser.add_argument('--dropout', default=0, type=int)
+    parser.add_argument('--dropout_mlp', default=0.1, type=float)
+    parser.add_argument('--dropout_rnn', default=0.25, type=float)
     # Decoder
     parser.add_argument('--pool_every_timestep', default=0, type=bool_flag)
     parser.add_argument('--mlp_dim', default=32, type=int)
-    parser.add_argument('--pool_dim', default=32, type=int)
+    parser.add_argument('--pool_dim', default=0, type=int)
     parser.add_argument('--batch_norm', default=0, type=bool_flag)
 
     parser.add_argument( '--pooling_type', default='attn', type=str,
@@ -195,7 +195,7 @@ def main(args):
 
             test_path = os.path.join(args.dataset_dir, args.dataset_name, 'test')
             _, test_loader = data_loader(args, test_path,shuffle=False)
-            solver.plot_traj_var(test_loader)
+            # solver.plot_traj_var(test_loader)
             # solver.draw_traj(test_loader, 20)
             # solver.check_dist_stat(test_loader)
 

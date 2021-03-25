@@ -25,10 +25,12 @@ class Solver(object):
 
         self.args = args
 
-        # self.name = '%s_pred_len_%s_zS_%s_lr_%s_embedding_dim_%s_encoder_h_dim_%s_mlp_dim_%s_pool_dim_%s' % \
-        #             (args.dataset_name, args.pred_len, args.zS_dim, args.embedding_dim, args.encoder_h_dim, args.mlp_dim, args.pool_dim, args.lr_VAE)
-        self.name = '%s_pred_len_%s_zS_%s_embedding_dim_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_pool_dim_%s_lr_%s_klw_%s' % \
-                    (args.dataset_name, args.pred_len, args.zS_dim, args.embedding_dim, args.encoder_h_dim, args.decoder_h_dim, args.mlp_dim, args.pool_dim, args.lr_VAE, args.kl_weight)
+        # self.name = '%s_pred_len_%s_zS_%s_embedding_dim_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_pool_dim_%s_lr_%s_klw_%s' % \
+        #             (args.dataset_name, args.pred_len, args.zS_dim, 16, args.encoder_h_dim, args.decoder_h_dim, args.mlp_dim, args.pool_dim, args.lr_VAE, args.kl_weight)
+        self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_pool_dim_%s_lr_%s_klw_%s' % \
+                    (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
+                     args.decoder_h_dim, args.mlp_dim, args.pool_dim, args.lr_VAE, args.kl_weight)
+
         # to be appended by run_id
 
         # self.use_cuda = args.cuda and torch.cuda.is_available()
@@ -132,36 +134,35 @@ class Solver(object):
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
             self.encoderMx = Encoder(
                 args.zS_dim,
-                embedding_dim=args.embedding_dim,
                 enc_h_dim=args.encoder_h_dim,
                 mlp_dim=args.mlp_dim,
                 pool_dim=args.pool_dim,
                 batch_norm=args.batch_norm,
                 num_layers=args.num_layers,
-                dropout=args.dropout,
+                dropout_mlp=args.dropout_mlp,
+                dropout_rnn=args.dropout_rnn,
                 pooling_type=pooling_type).to(self.device)
             self.encoderMy = EncoderY(
                 args.zS_dim,
-                embedding_dim=args.embedding_dim,
                 enc_h_dim=args.encoder_h_dim,
                 mlp_dim=args.mlp_dim,
                 pool_dim=args.pool_dim,
                 batch_norm=args.batch_norm,
                 num_layers=args.num_layers,
-                dropout=args.dropout,
+                dropout_mlp=args.dropout_mlp,
+                dropout_rnn=args.dropout_rnn,
                 pooling_type=pooling_type,
                 device=self.device).to(self.device)
             self.decoderMy = Decoder(
                 args.pred_len,
-                embedding_dim=args.embedding_dim,
                 dec_h_dim=self.decoder_h_dim,
                 enc_h_dim=args.encoder_h_dim,
                 z_dim=args.zS_dim,
                 mlp_dim=args.mlp_dim,
                 num_layers=args.num_layers,
                 device=args.device,
-                dropout=args.dropout,
-                pool_dim=args.pool_dim,
+                dropout_mlp=args.dropout_mlp,
+                dropout_rnn=args.dropout_rnn,
                 batch_norm=args.batch_norm).to(self.device)
 
         else:  # load a previously saved model
