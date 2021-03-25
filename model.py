@@ -417,9 +417,9 @@ class Decoder(nn.Module):
         - pred_traj: tensor of shape (self.seq_len, batch, 2)
         """
 
-        # zx = torch.cat([enc_h_feat, z], dim=1) # 493, 89(64+25)
-        z = torch.reshape(z, (-1, self.z_dim))
-        zx = torch.cat([enc_h_feat.repeat(num_samples * self.num_components, 1), z], dim=1)
+        zx = torch.cat([enc_h_feat, z], dim=1) # 493, 89(64+25)
+        # z = torch.reshape(z, (-1, self.z_dim))
+        # zx = torch.cat([enc_h_feat.repeat(num_samples * self.num_components, 1), z], dim=1)
         state=self.dec_hidden(zx) # 493, 128
         a_0 = self.to_vel(last_state)
 
