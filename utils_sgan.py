@@ -103,4 +103,6 @@ def integrate_samples(v, p_0, dt=1):
     :param v: Velocity samples
     :return: Position samples
     """
-    return torch.cumsum(v, dim=2) * dt + p_0.unsqueeze(1)
+    v=v.permute(1, 0, 2)
+    abs_traj = torch.cumsum(v, dim=1) * dt + p_0.unsqueeze(1)
+    return  abs_traj.permute((1, 0, 2))
