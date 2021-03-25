@@ -378,6 +378,8 @@ class Decoder(nn.Module):
         self.device=device
         self.num_layers = num_layers
         self.dropout_rnn=dropout_rnn
+        self.num_components=1
+        self.z_dim=z_dim
 
         self.dec_hidden = nn.Linear(mlp_dim + z_dim, dec_h_dim)
         self.to_vel = nn.Linear(n_state, n_pred_state)
@@ -396,7 +398,14 @@ class Decoder(nn.Module):
         self.fc_mu = nn.Linear(dec_h_dim, n_pred_state)
         self.fc_std = nn.Linear(dec_h_dim, n_pred_state)
 
-    def forward(self, last_state, enc_h_feat, z, fut_state=None, train=False):
+        self.fc_log_pis = nn.Linear(dec_h_dim, self.num_components)
+        self.fc_corrs = nn.Sequential(
+            nn.Linear(dec_h_dim, self.num_components),
+            nn.Tanh()
+        )
+
+
+    def forward(self, last_state, enc_h_feat, z, num_samples=1):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
@@ -408,30 +417,45 @@ class Decoder(nn.Module):
         - pred_traj: tensor of shape (self.seq_len, batch, 2)
         """
 
-        # x_feat+z(=zx) initial state생성(FC)
-        zx = torch.cat([enc_h_feat, z], dim=1) # 493, 89(64+25)
-        decoder_h=self.dec_hidden(zx) # 493, 128
-        a = self.to_vel(last_state)
+        # zx = torch.cat([enc_h_feat, z], dim=1) # 493, 89(64+25)
+        z = torch.reshape(z, (-1, self.z_dim))
+        zx = torch.cat([enc_h_feat.repeat(num_samples * self.num_components, 1), z], dim=1)
+        state=self.dec_hidden(zx) # 493, 128
+        a_0 = self.to_vel(last_state)
 
-        mus = []
-        stds = []
-        for i in range(self.seq_len):
-            decoder_h= self.rnn_decoder(torch.cat([zx, a], dim=1), decoder_h) #493, 128
-            decoder_h = F.dropout(decoder_h,
-                                    p=self.dropout_rnn,
-                                    training=train)  # [bs, max_time, enc_rnn_dim]
-            mu= self.fc_mu(decoder_h)
-            logVar = self.fc_std(decoder_h)
-            std = torch.sqrt(torch.exp(logVar))
-            if train:
-                a = fut_state[i,:,2:4]
-            else:
-                a = Normal(mu, std).rsample()
-            mus.append(mu)
-            stds.append(std)
+        input_ = torch.cat([zx, a_0.repeat(num_samples * self.num_components, 1)], dim=1)  # 6400, 99(97+2)
 
-        mus = torch.stack(mus, dim=0)
-        stds = torch.stack(stds, dim=0)
-        rel_pos_dist =  Normal(mus, stds)
+        log_pis, mus, log_sigmas, corrs, a_sample = [], [], [], [], []
+
+        for j in range(self.seq_len):
+            h_state = self.rnn_decoder(input_, state) # 6400, 128 or 256,128 (test time: 20,128)
+
+            log_pi_t = self.fc_log_pis(h_state) # 577, 1
+            mu_t = self.fc_mu(h_state) # 577, 2
+            log_sigma_t = self.fc_std(h_state) # 577, 2
+            corr_t = self.fc_corrs(h_state) # 577, 1
+
+            gmm = GMM2D(log_pi_t, mu_t, log_sigma_t, corr_t)  # [k;bs, pred_dim]
+            a_t = gmm.rsample() #577, 2 (test time:20,2)
+
+            log_pis.append(
+                torch.ones_like(corr_t)
+            )
+
+            # mu_t = 6400(256*25),2 -> reshape: 256,50
+            mus.append(mu_t)
+            log_sigmas.append(log_sigma_t)
+            corrs.append(corr_t)
+
+            input_ = torch.cat([zx, a_t], dim=1) # 6400, 99(97+2)
+            state = h_state
+
+        log_pis = torch.stack(log_pis, dim=1) # [256, 12, 1, 25*1]
+        mus = torch.stack(mus, dim=1) # [256, 50] 12개 쌓아서 [256, 12, 25*2]
+        log_sigmas = torch.stack(log_sigmas, dim=1) # 256, 12, 50
+        corrs = torch.stack(corrs, dim=1) # 256, 12, 25
+
+        rel_pos_dist = GMM2D(log_pis.unsqueeze(0), mus.unsqueeze(0), log_sigmas.unsqueeze(0), corrs.unsqueeze(0))
+        #rel_pos_dist.mus.shape = [1, 577, 12, 1, 2]
+
         return rel_pos_dist
-
