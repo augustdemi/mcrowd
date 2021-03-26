@@ -5,7 +5,7 @@ import torch.optim as optim
 from utils import DataGather, mkdirs, grid2gif2, apply_poe, sample_gaussian, sample_gumbel_softmax
 from model import *
 from loss import kl_two_gaussian, displacement_error, final_displacement_error
-from utils_sgan import relative_to_abs, integrate_samples, sample_q
+from utils_sgan import relative_to_abs, integrate_samples
 from data.loader import data_loader
 from eval_util import ploot
 
@@ -248,19 +248,12 @@ class Solver(object):
 
             # 첫번째 iteration 디코더 인풋 = (obs_traj_rel의 마지막 값, (hidden_state, cell_state))
             # where hidden_state = "인코더의 마지막 hidden_layer아웃풋과 그것으로 만든 max_pooled값을 concat해서 mlp 통과시켜만든 feature인 noise_input에다 noise까지 추가한값)"
-            # fut_rel_pos_dist = self.decoderMy(
-            #     obs_traj[-1],
-            #     encX_h_feat,
-            #     relaxed_q_dist.rsample(),
-            #     fut_traj,
-            #     train=True
-            # )
-
             fut_rel_pos_dist = self.decoderMy(
                 obs_traj[-1],
                 encX_h_feat,
-                sample_q(self.zS_dim, batch, self.device),
+                relaxed_q_dist.rsample()
             )
+
 
             ################# validate integration #################
             # a = integrate_samples(fut_traj_rel, obs_traj[-1][:, :2])
@@ -273,13 +266,10 @@ class Solver(object):
             ################## total loss for vae ####################
             # loglikelihood = fut_rel_pos_dist.log_prob(torch.reshape(fut_traj_rel, [batch, self.pred_len, 2])).sum().div(batch)
 
-            # for GMM
-            log_p_yt_xz=torch.clamp(fut_rel_pos_dist.log_prob(fut_traj_rel.permute(1,0,2)), max=6)
+            # log_p_yt_xz=torch.clamp(fut_rel_pos_dist.log_prob(torch.reshape(fut_traj_rel, [batch, self.pred_len, 2])), max=6)
             # print(">>>max:", log_p_yt_xz.max(), log_p_yt_xz.min(), log_p_yt_xz.mean())
-            loglikelihood = log_p_yt_xz.sum().div(batch)
-
-            # for Gaussian
-            # loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_rel).sum().div(batch)
+            # loglikelihood = log_p_yt_xz.sum().div(batch)
+            loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_rel).sum().div(batch)
 
             loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
             loss_kl = torch.clamp(loss_kl, min=0.07)
@@ -418,20 +408,20 @@ class Solver(object):
                         = self.encoderMy(obs_traj[-1], fut_traj_rel, seq_start_end, encX_h_feat)
 
                     q_dist = discrete(logits=logitY)
-
                     fut_rel_pos_dist = self.decoderMy(
                         obs_traj[-1],
                         encX_h_feat,
-                        relaxed_p_dist.rsample((1,)),
+                        relaxed_p_dist.rsample()
                     )
+                    # fut_rel_pos_dist = self.decoderMy(
+                    #     obs_traj[-1],
+                    #     encX_h_feat,
+                    #     relaxed_p_dist.rsample((num_samples,)),
+                    #     num_samples=num_samples
+                    # )
 
                     ################## total loss for vae ####################
-                    # for Gaussian
-                    # loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_rel).sum().div(batch_size)
-
-                    # for GMM
-                    log_p_yt_xz = torch.clamp(fut_rel_pos_dist.log_prob(fut_traj_rel.permute(1, 0, 2)), max=6)
-                    loglikelihood = log_p_yt_xz.sum().div(batch_size)
+                    loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_rel).sum().div(batch_size)
 
                     kld = kl_divergence(q_dist, p_dist).sum().div(batch_size)
                     kld = torch.clamp(kld, min=0.07)
@@ -445,14 +435,11 @@ class Solver(object):
                     fut_rel_pos_dist = self.decoderMy(
                         obs_traj[-1],
                         encX_h_feat,
-                        relaxed_p_dist.rsample((1,))
+                        relaxed_p_dist.rsample()
                     )
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
 
-                    # gaussian
-                    # pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
-                    #gmm
-                    pred_fut_traj=integrate_samples(pred_fut_traj_rel.squeeze(0).permute(1, 0, 2), obs_traj[-1][:, :2], dt=self.dt)
+                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
 
 
                     ade.append(displacement_error(
