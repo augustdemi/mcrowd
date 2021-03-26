@@ -422,7 +422,7 @@ class Solver(object):
                     fut_rel_pos_dist = self.decoderMy(
                         obs_traj[-1],
                         encX_h_feat,
-                        relaxed_p_dist.rsample(),
+                        relaxed_p_dist.rsample((1,)),
                     )
 
                     ################## total loss for vae ####################
@@ -445,7 +445,7 @@ class Solver(object):
                     fut_rel_pos_dist = self.decoderMy(
                         obs_traj[-1],
                         encX_h_feat,
-                        relaxed_p_dist.rsample()
+                        relaxed_p_dist.rsample((1,))
                     )
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
 
