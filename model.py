@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import numpy as np
 from gmm2d import GMM2D
 from torch.distributions.normal import Normal
+import random
 
 ###############################################################################
 
@@ -420,7 +421,10 @@ class Decoder(nn.Module):
             logVar = self.fc_std(decoder_h)
             std = torch.sqrt(torch.exp(logVar))
             if fut_state is not None:
-                a = fut_state[i,:,2:4]
+                if random.random() > 0.5:
+                    a = fut_state[i,:,2:4]
+                else:
+                    a = Normal(mu, std).rsample()
             else:
                 a = Normal(mu, std).rsample()
             mus.append(mu)
