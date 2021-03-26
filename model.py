@@ -427,7 +427,7 @@ class Decoder(nn.Module):
 
         log_pis, mus, log_sigmas, corrs, a_sample = [], [], [], [], []
 
-        for j in range(self.seq_len):
+        for i in range(self.seq_len):
             h_state = self.rnn_decoder(input_, state) # 6400, 128 or 256,128 (test time: 20,128)
 
             log_pi_t = self.fc_log_pis(h_state) # 577, 1
@@ -437,7 +437,7 @@ class Decoder(nn.Module):
 
             gmm = GMM2D(log_pi_t, mu_t, log_sigma_t, corr_t)  # [k;bs, pred_dim]
             if train:
-                a_t = fut_traj[:,:,2:4]
+                a_t = fut_traj[i,:,2:4].repeat(num_samples * num_components, 1)
             else:
                 a_t = gmm.rsample() #577, 2 (test time:20,2)
 
