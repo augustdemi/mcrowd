@@ -442,13 +442,19 @@ class Decoder(nn.Module):
                 a_t = gmm.rsample() #577, 2 (test time:20,2)
 
             log_pis.append(
-                torch.ones_like(corr_t)
+                torch.ones_like(corr_t.reshape(num_samples, num_components, -1).permute(0, 2, 1).reshape(-1, 1))
             )
 
             # mu_t = 6400(256*25),2 -> reshape: 256,50
-            mus.append(mu_t)
-            log_sigmas.append(log_sigma_t)
-            corrs.append(corr_t)
+            mus.append(mu_t.reshape(
+                    num_samples, num_components, -1, 2
+                ).permute(0, 2, 1, 3).reshape(-1, 2 * num_components))
+            log_sigmas.append(log_sigma_t.reshape(
+                    num_samples, num_components, -1, 2
+                ).permute(0, 2, 1, 3).reshape(-1, 2 * num_components))
+            corrs.append(corr_t.reshape(
+                    num_samples, num_components, -1
+                ).permute(0, 2, 1).reshape(-1, num_components))
 
             input_ = torch.cat([zx, a_t], dim=1) # 6400, 99(97+2)
             state = h_state
