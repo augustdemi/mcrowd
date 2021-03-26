@@ -106,3 +106,10 @@ def integrate_samples(v, p_0, dt=1):
     v=v.permute(1, 0, 2)
     abs_traj = torch.cumsum(v, dim=1) * dt + p_0.unsqueeze(1)
     return  abs_traj.permute((1, 0, 2))
+
+
+def sample_q(z_dim, bs, device):
+    N=1
+    one_hot = np.eye(z_dim).take(np.reshape(np.indices([z_dim] * N), [N, -1]).T, axis=0).reshape(-1, N * z_dim)
+    z_NK = torch.from_numpy(one_hot).float().to(device).repeat(1, bs) #(25,25) -> (25*1, 25*256) = [25, 6400] : 25*25* id matix 가 차례로 256개 샇임
+    return torch.reshape(z_NK, (z_dim, -1, z_dim)) # 25, 256, 25
