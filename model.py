@@ -378,7 +378,7 @@ class Decoder(nn.Module):
         self.device=device
         self.num_layers = num_layers
         self.dropout_rnn=dropout_rnn
-        self.num_components=1
+        self.num_components=z_dim
         self.z_dim=z_dim
 
         self.dec_hidden = nn.Linear(mlp_dim + z_dim, dec_h_dim)
@@ -398,9 +398,9 @@ class Decoder(nn.Module):
         self.fc_mu = nn.Linear(dec_h_dim, n_pred_state)
         self.fc_std = nn.Linear(dec_h_dim, n_pred_state)
 
-        self.fc_log_pis = nn.Linear(dec_h_dim, self.num_components)
+        self.fc_log_pis = nn.Linear(dec_h_dim, 1)
         self.fc_corrs = nn.Sequential(
-            nn.Linear(dec_h_dim, self.num_components),
+            nn.Linear(dec_h_dim, 1),
             nn.Tanh()
         )
 
@@ -417,14 +417,14 @@ class Decoder(nn.Module):
         - pred_traj: tensor of shape (self.seq_len, batch, 2)
         """
 
-        zx = torch.cat([enc_h_feat, z], dim=1) # 493, 89(64+25)
-        # z = torch.reshape(z, (-1, self.z_dim))
-        # zx = torch.cat([enc_h_feat.repeat(num_samples * self.num_components, 1), z], dim=1)
+        # zx = torch.cat([enc_h_feat, z], dim=1) # 493, 89(64+25)
+        z = torch.reshape(z, (-1, self.z_dim))
+        zx = torch.cat([enc_h_feat.repeat(num_samples * self.num_components, 1), z], dim=1)
         state=self.dec_hidden(zx) # 493, 128
         a_0 = self.to_vel(last_state)
 
-        # input_ = torch.cat([zx, a_0.repeat(num_samples * self.num_components, 1)], dim=1)  # 6400, 99(97+2)
-        input_ = torch.cat([zx, a_0], dim=1)  # 6400, 99(97+2)
+        input_ = torch.cat([zx, a_0.repeat(num_samples * self.num_components, 1)], dim=1)  # 6400, 99(97+2)
+        # input_ = torch.cat([zx, a_0], dim=1)  # 6400, 99(97+2)
 
         log_pis, mus, log_sigmas, corrs, a_sample = [], [], [], [], []
 
@@ -459,7 +459,12 @@ class Decoder(nn.Module):
         log_sigmas = torch.stack(log_sigmas, dim=1) # 256, 12, 50
         corrs = torch.stack(corrs, dim=1) # 256, 12, 25
 
-        rel_pos_dist = GMM2D(log_pis.unsqueeze(0), mus.unsqueeze(0), log_sigmas.unsqueeze(0), corrs.unsqueeze(0))
+        rel_pos_dist = GMM2D(torch.reshape(log_pis, [num_samples, -1, self.seq_len, self.num_components]),
+                       torch.reshape(mus, [num_samples, -1, self.seq_len, self.num_components*2]),
+                       torch.reshape(log_sigmas, [num_samples, -1, self.seq_len, self.num_components*2]),
+                       torch.reshape(corrs, [num_samples, -1, self.seq_len, self.num_components])) # 256,12,25
+
+        # rel_pos_dist = GMM2D(log_pis.unsqueeze(0), mus.unsqueeze(0), log_sigmas.unsqueeze(0), corrs.unsqueeze(0))
         #rel_pos_dist.mus.shape = [1, 577, 12, 1, 2]
 
         return rel_pos_dist
