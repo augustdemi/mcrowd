@@ -117,7 +117,7 @@ class TrajectoryDataset(Dataset):
         for path in all_files:
             data = read_file(path, delim)
             frames = np.unique(data[:, 0]).tolist()
-            print('uniq frames: ', len(frames))
+            # print('uniq frames: ', len(frames))
             frame_data = [] # all data per frame
             for frame in frames:
                 frame_data.append(data[frame == data[:, 0], :])
