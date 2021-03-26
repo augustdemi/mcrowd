@@ -142,48 +142,21 @@ def main(args):
             print('======================== [iter_%d] ========================' %  args.ckpt_load_iter)
             for dataset_name in ['eth', 'hotel', 'univ', 'zara1', 'zara2']:
                 args.dataset_name =dataset_name
-                if args.dataset_name == 'eth':
-                    threshold = 0.5
-                elif args.dataset_name == 'hotel':
-                    threshold = 0.3
-                elif args.dataset_name == 'univ':
-                    threshold = 0.1
-                elif args.dataset_name == 'zara1':
-                    threshold = 0.4
-                elif args.dataset_name == 'zara2':
-                    threshold = 0.1
 
                 solver = Solver(args)
                 test_path = os.path.join(args.dataset_dir, dataset_name, 'test')
                 _, test_loader = data_loader(args, test_path)
 
-                ade_min, fde_min, coll_rate_min, \
-                ade_avg, fde_avg, coll_rate_avg, \
-                ade_std, fde_std, coll_rate_std = solver.evaluate_dist1(test_loader, 20, 0.1)
-                prn_str = ('[%s pred_len%d: min/avg/std of 20 samples] \n' + \
-                           '[MIN] ADE: %.2f, FDE: %.2f, coll_rate: %.2f\n' + \
-                           '[AVG] ADE: %.2f, FDE: %.2f, coll_rate: %.2f\n' + \
-                           '[STD] ADE: %.2f, FDE: %.2f, coll_rate: %.2f\n'
-                           ) % \
-                          (args.dataset_name, args.pred_len,
-                           ade_min, fde_min, coll_rate_min, ade_avg, fde_avg, coll_rate_avg,
-                           ade_std, fde_std, coll_rate_std
-                           )
-                print(prn_str)
-
-                # ade_min, fde_min, coll_rate_min, non_zero_coll_min, \
-                # ade_avg, fde_avg, coll_rate_avg, non_zero_coll_avg, \
-                # ade_std, fde_std, coll_rate_std, non_zero_coll_std = solver.evaluate_dist(test_loader, 20, 0.1)
-                # prn_str = ('[%s pred_len%d: min/avg/std of 20 samples] \n' + \
-                #            '[MIN] ADE: %.2f, FDE: %.2f, coll_rate: %.2f, non_zero_coll_rate: %.2f \n' + \
-                #            '[AVG] ADE: %.2f, FDE: %.2f, coll_rate: %.2f, non_zero_coll_rate: %.2f\n' + \
-                #            '[STD] ADE: %.2f, FDE: %.2f, coll_rate: %.2f, non_zero_coll_rate: %.2f\n'
-                #            ) % \
-                #           (args.dataset_name, args.pred_len,
-                #            ade_min, fde_min, coll_rate_min, non_zero_coll_min, ade_avg, fde_avg, coll_rate_avg,
-                #            non_zero_coll_avg, ade_std, fde_std, coll_rate_std, non_zero_coll_std
-                #            )
-                # print(prn_str)
+                ade_min, fde_min, \
+                ade_avg, fde_avg, \
+                ade_std, fde_std = solver.evaluate_dist(test_loader, 20, loss=False)
+                print(args.dataset_name)
+                print('ade min: ', ade_min)
+                print('ade avg: ', ade_avg)
+                print('ade std: ', ade_std)
+                print('fde min: ', fde_min)
+                print('fde avg: ', fde_avg)
+                print('fde std: ', fde_std)
         else:
             solver = Solver(args)
 
