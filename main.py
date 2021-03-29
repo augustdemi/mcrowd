@@ -120,7 +120,6 @@ def create_parser():
     # Decoder
     parser.add_argument('--pool_every_timestep', default=0, type=bool_flag)
     parser.add_argument('--mlp_dim', default=32, type=int)
-    parser.add_argument('--pool_dim', default=15, type=int)
     parser.add_argument('--batch_norm', default=0, type=bool_flag)
 
     parser.add_argument( '--attention', default=1, type=bool_flag,
