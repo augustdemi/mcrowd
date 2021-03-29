@@ -126,32 +126,25 @@ class Solver(object):
         self.num_layers = args.num_layers
         self.decoder_h_dim = args.decoder_h_dim
 
-        if args.pool_dim==0:
-            pooling_type=None
-        else:
-            pooling_type=args.pooling_type
-
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
             self.encoderMx = Encoder(
                 args.zS_dim,
                 enc_h_dim=args.encoder_h_dim,
                 mlp_dim=args.mlp_dim,
-                pool_dim=args.pool_dim,
+                attention=args.attention,
                 batch_norm=args.batch_norm,
                 num_layers=args.num_layers,
                 dropout_mlp=args.dropout_mlp,
-                dropout_rnn=args.dropout_rnn,
-                pooling_type=pooling_type).to(self.device)
+                dropout_rnn=args.dropout_rnn).to(self.device)
             self.encoderMy = EncoderY(
                 args.zS_dim,
                 enc_h_dim=args.encoder_h_dim,
                 mlp_dim=args.mlp_dim,
-                pool_dim=args.pool_dim,
+                attention=args.attention,
                 batch_norm=args.batch_norm,
                 num_layers=args.num_layers,
                 dropout_mlp=args.dropout_mlp,
                 dropout_rnn=args.dropout_rnn,
-                pooling_type=pooling_type,
                 device=self.device).to(self.device)
             self.decoderMy = Decoder(
                 args.pred_len,
@@ -251,7 +244,8 @@ class Solver(object):
             fut_rel_pos_dist = self.decoderMy(
                 obs_traj[-1],
                 encX_h_feat,
-                relaxed_q_dist.rsample()
+                relaxed_q_dist.rsample(),
+                fut_traj
             )
 
 
@@ -474,175 +468,12 @@ class Solver(object):
 
 
 
-    def evaluate_dist_collision(self, data_loader, num_samples, threshold, loss=False):
-        self.set_mode(train=False)
-        ade_outer_min, fde_outer_min = [], []
-        ade_outer_avg, fde_outer_avg = [], []
-        ade_outer_std, fde_outer_std = [], []
-        total_traj = 0
-        all_coll = []
-        all_ade, all_fde = [], []
-        all_ade_stat, all_fde_stat = [], []
-
-        loss_recon = loss_kl = vae_loss = 0
-
-        with torch.no_grad():
-            b=0
-            for batch in data_loader:
-                b+=1
-                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, non_linear_ped,
-                 loss_mask, seq_start_end, obs_frames, pred_frames) = batch
-                batch_size = obs_traj_rel.size(1)
-                ade, fde = [], []
-                total_traj += fut_traj.size(1)
-
-
-                (encX_h_feat, logitX) \
-                    = self.encoderMx(obs_traj, seq_start_end)
-                p_dist = discrete(logits=logitX)
-                relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
-
-                if loss:
-                    (encY_h_feat, logitY) \
-                        = self.encoderMy(obs_traj[-1], fut_traj_rel, seq_start_end, encX_h_feat)
-
-                    q_dist = discrete(logits=logitY)
-
-                    fut_rel_pos_dist = self.decoderMy(
-                        obs_traj[-1],
-                        encX_h_feat,
-                        relaxed_p_dist.rsample()
-                    )
-
-                    ################## total loss for vae ####################
-                    loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_rel).sum().div(batch_size)
-                    kld = kl_divergence(q_dist, p_dist).sum().div(batch_size)
-                    kld = torch.clamp(kld, min=0.07)
-                    elbo = loglikelihood - self.kl_weight * kld
-                    vae_loss -=elbo
-                    loss_recon +=loglikelihood
-                    loss_kl +=kld
-
-
-                coll_20samples = [] # (20, # seq, 12)
-                for _ in range(num_samples):
-                    fut_rel_pos_dist = self.decoderMy(
-                        obs_traj[-1],
-                        encX_h_feat,
-                        relaxed_p_dist.rsample()
-                    )
-                    pred_fut_traj_rel = fut_rel_pos_dist.rsample()
-                    pred_fut_traj = relative_to_abs(
-                        pred_fut_traj_rel, obs_traj[-1]
-                    )
-
-
-                    ade.append(displacement_error(
-                        pred_fut_traj, fut_traj, mode='raw'
-                    ))
-                    fde.append(final_displacement_error(
-                        pred_fut_traj[-1], fut_traj[-1], mode='raw'
-                    ))
-
-                    seq_coll = [] #64
-                    for idx, (start, end) in enumerate(seq_start_end):
-
-                        start = start.item()
-                        end = end.item()
-                        num_ped = end - start
-                        one_frame_slide = pred_fut_traj[:,start:end,:] # (pred_len, num_ped, 2)
-
-                        frame_coll = [] #num_ped
-                        for i in range(self.pred_len):
-                            curr_frame = one_frame_slide[i] # frame of time=i #(num_ped,2)
-                            curr1 = curr_frame.repeat(num_ped, 1)
-                            curr2 = self.repeat(curr_frame, num_ped)
-                            dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
-                            dist = dist.reshape(num_ped, num_ped)
-                            diff_agent_idx = np.triu_indices(num_ped, k=1)
-                            diff_agent_dist = dist[diff_agent_idx]
-                            curr_coll_rate = (diff_agent_dist < threshold).sum() / len(diff_agent_dist)
-                            # if (diff_agent_dist < threshold ).sum() > 0:
-                            #     print(idx)
-                            #     print(diff_agent_dist)
-                            #     print('---------------------')
-                            frame_coll.append(curr_coll_rate)
-                        seq_coll.append(frame_coll)
-
-                    coll_20samples.append(seq_coll)
-
-                ade_sum_min, ade_sum_avg, ade_sum_std = self.evaluate_helper(ade, seq_start_end)
-                fde_sum_min, fde_sum_avg, fde_sum_std = self.evaluate_helper(fde, seq_start_end)
-                ade_outer_min.append(ade_sum_min)
-                fde_outer_min.append(fde_sum_min)
-                ade_outer_avg.append(ade_sum_avg)
-                fde_outer_avg.append(fde_sum_avg)
-                ade_outer_std.append(ade_sum_std)
-                fde_outer_std.append(fde_sum_std)
-
-                all_ade.append(torch.stack(ade, dim=1).cpu().numpy())
-                all_fde.append(torch.stack(fde, dim=1).cpu().numpy())
-                all_ade_stat.append(self.evaluate_helper2(ade, seq_start_end))
-                all_fde_stat.append(self.evaluate_helper2(fde, seq_start_end))
-
-                all_coll.append(np.array(coll_20samples))
-
-            all_coll=np.concatenate(all_coll, axis=1) #(20,70,12)
-            coll_rate_min=all_coll.min(axis=0).mean()*100
-            coll_rate_avg=all_coll.mean(axis=0).mean()*100
-            coll_rate_std=all_coll.std(axis=0).mean()*100
-
-            all_ade = np.concatenate(all_ade, axis=0)
-            all_fde = np.concatenate(all_fde, axis=0)
-            all_ade_stat=np.concatenate(all_ade_stat, axis=0)
-            all_fde_stat=np.concatenate(all_fde_stat, axis=0)
-            # all_ade_stat=np.concatenate(all_ade_stat, axis=1) / total_traj
-            # all_fde_stat=np.concatenate(all_fde_stat, axis=1) / total_traj
-            import pandas as pd
-            pd.DataFrame(all_ade).to_csv("./ade_" +self.dataset_name+ ".csv")
-            pd.DataFrame(all_fde).to_csv("./fde_" +self.dataset_name+ ".csv")
-            pd.DataFrame(all_ade_stat).to_csv("./ade_seq_stat_divided_" +self.dataset_name+ ".csv")
-            pd.DataFrame(all_fde_stat).to_csv("./fde_seq_stat_divided_" +self.dataset_name+ ".csv")
-
-            #non-zero coll
-            non_zero_coll_avg = []
-            non_zero_coll_min = []
-            non_zero_coll_std = []
-            for sample in all_coll: #sample = [70,12]
-                non_zero_idx = np.where(sample > 0)
-                if len(non_zero_idx[0]) > 0:
-                    non_zero_coll_avg.append(sample[non_zero_idx].mean())
-                    non_zero_coll_std.append(sample[non_zero_idx].std())
-                    non_zero_coll_min.append(sample[non_zero_idx].min())
-
-            non_zero_coll_avg = np.array(non_zero_coll_avg).mean()*100
-            non_zero_coll_min = np.array(non_zero_coll_min).mean() *100
-            non_zero_coll_std = np.array(non_zero_coll_std).mean() *100
-
-            ade_min = sum(ade_outer_min) / (total_traj * self.pred_len)
-            fde_min = sum(fde_outer_min) / (total_traj)
-            ade_avg = sum(ade_outer_avg) / (total_traj * self.pred_len)
-            fde_avg = sum(fde_outer_avg) / (total_traj)
-            ade_std = sum(ade_outer_std) / (total_traj * self.pred_len)
-            fde_std = sum(fde_outer_std) / (total_traj)
-        self.set_mode(train=True)
-        if loss:
-            return ade_min, fde_min, coll_rate_min, non_zero_coll_min, \
-                   ade_avg, fde_avg, coll_rate_avg, non_zero_coll_avg, \
-                   ade_std, fde_std, coll_rate_std, non_zero_coll_std, \
-                   loss_recon/b, loss_kl/b, vae_loss/b
-        else:
-            return ade_min, fde_min, coll_rate_min, non_zero_coll_min, \
-                   ade_avg, fde_avg, coll_rate_avg, non_zero_coll_avg, \
-                   ade_std, fde_std, coll_rate_std, non_zero_coll_std
-
-
-
-
-    def plot_traj_var(self, data_loader):
+    def plot_traj_var(self, data_loader, num_samples=20):
         import matplotlib.pyplot as plt
         from matplotlib.animation import FuncAnimation, PillowWriter
         import cv2
+        gif_path = "D:\crowd\\fig\\runid" + str(self.run_id)
+        mkdirs(gif_path)
         # read video
         cap = cv2.VideoCapture('D:\crowd\ewap_dataset\seq_eth\seq_eth.avi')
 
@@ -651,28 +482,21 @@ class Solver(object):
         inv_h_t = np.linalg.pinv(np.transpose(h))
 
         total_traj = 0
-        b = 0
         with torch.no_grad():
+            b=0
             for batch in data_loader:
-                b +=1
+                b+=1
                 (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, non_linear_ped,
                  loss_mask, seq_start_end, obs_frames, pred_frames) = batch
+                batch_size = obs_traj_rel.size(1)
                 total_traj += fut_traj.size(1)
 
-                (dist_fc_inputMx, logitX) \
-                    = self.encoderMx(obs_traj_rel, seq_start_end)
-                p_dist = discrete(logits=logitX)
-###########
-                # frame_numbers = [10330, 10340, 10390, 12020, 12100]
-                # frame_number = frame_numbers[4]
-                # cap.set(1, frame_number)
-                # ret, frame = cap.read()
-                # frmae_seq_idx = np.where(pred_frames[:,0] == frame_number)[0]
-                # rng = range(frmae_seq_idx[0], frmae_seq_idx[-1]+1)
+                (encX_h_feat, logitX) \
+                    = self.encoderMx(obs_traj, seq_start_end)
+                relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
 
-
-                agent_rng = range(146, 149)
+                agent_rng = range(45,49)
                 # frame_number = obs_frames[95][-1]
                 frame_numbers = np.concatenate([obs_frames[agent_rng[0]], pred_frames[agent_rng[0]]])
                 frame_number = frame_numbers[0]
@@ -680,35 +504,25 @@ class Solver(object):
                 ret, frame = cap.read()
                 multi_sample_pred = []
 
-                # (dist_fc_inputMy, muSharedMy, stdSharedMy) \
-                #     = self.encoderMy(fut_traj_rel, seq_start_end, coditioned_h=dist_fc_inputMx)
-
-                for _ in range(20):
-                    zSharedMx = p_dist.rsample()
-                    decoder_h = torch.cat([dist_fc_inputMx, zSharedMx], dim=1).unsqueeze(0)
-                    decoder_c = torch.zeros(self.num_layers, obs_traj.size(1), self.decoder_h_dim).to(self.device)
-
-                    pred_fut_traj_rel = self.decoderMy(
+                for _ in range(num_samples):
+                    fut_rel_pos_dist = self.decoderMy(
                         obs_traj[-1],
-                        obs_traj_rel[-1],
-                        (decoder_h, decoder_c),
-                        seq_start_end,
+                        encX_h_feat,
+                        relaxed_p_dist.rsample()
                     )
-                    pred_fut_traj = relative_to_abs(
-                        pred_fut_traj_rel, obs_traj[-1]
-                    )
-
+                    pred_fut_traj_rel = fut_rel_pos_dist.rsample()
+                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
 
                     gt_data, pred_data = [], []
 
                     for idx in range(len(agent_rng)):
                         one_ped = agent_rng[idx]
-                        obs_real = obs_traj[:, one_ped]
+                        obs_real = obs_traj[:, one_ped,:2]
                         obs_real = np.concatenate([obs_real, np.ones((self.obs_len, 1))], axis=1)
                         obs_pixel = np.matmul(obs_real, inv_h_t)
                         obs_pixel /= np.expand_dims(obs_pixel[:, 2], 1)
 
-                        gt_real = fut_traj[:, one_ped]
+                        gt_real = fut_traj[:, one_ped, :2]
                         gt_real = np.concatenate([gt_real, np.ones((self.pred_len, 1))], axis=1)
                         gt_pixel = np.matmul(gt_real, inv_h_t)
                         gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
@@ -730,29 +544,6 @@ class Solver(object):
 
                     multi_sample_pred.append(pred_data)
 
-                all_curv = []
-                for a in range(gt_data.shape[0]):
-                    gt_xy = gt_data[a,:,:2]
-                    curv = []
-                    for i in range(1,19):
-                        num = 2 * np.linalg.norm(gt_xy[i+1] - gt_xy[i]) * np.linalg.norm(gt_xy[i-1] - gt_xy[i])
-                        den = np.linalg.norm(gt_xy[i+1] - gt_xy[i])  * np.linalg.norm(gt_xy[i] - gt_xy[i-1]) * np.linalg.norm(gt_xy[i+1] - gt_xy[i-1])
-                        curv.append(num/den)
-                    all_curv.append(curv)
-                all_curv = np.round(np.array(all_curv),4)
-
-                all_pred_curv = []
-                preds = np.stack(multi_sample_pred) #(#sampling, #agent, seq len, # axis)
-                for a in range(gt_data.shape[0]):
-                    gt_xy = preds[:,a,:,:2].mean(axis=0)
-                    curv = []
-                    for i in range(1, 19):
-                        num = 2 * np.linalg.norm(gt_xy[i + 1] - gt_xy[i]) * np.linalg.norm(gt_xy[i - 1] - gt_xy[i])
-                        den = np.linalg.norm(gt_xy[i + 1] - gt_xy[i]) * np.linalg.norm(
-                            gt_xy[i] - gt_xy[i - 1]) * np.linalg.norm(gt_xy[i + 1] - gt_xy[i - 1])
-                        curv.append(num / den)
-                    all_pred_curv.append(curv)
-                all_pred_curv = np.round(np.array(all_pred_curv), 4)
 
                 n_agent = gt_data.shape[0]
                 n_frame = gt_data.shape[1]
@@ -795,7 +586,8 @@ class Solver(object):
                 ani = FuncAnimation(fig, update_dot, frames=n_frame, interval=1, init_func=init())
 
                 # writer = PillowWriter(fps=3000)
-                ani.save("D:\crowd\\fig\eth/eeth_f" + str(int(frame_numbers[0])) + "_agent" + str(agent_rng[0]) +"to" +str(agent_rng[-1]) +".gif", fps=4)
+
+                ani.save(gif_path + "/eth_f" + str(int(frame_numbers[0])) + "_agent" + str(agent_rng[0]) +"to" +str(agent_rng[-1]) +".gif", fps=4)
 
 
 
