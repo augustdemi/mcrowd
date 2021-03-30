@@ -316,9 +316,9 @@ class EncoderY(nn.Module):
         if self.attention:
             pool_h = self.attn_net(final_encoder_h, seq_start_end) # 656, 32
             # Construct input hidden states for decoder
-            dist_fc_input = torch.cat([final_encoder_h.view(-1, self.enc_h_dim), pool_h], dim=1) # [656, 64]
+            dist_fc_input = torch.cat([final_encoder_h.view(-1, 4*self.enc_h_dim), pool_h], dim=1) # [656, 64]
         else:
-            dist_fc_input = final_encoder_h.view(-1, self.enc_h_dim)
+            dist_fc_input = final_encoder_h.view(-1, 4*self.enc_h_dim)
 
 
         dist_fc_input = torch.cat([dist_fc_input, obs_enc_feat], dim=1)
