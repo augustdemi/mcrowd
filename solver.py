@@ -513,6 +513,25 @@ class Solver(object):
                 batch_size = obs_traj_rel.size(1)
                 total_traj += fut_traj.size(1)
 
+                # path = '../datasets\hotel\\test\\biwi_hotel.txt'
+                # l=f.readlines()
+                # data = read_file(path, 'tab')
+                # framd_num=6980
+                # np.where(obs_frames[:, 0] == framd_num)
+                # d = data[1989:2000]
+                # gt_real = d[..., -2:]
+                # gt_real = np.concatenate([gt_real, np.ones((2000-1989, 1))], axis=1)
+                # gt_pixel = np.matmul(gt_real, inv_h_t)
+                # gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
+                #
+                # fig, ax = plt.subplots()
+                # cap.set(1, framd_num)
+                # _, frame = cap.read()
+                # ax.imshow(frame)
+                # for i in range(len(d)):
+                #     ax.text(gt_pixel[i][1], gt_pixel[i][0], str(int(d[:,1][i])), fontsize=10)
+
+
                 (encX_h_feat, logitX) \
                     = self.encoderMx(obs_traj, seq_start_end)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
