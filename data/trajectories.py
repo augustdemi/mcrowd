@@ -1,6 +1,7 @@
 import logging
 import os
 import math
+import pandas as pd
 
 import numpy as np
 import torch
@@ -115,8 +116,15 @@ class TrajectoryDataset(Dataset):
         obs_frame_num = []
         fut_frame_num = []
         for path in all_files:
+
+            if 'eth' in path:
+                continue
+            print(path)
             data = read_file(path, delim)
+            # print('uniq ped: ', len(np.unique(data[:, 1])))
+
             frames = np.unique(data[:, 0]).tolist()
+            df = []
             # print('uniq frames: ', len(frames))
             frame_data = [] # all data per frame
             for frame in frames:
@@ -168,10 +176,16 @@ class TrajectoryDataset(Dataset):
                     seq_list_rel.append(curr_seq_rel[:num_peds_considered])
                     obs_frame_num.append(np.ones((num_peds_considered, self.obs_len)) * frames[idx:idx + self.obs_len])
                     fut_frame_num.append(np.ones((num_peds_considered, self.pred_len)) * frames[idx + self.obs_len:idx + self.seq_len])
-                # ped_ids = np.array(ped_ids)
-                # if 'test' in path and len(ped_ids) > 0:
-                #     a = (np.unique(curr_seq_data[:, 0]) - 780) / 10
-                #     print("frame idx:", idx, " frame num:", ",".join(a.astype(int).astype(str)), ' t: ', a[7],  " ped_ids: ", ",".join(ped_ids.astype(int).astype(str)))
+
+            #     ped_ids = np.array(ped_ids)
+            #     # if 'test' in path and len(ped_ids) > 0:
+            #     if len(ped_ids) > 0:
+            #         df.append([idx, len(ped_ids)])
+            # df = np.array(df)
+            # df = pd.DataFrame(df)
+            # print(df.groupby(by=1).size())
+
+            #     print("frame idx:", idx, "num_ped: ", len(ped_ids), " ped_ids: ", ",".join(ped_ids.astype(int).astype(str)))
 
 
         self.num_seq = len(seq_list) # = slide (seq. of 16 frames) 수 = 2692

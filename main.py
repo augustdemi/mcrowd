@@ -65,11 +65,11 @@ def create_parser():
     parser.add_argument( '--ckpt_load_iter', default=0, type=int,
       help='iter# to load the previously saved model ' + 
         '(default=0 to start from the scratch)' )
-    parser.add_argument( '--max_iter', default=10, type=float,
+    parser.add_argument( '--max_iter', default=5500, type=float,
       help='maximum number of batch iterations' )
-    parser.add_argument( '--ckpt_save_iter', default=1000, type=int,
+    parser.add_argument( '--ckpt_save_iter', default=100, type=int,
       help='checkpoint saved every # iters' )
-    parser.add_argument( '--output_save_iter', default=1000, type=int,
+    parser.add_argument( '--output_save_iter', default=10000, type=int,
       help='output saved every # iters' )
     parser.add_argument( '--print_iter', default=10, type=int,
       help='print losses iter' )
@@ -122,7 +122,7 @@ def create_parser():
     parser.add_argument('--mlp_dim', default=32, type=int)
     parser.add_argument('--batch_norm', default=0, type=bool_flag)
 
-    parser.add_argument( '--attention', default=1, type=bool_flag,
+    parser.add_argument( '--attention', default=0, type=bool_flag,
       help='pool/attn' )
     parser.add_argument( '--kl_weight', default=100.0, type=float,
       help='kl weight' )
@@ -168,8 +168,9 @@ def main(args):
 
 
             test_path = os.path.join(args.dataset_dir, args.dataset_name, 'test')
+            args.batch_size=364
             _, test_loader = data_loader(args, test_path,shuffle=False)
-            solver.plot_traj_var(test_loader)
+            # solver.plot_traj_var(test_loader)
             # solver.draw_traj(test_loader, 20)
             # solver.check_dist_stat(test_loader)
 
