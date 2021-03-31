@@ -116,9 +116,6 @@ class TrajectoryDataset(Dataset):
         obs_frame_num = []
         fut_frame_num = []
         for path in all_files:
-
-            if 'eth' in path:
-                continue
             print(path)
             data = read_file(path, delim)
             # print('uniq ped: ', len(np.unique(data[:, 1])))
