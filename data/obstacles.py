@@ -236,13 +236,12 @@ class TrajectoryDataset(Dataset):
             past_map_obst.append(torch.stack(seq_map))
         past_map_obst = torch.stack(past_map_obst) # (8, batch, 1, 128,128)
 
-        # plt.imshow(past_map_obst[0][1])
         ## real frame img
         # import cv2
         # fig, ax = plt.subplots()
         # cap = cv2.VideoCapture(
         #     'D:\crowd\ewap_dataset\seq_eth\seq_eth.avi')
-        # cap.set(1, obs_frames[0][0])
+        # cap.set(1,self.obs_frame_num[start:end][i][t])
         # _, frame = cap.read()
         # ax.imshow(frame)
 
