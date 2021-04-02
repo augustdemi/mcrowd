@@ -1,7 +1,9 @@
 import logging
 import os
 import math
-import pandas as pd
+import matplotlib.pyplot as plt
+from utils import transform
+import imageio
 
 import numpy as np
 import torch
@@ -33,14 +35,24 @@ def seq_collate(data):
     obs_frames = np.concatenate(obs_frames, 0)
     fut_frames = np.concatenate(fut_frames, 0)
 
-    past_obst = torch.tensor(past_obst)
-    fut_obst = torch.tensor(fut_obst)
+    past_obst = torch.cat(past_obst, 0).permute((1, 0, 2, 3, 4))
+    fut_obst = torch.cat(fut_obst, 0).permute((1, 0, 2, 3, 4))
+
+    # list_past_obst=[]
+    # for p in past_obst:
+    #     list_past_obst.extend(p)
+    #
+    # list_fut_obst=[]
+    # for f in fut_obst:
+    #     list_fut_obst.extend(f)
+
 
     out = [
         obs_traj, pred_traj, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst
     ]
 
     return tuple(out)
+
 
 
 
@@ -62,8 +74,8 @@ def read_file(_path, delim='\t'):
 class TrajectoryDataset(Dataset):
     """Dataloder for the Trajectory datasets"""
     def __init__(
-        self, data_dir, obs_len=8, pred_len=12, skip=1, threshold=0.002,
-        min_ped=0, delim='\t', device='cpu', dt=0.4
+        self, data_dir, obs_len=8, pred_len=12, skip=1, pixel_distance=5,
+        min_ped=0, delim='\t', device='cpu', dt=0.4, resize=100,
     ):
         """
         Args:
@@ -87,8 +99,15 @@ class TrajectoryDataset(Dataset):
         self.seq_len = self.obs_len + self.pred_len
         self.delim = delim
         self.device = device
-        map = imageio.imread('D:\crowd\ewap_dataset\seq_hotel/map.png')
-        h = np.loadtxt('D:\crowd\ewap_dataset\seq_hotel\H.txt')
+        # map = imageio.imread('D:\crowd\ewap_dataset\seq_hotel/map.png')
+        # h = np.loadtxt('D:\crowd\ewap_dataset\seq_hotel\H.txt')
+
+        self.map = imageio.imread(os.path.join(data_dir,'map.png'))
+        h = np.loadtxt(os.path.join(data_dir,'H.txt'))
+        self.inv_h_t = np.linalg.pinv(np.transpose(h))
+        self.pixel_distance=pixel_distance
+        self.resize=resize
+
         n_state=2
 
         all_files = os.listdir(self.data_dir)
@@ -100,6 +119,8 @@ class TrajectoryDataset(Dataset):
         obs_frame_num = []
         fut_frame_num = []
         for path in all_files:
+            if 'H.txt' in path or '.png' in path:
+                continue
             print(path)
             data = read_file(path, delim)
             # print('uniq ped: ', len(np.unique(data[:, 1])))
@@ -119,8 +140,6 @@ class TrajectoryDataset(Dataset):
                 peds_in_curr_seq = np.unique(curr_seq_data[:, 1]) # unique agent id
 
                 curr_seq = np.zeros((len(peds_in_curr_seq), n_state, self.seq_len))
-                curr_seq_past_obst = []
-                curr_seq_fut_obst = []
                 num_peds_considered = 0
                 ped_ids = []
                 for _, ped_id in enumerate(peds_in_curr_seq): # current frame sliding에 들어온 각 agent에 대해
@@ -186,63 +205,79 @@ class TrajectoryDataset(Dataset):
 
 
 
-        inv_h_t = np.linalg.pinv(np.transpose(h))
-        past_map_obst = []
-        pixel_distance=5
-        for i in range(len(self.past_obst)):
-            seq_map = []
-            for t in range(self.obs_len):
-                cp_map = map.copy()
-                gt_real = self.past_obst[i][t]
-                if len(gt_real) ==0:
-                    seq_map.append(cp_map)
-                    continue
-                gt_real = np.concatenate([gt_real, np.ones((len(gt_real), 1))], axis=1)
-                gt_pixel = np.matmul(gt_real, inv_h_t)
-                gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)  # 0th:  array([375.86123254, 493.5245    ,   1.        ])
-                # for d in gt_pixel:
-                #     plt.scatter(d[1], d[0], c='r')
-                for p in np.round(gt_pixel)[:, :2].astype(int):
-                    for x in range(max(p[0] - pixel_distance, map.shape[0]), min(p[0] + pixel_distance+1, map.shape[0])):
-                        for y in range(max(p[1] - pixel_distance, map.shape[1]), min(p[1] + pixel_distance+1, map.shape[1])):
-                            if np.linalg.norm(p - [x, y], 2) < pixel_distance:
-                                cp_map[x, y] = 255
-                seq_map.append(cp_map)
-            past_map_obst.append(seq_map)
-        self.past_obst = np.stack(past_map_obst)
-        # np.save(os.path.join(data_dir, 'map', split, 'past_map_obst'), past_map_obst)
-
-        fut_map_obst = []
-        pixel_distance=5
-        for i in range(len(self.fut_obst)):
-            seq_map = []
-            for t in range(self.pred_len):
-                cp_map = map.copy()
-                gt_real = self.fut_obst[i][t]
-                if len(gt_real) ==0:
-                    seq_map.append(cp_map)
-                    continue
-                gt_real = np.concatenate([gt_real, np.ones((len(gt_real), 1))], axis=1)
-                gt_pixel = np.matmul(gt_real, inv_h_t)
-                gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
-                for p in np.round(gt_pixel)[:, :2].astype(int):
-                    for x in range(max(p[0] - pixel_distance, map.shape[0]), min(p[0] + pixel_distance+1, map.shape[0])):
-                        for y in range(max(p[1] - pixel_distance, map.shape[1]), min(p[1] + pixel_distance+1, map.shape[1])):
-                            if np.linalg.norm(p - [x, y], 2) < pixel_distance:
-                                cp_map[x, y] = 255
-                seq_map.append(cp_map)
-            fut_map_obst.append(seq_map)
-        self.fut_obst = np.stack(fut_map_obst)
-        # np.save(os.path.join(data_dir, 'map', split, 'fut_map_obst'), fut_map_obst)
-
     def __len__(self):
         return self.num_seq
 
     def __getitem__(self, index):
         start, end = self.seq_start_end[index]
+
+        pixel_distance = self.pixel_distance
+        map = self.map
+        past_map_obst = []
+        past_obst = self.past_obst[start:end]
+        for i in range(len(past_obst)):  # len(past_obst) = batch
+            seq_map = []
+            for t in range(self.obs_len):
+                cp_map = map.copy()
+                gt_real = past_obst[i][t]
+                if len(gt_real) > 0:
+                    gt_real = np.concatenate([gt_real, np.ones((len(gt_real), 1))], axis=1)
+                    gt_pixel = np.matmul(gt_real, self.inv_h_t)
+                    gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
+                    # for d in gt_pixel:
+                    #     plt.scatter(d[1], d[0], c='r')
+                    for p in np.round(gt_pixel)[:, :2].astype(int):
+                        x = range(max(p[0] - pixel_distance, 0), min(p[0] + pixel_distance + 1, map.shape[0]))
+                        y = range(max(p[1] - pixel_distance, 0), min(p[1] + pixel_distance + 1, map.shape[1]))
+                        idx = np.transpose([np.tile(x, len(y)), np.repeat(y, len(x))])
+                        within_dist_idx = idx[np.linalg.norm(np.ones_like(idx)*p - idx, ord=2, axis=1) < pixel_distance]
+                        cp_map[within_dist_idx[:,0], within_dist_idx[:,1]] = 255
+                seq_map.append(transform(cp_map, (self.resize, self.resize)))
+            past_map_obst.append(torch.stack(seq_map))
+        past_map_obst = torch.stack(past_map_obst) # (8, batch, 1, 128,128)
+
+        # plt.imshow(past_map_obst[0][1])
+        ## real frame img
+        # import cv2
+        # fig, ax = plt.subplots()
+        # cap = cv2.VideoCapture(
+        #     'D:\crowd\ewap_dataset\seq_eth\seq_eth.avi')
+        # cap.set(1, obs_frames[0][0])
+        # _, frame = cap.read()
+        # ax.imshow(frame)
+
+        # plt.imshow(cp_map)
+        # fake=np.array([[-2.37,  6.54]])
+        # fake = np.concatenate([fake, np.ones((len(fake), 1))], axis=1)
+        # fake_pixel = np.matmul(fake, self.inv_h_t)
+        # fake_pixel /= np.expand_dims(fake_pixel[:, 2], 1)
+        # plt.scatter(fake_pixel[0,1], fake_pixel[0,0], c='r', s=1)
+        # np.linalg.norm(gt_pixel-fake_pixel,2) #  2.5415
+
+        fut_map_obst = []
+        fut_obst = self.fut_obst[start:end]
+        for i in range(len(fut_obst)):
+            seq_map = []
+            for t in range(self.pred_len):
+                cp_map = map.copy()
+                gt_real = fut_obst[i][t]
+                if len(gt_real) > 0:
+                    gt_real = np.concatenate([gt_real, np.ones((len(gt_real), 1))], axis=1)
+                    gt_pixel = np.matmul(gt_real, self.inv_h_t)
+                    gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
+                    for p in np.round(gt_pixel)[:, :2].astype(int):
+                        x = range(max(p[0] - pixel_distance, 0), min(p[0] + pixel_distance + 1, map.shape[0]))
+                        y = range(max(p[1] - pixel_distance, 0), min(p[1] + pixel_distance + 1, map.shape[1]))
+                        idx = np.transpose([np.tile(x, len(y)), np.repeat(y, len(x))])
+                        within_dist_idx = idx[np.linalg.norm(np.ones_like(idx)*p - idx, ord=2, axis=1) < pixel_distance]
+                        cp_map[within_dist_idx[:,0], within_dist_idx[:,1]] = 255
+                seq_map.append(transform(cp_map, (self.resize, self.resize)))
+            fut_map_obst.append(torch.stack(seq_map))
+        fut_map_obst = torch.stack(fut_map_obst)
+
         out = [
             self.obs_traj[start:end, :].to(self.device) , self.pred_traj[start:end, :].to(self.device),
-            self.obs_frame_num[start:end], self.fut_frame_num[start:end], self.past_obst[start:end], self.fut_obst[start:end]
+            self.obs_frame_num[start:end], self.fut_frame_num[start:end], past_map_obst, fut_map_obst
         ]
         return out
 

@@ -3,11 +3,15 @@ import os
 import torch.optim as optim
 # -----------------------------------------------------------------------------#
 from utils import DataGather, mkdirs
-from model import *
+from model_map_vae import *
 from data.map_loader import data_loader
 
 import matplotlib.pyplot as plt
-import matplotlib.pyplot as plt
+from utils import transform
+from torch.distributions import RelaxedOneHotCategorical as concrete
+from torch.distributions import OneHotCategorical as discrete
+from torch.distributions import kl_divergence
+
 import imageio
 
 
@@ -17,20 +21,18 @@ class Solver(object):
 
     ####
     def __init__(self, args):
-
         self.args = args
 
-        self.name = '%s_map_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_lr_%s_klw_%s' % \
-                    (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
-                     args.decoder_h_dim, args.mlp_dim, args.lr_VAE, args.kl_weight)
+        self.name = '%s_map_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_dr_map_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_emb_dim_%s_lr_%s_klw_%s_map_%s' % \
+                    (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.dropout_map, args.encoder_h_dim,
+                     args.decoder_h_dim, args.mlp_dim, args.emb_dim, args.lr_VAE, args.kl_weight, args.map_size)
 
 
         # to be appended by run_id
 
         # self.use_cuda = args.cuda and torch.cuda.is_available()
         self.device = args.device
-        self.temp=1.99
-        self.dt=0.4
+        self.temp=0.66
         self.kl_weight=args.kl_weight
 
         self.max_iter = int(args.max_iter)
@@ -125,32 +127,31 @@ class Solver(object):
                 args.zS_dim,
                 enc_h_dim=args.encoder_h_dim,
                 mlp_dim=args.mlp_dim,
-                attention=args.attention,
-                batch_norm=args.batch_norm,
-                num_layers=args.num_layers,
-                dropout_mlp=args.dropout_mlp,
-                dropout_rnn=args.dropout_rnn).to(self.device)
-            self.encoderMy = EncoderY(
-                args.zS_dim,
-                enc_h_dim=args.encoder_h_dim,
-                mlp_dim=args.mlp_dim,
-                attention=args.attention,
+                emb_dim=args.emb_dim,
+                map_size=args.map_size,
                 batch_norm=args.batch_norm,
                 num_layers=args.num_layers,
                 dropout_mlp=args.dropout_mlp,
                 dropout_rnn=args.dropout_rnn,
+                dropout_map=args.dropout_map).to(self.device)
+            self.encoderMy = EncoderY(
+                args.zS_dim,
+                enc_h_dim=args.encoder_h_dim,
+                mlp_dim=args.mlp_dim,
+                emb_dim=args.emb_dim,
+                num_layers=args.num_layers,
+                dropout_rnn=args.dropout_rnn,
+                dropout_map=args.dropout_map,
                 device=self.device).to(self.device)
             self.decoderMy = Decoder(
                 args.pred_len,
                 dec_h_dim=self.decoder_h_dim,
                 enc_h_dim=args.encoder_h_dim,
-                z_dim=args.zS_dim,
                 mlp_dim=args.mlp_dim,
+                z_dim=args.zS_dim,
                 num_layers=args.num_layers,
                 device=args.device,
-                dropout_mlp=args.dropout_mlp,
-                dropout_rnn=args.dropout_rnn,
-                batch_norm=args.batch_norm).to(self.device)
+                dropout_rnn=args.dropout_rnn).to(self.device)
 
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
@@ -171,16 +172,31 @@ class Solver(object):
             betas=[self.beta1_VAE, self.beta2_VAE]
         )
 
+
+        ######## map
+        # self.map = imageio.imread('D:\crowd\ewap_dataset\seq_' + self.dataset_name + '/map.png')
+        # h = np.loadtxt('D:\crowd\ewap_dataset\seq_' + self.dataset_name + '\H.txt')
+        # self.inv_h_t = np.linalg.pinv(np.transpose(h))
+        self.map_size=args.map_size
+        ######################################
         # prepare dataloader (iterable)
         print('Start loading data...')
-        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
+        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'train')
         val_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
 
         # long_dtype, float_dtype = get_dtypes(args)
 
         print("Initializing train dataset")
+        if self.dataset_name == 'eth':
+            self.args.pixel_distance=5 # for hotel
+        else:
+            self.args.pixel_distance=3 # for eth
         _, self.train_loader = data_loader(self.args, train_path)
         print("Initializing val dataset")
+        if self.dataset_name == 'eth':
+            self.args.pixel_distance=3
+        else:
+            self.args.pixel_distance=5
         _, self.val_loader = data_loader(self.args, val_path)
         # self.val_loader = self.train_loader
 
@@ -217,75 +233,36 @@ class Solver(object):
             # ============================================
 
             # sample a mini-batch
-            (obs_traj, fut_traj, seq_start_end, obs_frames, pred_frames, past_obst, fut_obst) = next(iterator)
+            (obs_traj, fut_traj, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst) = next(iterator)
             batch = fut_traj.size(1)
 
 
-            # map = imageio.imread('D:\crowd\ewap_dataset\seq_hotel/map.png')
-            #
-            # h = np.loadtxt('D:\crowd\ewap_dataset\seq_' + self.dataset_name + '\H.txt')
-            # inv_h_t = np.linalg.pinv(np.transpose(h))
-            #
-            # t=0
-            # i=0
-            # gt_real = past_obst[i][t]
-            # gt_real = np.concatenate([gt_real, np.ones((len(gt_real), 1))], axis=1)
-            # gt_pixel = np.matmul(gt_real, inv_h_t)
-            # gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1) # 0th:  array([375.86123254, 493.5245    ,   1.        ])
-            # # for d in gt_pixel:
-            # #     plt.scatter(d[1], d[0], c='r')
-            # for p in np.round(gt_pixel)[:,:2].astype(int):
-            #     for x in range(p[0]-5, p[0]+6):
-            #         for y in range(p[1]-5, p[1]+6):
-            #             if np.linalg.norm(p-[x,y],2) < 5:
-            #                 map[x, y] = 255
-            # plt.imshow(map)
+            (last_past_map_feat, encX_h_feat, logitX) = self.encoderMx(past_obst, seq_start_end, train=True)
+
+            (fut_map_feat, encY_h_feat, logitY) \
+                = self.encoderMy(past_obst[-1], fut_obst, seq_start_end, encX_h_feat, train=True)
+
+            p_dist = discrete(logits=logitX)
+            q_dist = discrete(logits=logitY)
+            relaxed_q_dist = concrete(logits=logitY, temperature=self.temp)
 
 
-            # ceil_pixel = np.ceil(gt_pixel)[:,:2].astype(int)
-            # floor_pixel=np.floor(gt_pixel)[:,:2].astype(int)
-            # map[ceil_pixel[:,0], ceil_pixel[:,1]] = 255
-            # map[floor_pixel[:,0], floor_pixel[:,1]] = 255
-            # map[ceil_pixel[:,0], floor_pixel[:,1]] = 255
-            # map[floor_pixel[:,0], ceil_pixel[:,1]] = 255
-            # plt.imshow(map)
+            fut_map_dist = self.decoderMy(
+                last_past_map_feat,
+                encX_h_feat,
+                relaxed_q_dist.rsample(),
+                fut_map_feat
+            )
 
-            # ## fake to check pixel distance
-            # fake = gt_real[0]
-            # fake = fake + np.array([0,0.2,0])
-            # fake_pixel = np.matmul(fake, inv_h_t)
-            # fake_pixel /= fake_pixel[2] # array([375.56178727, 498.56775017,   1.        ])
-            # plt.scatter(fake_pixel[1], fake_pixel[0], c='r', marker='*', s=1)
+            loglikelihood = fut_map_dist.log_prob(fut_obst).sum().div(batch).div(self.map_size)
 
-            # ## target
-            # target = list(obs_traj[0,0].detach().numpy())
-            # target.append(1)
-            # target_pixel = np.matmul(np.array(target), inv_h_t)
-            # target_pixel /= target_pixel[2]
-            # plt.scatter(target_pixel[1], target_pixel[0], c='r', marker='x')
+            loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
+            loss_kl = torch.clamp(loss_kl, min=0.07)
+            print('log_likelihood:', loglikelihood.item(), ' kl:', loss_kl.item())
 
-            ## real frame img
-            # import cv2
-            # fig, ax = plt.subplots()
-            # cap = cv2.VideoCapture(
-            #     'D:\crowd\ewap_dataset\seq_' + self.dataset_name + '\seq_' + self.dataset_name + '.avi')
-            # cap.set(1, obs_frames[i][t])
-            # _, frame = cap.read()
-            # ax.imshow(frame)
+            elbo = loglikelihood - self.kl_weight * loss_kl
+            vae_loss = -elbo
 
-
-            (encX_h_feat, logitX) = self.encoderMx(obs_traj, seq_start_end, train=True)
-
-
-            # fut_map_dist = self.decoderMy(
-            #     obs_traj[-1],
-            #     encX_h_feat,
-            #     relaxed_q_dist.rsample(),
-            #     fut_traj
-            # )
-            #
-            #
-            # vae_loss = -elbo
 
 
             self.optim_vae.zero_grad()
