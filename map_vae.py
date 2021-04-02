@@ -256,7 +256,7 @@ class Solver(object):
             )
             fut_map_mean = fut_map_mean.view(fut_obst.shape[0], fut_obst.shape[1], -1, fut_map_mean.shape[2], fut_map_mean.shape[3])
             loglikelihood = (torch.log(fut_map_mean + self.eps) * fut_obst +
-              torch.log(1 - fut_map_mean + self.eps) * (1 - fut_obst)).sum(-1).div(batch)
+              torch.log(1 - fut_map_mean + self.eps) * (1 - fut_obst)).sum().div(batch)
 
             loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
             loss_kl = torch.clamp(loss_kl, min=0.07)
@@ -333,7 +333,7 @@ class Solver(object):
                 fut_map_mean = fut_map_mean.view(fut_obst.shape[0], fut_obst.shape[1], -1, fut_map_mean.shape[2],
                                                  fut_map_mean.shape[3])
                 loglikelihood = (torch.log(fut_map_mean + self.eps) * fut_obst +
-                                 torch.log(1 - fut_map_mean + self.eps) * (1 - fut_obst)).sum(-1).div(batch)
+                                 torch.log(1 - fut_map_mean + self.eps) * (1 - fut_obst)).sum().div(batch)
 
                 loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
                 loss_kl = torch.clamp(loss_kl, min=0.07)
