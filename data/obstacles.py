@@ -277,7 +277,7 @@ class TrajectoryDataset(Dataset):
 
         out = [
             self.obs_traj[start:end, :].to(self.device) , self.pred_traj[start:end, :].to(self.device),
-            self.obs_frame_num[start:end], self.fut_frame_num[start:end], past_map_obst, fut_map_obst
+            self.obs_frame_num[start:end], self.fut_frame_num[start:end], past_map_obst.to(self.device), fut_map_obst.to(self.device)
         ]
         return out
 
