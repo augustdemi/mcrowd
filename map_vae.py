@@ -237,10 +237,10 @@ class Solver(object):
             batch = fut_traj.size(1)
 
 
-            (last_past_map_feat, encX_h_feat, logitX) = self.encoderMx(past_obst, seq_start_end)
+            (last_past_map_feat, encX_h_feat, logitX) = self.encoderMx(past_obst, seq_start_end, train=True)
 
             (fut_map_feat, encY_h_feat, logitY) \
-                = self.encoderMy(past_obst[-1], fut_obst, seq_start_end, encX_h_feat)
+                = self.encoderMy(past_obst[-1], fut_obst, seq_start_end, encX_h_feat, train=True)
 
             p_dist = discrete(logits=logitX)
             q_dist = discrete(logits=logitY)
@@ -315,10 +315,10 @@ class Solver(object):
                 (obs_traj, fut_traj, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst) = abatch
                 batch = fut_traj.size(1)
 
-                (last_past_map_feat, encX_h_feat, logitX) = self.encoderMx(past_obst, seq_start_end, train=True)
+                (last_past_map_feat, encX_h_feat, logitX) = self.encoderMx(past_obst, seq_start_end)
 
                 (fut_map_feat, encY_h_feat, logitY) \
-                    = self.encoderMy(past_obst[-1], fut_obst, seq_start_end, encX_h_feat, train=True)
+                    = self.encoderMy(past_obst[-1], fut_obst, seq_start_end, encX_h_feat)
 
                 p_dist = discrete(logits=logitX)
                 q_dist = discrete(logits=logitY)
@@ -343,6 +343,33 @@ class Solver(object):
                 all_vae_loss+=vae_loss
         self.set_mode(train=True)
         return all_loglikelihood.div(b), all_loss_kl.div(b), all_vae_loss.div(b)
+
+    def recon(self, data_loader):
+        self.set_mode(train=False)
+        with torch.no_grad():
+            for abatch in data_loader:
+
+                # sample a mini-batch
+                (obs_traj, fut_traj, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst) = abatch
+                batch = fut_traj.size(1)
+
+                (last_past_map_feat, encX_h_feat, logitX) = self.encoderMx(past_obst, seq_start_end)
+
+
+                relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
+
+                fut_map_mean = self.decoderMy(
+                    last_past_map_feat,
+                    encX_h_feat,
+                    relaxed_p_dist.rsample()
+                )
+                fut_map_mean = fut_map_mean.view(fut_obst.shape[0], fut_obst.shape[1], -1, fut_map_mean.shape[2], fut_map_mean.shape[3])
+                fut_map_dist = Laplace(fut_map_mean, torch.tensor(0.01).to(self.device))
+                pred_map = fut_map_dist.rsample()
+
+                break
+
+        self.set_mode(train=True)
 
     ####
     def viz_init(self):

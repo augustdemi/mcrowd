@@ -42,7 +42,7 @@ def create_parser():
     
     parser = argparse.ArgumentParser()
 
-    parser.add_argument( '--run_id', default=42, type=int,
+    parser.add_argument( '--run_id', default=0, type=int,
       help='run id (default=-1 to create a new id)' )
 
     parser.add_argument( '--device', default='cpu', type=str,
@@ -62,10 +62,10 @@ def create_parser():
 
     
     # saving directories and checkpoint/sample iterations
-    parser.add_argument( '--ckpt_load_iter', default=0, type=int,
+    parser.add_argument( '--ckpt_load_iter', default=100, type=int,
       help='iter# to load the previously saved model ' + 
         '(default=0 to start from the scratch)' )
-    parser.add_argument( '--max_iter', default=1000, type=float,
+    parser.add_argument( '--max_iter', default=100, type=float,
       help='maximum number of batch iterations' )
     parser.add_argument( '--ckpt_save_iter', default=100, type=int,
       help='checkpoint saved every # iters' )
@@ -138,53 +138,11 @@ def main(args):
     if args.ckpt_load_iter == args.max_iter:
 
         print("Initializing test dataset")
-        if args.dataset_name=='all':
-            print('======================== [iter_%d] ========================' %  args.ckpt_load_iter)
-            for dataset_name in ['eth', 'hotel', 'univ', 'zara1', 'zara2']:
-                args.dataset_name =dataset_name
-
-                solver = Solver(args)
-                test_path = os.path.join(args.dataset_dir, dataset_name, 'test')
-                _, test_loader = data_loader(args, test_path)
-
-                ade_min, fde_min, \
-                ade_avg, fde_avg, \
-                ade_std, fde_std = solver.evaluate_dist(test_loader, 20, loss=False)
-                print(args.dataset_name)
-                print('ade min: ', ade_min)
-                print('ade avg: ', ade_avg)
-                print('ade std: ', ade_std)
-                print('fde min: ', fde_min)
-                print('fde avg: ', fde_avg)
-                print('fde std: ', fde_std)
-        else:
-            solver = Solver(args)
-
-            # dist_path = os.path.join(args.dataset_dir, args.dataset_name, 'dist')
-            # print(dist_path)
-            # _, dist_loader = data_loader(args, dist_path)
-            # solver.check_dist_stat(dist_loader)
-
-
-            test_path = os.path.join(args.dataset_dir, args.dataset_name, 'test')
-            args.batch_size=364
-            _, test_loader = data_loader(args, test_path,shuffle=False)
-            solver.plot_traj_var(test_loader)
-            # solver.draw_traj(test_loader, 20)
-            # solver.check_dist_stat(test_loader)
-
-
-            ade_min, fde_min, \
-            ade_avg, fde_avg, \
-            ade_std, fde_std = solver.evaluate_dist(test_loader, 20, loss=False)
-            print('--------------------', args.dataset_name , '----------------------')
-            print('ade min: ', ade_min)
-            print('ade avg: ', ade_avg)
-            print('ade std: ', ade_std)
-            print('fde min: ', fde_min)
-            print('fde avg: ', fde_avg)
-            print('fde std: ', fde_std)
-            print('------------------------------------------')
+        solver = Solver(args)
+        test_path = os.path.join(args.dataset_dir, args.dataset_name, 'test')
+        args.batch_size=364
+        _, test_loader = data_loader(args, test_path, shuffle=False)
+        solver.recon(test_loader)
 
 
     else:
