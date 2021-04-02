@@ -237,28 +237,29 @@ class Solver(object):
             batch = fut_traj.size(1)
 
 
-            (last_past_map_feat, encX_h_feat, logitX) = self.encoderMx(past_obst, seq_start_end, train=True)
+            (last_past_map_feat, encX_h_feat, logitX) = self.encoderMx(past_obst, seq_start_end)
 
             (fut_map_feat, encY_h_feat, logitY) \
-                = self.encoderMy(past_obst[-1], fut_obst, seq_start_end, encX_h_feat, train=True)
+                = self.encoderMy(past_obst[-1], fut_obst, seq_start_end, encX_h_feat)
 
             p_dist = discrete(logits=logitX)
             q_dist = discrete(logits=logitY)
             relaxed_q_dist = concrete(logits=logitY, temperature=self.temp)
 
 
-            fut_map_dist = self.decoderMy(
+            fut_map_mean = self.decoderMy(
                 last_past_map_feat,
                 encX_h_feat,
-                relaxed_q_dist.rsample(),
-                fut_map_feat
+                relaxed_q_dist.rsample()
             )
+            fut_map_mean = fut_map_mean.view(fut_obst.shape[0], fut_obst.shape[1], -1, fut_map_mean.shape[2], fut_map_mean.shape[3])
+            fut_map_dist = Laplace(fut_map_mean, torch.tensor(0.01).to(self.device))
 
             loglikelihood = fut_map_dist.log_prob(fut_obst).sum().div(batch).div(self.map_size)
 
             loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
             loss_kl = torch.clamp(loss_kl, min=0.07)
-            print('log_likelihood:', loglikelihood.item(), ' kl:', loss_kl.item())
+            # print('log_likelihood:', loglikelihood.item(), ' kl:', loss_kl.item())
 
             elbo = loglikelihood - self.kl_weight * loss_kl
             vae_loss = -elbo
@@ -275,13 +276,98 @@ class Solver(object):
                 self.save_checkpoint(iteration)
 
 
+            # (visdom) insert current line stats
+            if self.viz_on and (iteration % self.viz_ll_iter == 0):
+                ade_min, fde_min, \
+                ade_avg, fde_avg, \
+                ade_std, fde_std, \
+                test_loss_recon, test_loss_kl, test_vae_loss = self.test(self.val_loader, 20, loss=True)
+                self.line_gather.insert(iter=iteration,
+                                        loss_recon=-loglikelihood.item(),
+                                        loss_kl=loss_kl.item(),
+                                        total_loss=vae_loss.item(),
+                                        test_loss_recon=-test_loss_recon.item(),
+                                        test_loss_kl=test_loss_kl.item(),
+                                        test_total_loss=test_vae_loss.item(),
+                                        )
+                prn_str = ('[iter_%d (epoch_%d)] vae_loss: %.3f ' + \
+                           '(recon: %.3f, kl: %.3f)\n' + \
+                           'ADE min: %.2f, FDE min: %.2f, ADE avg: %.2f, FDE avg: %.2f\n'
+                           ) % \
+                          (iteration, epoch,
+                           vae_loss.item(), -loglikelihood.item(), loss_kl.item(),
+                           ade_min, fde_min, ade_avg, fde_avg
+                           )
+
+                print(prn_str)
 
             # (visdom) visualize line stats (then flush out)
             if self.viz_on and (iteration % self.viz_la_iter == 0):
                 self.visualize_line()
                 self.line_gather.flush()
 
+    def test(self):
+        self.set_mode(train=False)
+        data_loader = self.train_loader
+        self.N = len(data_loader.dataset)
 
+        # iterators from dataloader
+        iterator = iter(data_loader)
+
+        iter_per_epoch = len(iterator)
+
+        start_iter = self.ckpt_load_iter + 1
+        epoch = int(start_iter / iter_per_epoch)
+
+        all_loglikelihood = 0
+        all_loss_kl = 0
+        all_vae_loss = 0
+        b=0
+        for iteration in range(start_iter, self.max_iter + 1):
+            b+=1
+            # reset data iterators for each epoch
+            if iteration % iter_per_epoch == 0:
+                print('==== epoch %d done ====' % epoch)
+                epoch += 1
+                iterator = iter(data_loader)
+
+            # ============================================
+            #          TRAIN THE VAE (ENC & DEC)
+            # ============================================
+
+            # sample a mini-batch
+            (obs_traj, fut_traj, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst) = next(iterator)
+            batch = fut_traj.size(1)
+
+            (last_past_map_feat, encX_h_feat, logitX) = self.encoderMx(past_obst, seq_start_end, train=True)
+
+            (fut_map_feat, encY_h_feat, logitY) \
+                = self.encoderMy(past_obst[-1], fut_obst, seq_start_end, encX_h_feat, train=True)
+
+            p_dist = discrete(logits=logitX)
+            q_dist = discrete(logits=logitY)
+            relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
+
+            fut_map_mean = self.decoderMy(
+                last_past_map_feat,
+                encX_h_feat,
+                relaxed_p_dist.rsample()
+            )
+            fut_map_mean = fut_map_mean.view(fut_obst.shape[0], fut_obst.shape[1], -1, fut_map_mean.shape[2], fut_map_mean.shape[3])
+            fut_map_dist = Laplace(fut_map_mean, torch.tensor(0.01).to(self.device))
+
+            loglikelihood = fut_map_dist.log_prob(fut_obst).sum().div(batch).div(self.map_size)
+
+            loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
+            loss_kl = torch.clamp(loss_kl, min=0.07)
+            elbo = loglikelihood - self.kl_weight * loss_kl
+            vae_loss = -elbo
+            all_loglikelihood+=loglikelihood
+            all_loss_kl+=loss_kl
+            all_vae_loss+=vae_loss
+
+        self.set_mode(train=True)
+        return all_loglikelihood.div(b), all_loss_kl.div(b), all_vae_loss.div(b)
 
     ####
     def viz_init(self):
@@ -291,12 +377,6 @@ class Solver(object):
         self.viz.close(env=self.name + '/lines', win=self.win_id['test_loss_recon'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['test_loss_kl'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['test_total_loss'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['ade_min'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['fde_min'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['ade_avg'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['fde_avg'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['ade_std'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['fde_std'])
 
     ####
     def visualize_line(self):
@@ -307,12 +387,6 @@ class Solver(object):
         loss_recon = torch.Tensor(data['loss_recon'])
         loss_kl = torch.Tensor(data['loss_kl'])
         total_loss = torch.Tensor(data['total_loss'])
-        ade_min = torch.Tensor(data['ade_min'])
-        fde_min = torch.Tensor(data['fde_min'])
-        ade_avg = torch.Tensor(data['ade_avg'])
-        fde_avg = torch.Tensor(data['fde_avg'])
-        ade_std = torch.Tensor(data['ade_std'])
-        fde_std = torch.Tensor(data['fde_std'])
         test_loss_recon = torch.Tensor(data['test_loss_recon'])
         test_loss_kl = torch.Tensor(data['test_loss_kl'])
         test_total_loss = torch.Tensor(data['test_total_loss'])
@@ -360,44 +434,6 @@ class Solver(object):
                       title='Test VAE loss'),
         )
 
-        self.viz.line(
-            X=iters, Y=ade_min, env=self.name + '/lines',
-            win=self.win_id['ade_min'], update='append',
-            opts=dict(xlabel='iter', ylabel='ade',
-                      title='ADE min'),
-        )
-        self.viz.line(
-            X=iters, Y=fde_min, env=self.name + '/lines',
-            win=self.win_id['fde_min'], update='append',
-            opts=dict(xlabel='iter', ylabel='fde',
-                      title='FDE min'),
-        )
-        self.viz.line(
-            X=iters, Y=ade_avg, env=self.name + '/lines',
-            win=self.win_id['ade_avg'], update='append',
-            opts=dict(xlabel='iter', ylabel='ade',
-                      title='ADE avg'),
-        )
-
-        self.viz.line(
-            X=iters, Y=fde_avg, env=self.name + '/lines',
-            win=self.win_id['fde_avg'], update='append',
-            opts=dict(xlabel='iter', ylabel='fde',
-                      title='FDE avg'),
-        )
-        self.viz.line(
-            X=iters, Y=ade_std, env=self.name + '/lines',
-            win=self.win_id['ade_std'], update='append',
-            opts=dict(xlabel='iter', ylabel='ade std',
-                      title='ADE std'),
-        )
-
-        self.viz.line(
-            X=iters, Y=fde_std, env=self.name + '/lines',
-            win=self.win_id['fde_std'], update='append',
-            opts=dict(xlabel='iter', ylabel='fde std',
-                      title='FDE std'),
-        )
 
 
 
