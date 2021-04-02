@@ -281,7 +281,7 @@ class Solver(object):
                 ade_min, fde_min, \
                 ade_avg, fde_avg, \
                 ade_std, fde_std, \
-                test_loss_recon, test_loss_kl, test_vae_loss = self.test(self.val_loader, 20, loss=True)
+                test_loss_recon, test_loss_kl, test_vae_loss = self.test()
                 self.line_gather.insert(iter=iteration,
                                         loss_recon=-loglikelihood.item(),
                                         loss_kl=loss_kl.item(),
