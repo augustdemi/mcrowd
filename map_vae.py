@@ -308,63 +308,44 @@ class Solver(object):
 
     def test(self):
         self.set_mode(train=False)
-        data_loader = self.train_loader
-        self.N = len(data_loader.dataset)
-
-        # iterators from dataloader
-        iterator = iter(data_loader)
-
-        iter_per_epoch = len(iterator)
-
-        start_iter = self.ckpt_load_iter + 1
-        epoch = int(start_iter / iter_per_epoch)
-
         all_loglikelihood = 0
         all_loss_kl = 0
         all_vae_loss = 0
-        b=0
-        for iteration in range(start_iter, self.max_iter + 1):
-            b+=1
-            # reset data iterators for each epoch
-            if iteration % iter_per_epoch == 0:
-                print('==== epoch %d done ====' % epoch)
-                epoch += 1
-                iterator = iter(data_loader)
+        b = 0
+        with torch.no_grad():
+            for abatch in self.val_loader:
+                b+=1
 
-            # ============================================
-            #          TRAIN THE VAE (ENC & DEC)
-            # ============================================
+                # sample a mini-batch
+                (obs_traj, fut_traj, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst) = abatch
+                batch = fut_traj.size(1)
 
-            # sample a mini-batch
-            (obs_traj, fut_traj, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst) = next(iterator)
-            batch = fut_traj.size(1)
+                (last_past_map_feat, encX_h_feat, logitX) = self.encoderMx(past_obst, seq_start_end, train=True)
 
-            (last_past_map_feat, encX_h_feat, logitX) = self.encoderMx(past_obst, seq_start_end, train=True)
+                (fut_map_feat, encY_h_feat, logitY) \
+                    = self.encoderMy(past_obst[-1], fut_obst, seq_start_end, encX_h_feat, train=True)
 
-            (fut_map_feat, encY_h_feat, logitY) \
-                = self.encoderMy(past_obst[-1], fut_obst, seq_start_end, encX_h_feat, train=True)
+                p_dist = discrete(logits=logitX)
+                q_dist = discrete(logits=logitY)
+                relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
-            p_dist = discrete(logits=logitX)
-            q_dist = discrete(logits=logitY)
-            relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
+                fut_map_mean = self.decoderMy(
+                    last_past_map_feat,
+                    encX_h_feat,
+                    relaxed_p_dist.rsample()
+                )
+                fut_map_mean = fut_map_mean.view(fut_obst.shape[0], fut_obst.shape[1], -1, fut_map_mean.shape[2], fut_map_mean.shape[3])
+                fut_map_dist = Laplace(fut_map_mean, torch.tensor(0.01).to(self.device))
 
-            fut_map_mean = self.decoderMy(
-                last_past_map_feat,
-                encX_h_feat,
-                relaxed_p_dist.rsample()
-            )
-            fut_map_mean = fut_map_mean.view(fut_obst.shape[0], fut_obst.shape[1], -1, fut_map_mean.shape[2], fut_map_mean.shape[3])
-            fut_map_dist = Laplace(fut_map_mean, torch.tensor(0.01).to(self.device))
+                loglikelihood = fut_map_dist.log_prob(fut_obst).sum().div(batch).div(self.map_size)
 
-            loglikelihood = fut_map_dist.log_prob(fut_obst).sum().div(batch).div(self.map_size)
-
-            loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
-            loss_kl = torch.clamp(loss_kl, min=0.07)
-            elbo = loglikelihood - self.kl_weight * loss_kl
-            vae_loss = -elbo
-            all_loglikelihood+=loglikelihood
-            all_loss_kl+=loss_kl
-            all_vae_loss+=vae_loss
+                loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
+                loss_kl = torch.clamp(loss_kl, min=0.07)
+                elbo = loglikelihood - self.kl_weight * loss_kl
+                vae_loss = -elbo
+                all_loglikelihood+=loglikelihood
+                all_loss_kl+=loss_kl
+                all_vae_loss+=vae_loss
 
         self.set_mode(train=True)
         return all_loglikelihood.div(b), all_loss_kl.div(b), all_vae_loss.div(b)
