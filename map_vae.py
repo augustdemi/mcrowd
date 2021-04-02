@@ -278,9 +278,6 @@ class Solver(object):
 
             # (visdom) insert current line stats
             if self.viz_on and (iteration % self.viz_ll_iter == 0):
-                ade_min, fde_min, \
-                ade_avg, fde_avg, \
-                ade_std, fde_std, \
                 test_loss_recon, test_loss_kl, test_vae_loss = self.test()
                 self.line_gather.insert(iter=iteration,
                                         loss_recon=-loglikelihood.item(),
@@ -291,12 +288,10 @@ class Solver(object):
                                         test_total_loss=test_vae_loss.item(),
                                         )
                 prn_str = ('[iter_%d (epoch_%d)] vae_loss: %.3f ' + \
-                           '(recon: %.3f, kl: %.3f)\n' + \
-                           'ADE min: %.2f, FDE min: %.2f, ADE avg: %.2f, FDE avg: %.2f\n'
+                           '(recon: %.3f, kl: %.3f)\n'
                            ) % \
                           (iteration, epoch,
-                           vae_loss.item(), -loglikelihood.item(), loss_kl.item(),
-                           ade_min, fde_min, ade_avg, fde_avg
+                           vae_loss.item(), -loglikelihood.item(), loss_kl.item()
                            )
 
                 print(prn_str)
@@ -346,7 +341,6 @@ class Solver(object):
                 all_loglikelihood+=loglikelihood
                 all_loss_kl+=loss_kl
                 all_vae_loss+=vae_loss
-
         self.set_mode(train=True)
         return all_loglikelihood.div(b), all_loss_kl.div(b), all_vae_loss.div(b)
 
