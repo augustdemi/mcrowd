@@ -275,7 +275,7 @@ class Decoder(nn.Module):
         # up2 = nn.Upsample(41)
         # up1 = nn.Upsample(8)
 
-    def forward(self, last_past_map_feat, enc_h_feat, z, fut_state=None):
+    def forward(self, last_past_map_feat, enc_h_feat, z, fut_map_feat=None):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
@@ -298,6 +298,8 @@ class Decoder(nn.Module):
             decoder_h= self.rnn_decoder(torch.cat([zx, a], dim=1), decoder_h) #493, 128
             a= self.hidden_to_feat(decoder_h)
             map_feat.append(a)
+            if fut_map_feat is not None:
+                a = fut_map_feat[i]
 
         map_feat = torch.stack(map_feat, dim=0)
         map_feat = self.fc(map_feat)

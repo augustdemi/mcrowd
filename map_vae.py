@@ -250,12 +250,13 @@ class Solver(object):
             fut_map_mean = self.decoderMy(
                 last_past_map_feat,
                 encX_h_feat,
-                relaxed_q_dist.rsample()
+                relaxed_q_dist.rsample(),
+                fut_map_feat
             )
             fut_map_mean = fut_map_mean.view(fut_obst.shape[0], fut_obst.shape[1], -1, fut_map_mean.shape[2], fut_map_mean.shape[3])
-            fut_map_dist = Laplace(fut_map_mean, torch.tensor(0.01).to(self.device))
-
-            loglikelihood = fut_map_dist.log_prob(fut_obst).sum().div(batch).div(self.map_size**2)
+            # fut_map_dist = Laplace(fut_map_mean, torch.tensor(0.01).to(self.device))
+            # loglikelihood = fut_map_dist.log_prob(fut_obst).sum().div(batch).div(self.map_size**2)
+            loglikelihood = -(torch.norm(fut_obst-fut_map_mean, 1)).div(batch).div(self.map_size**2)
 
             loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
             loss_kl = torch.clamp(loss_kl, min=0.07)
@@ -329,10 +330,11 @@ class Solver(object):
                     encX_h_feat,
                     relaxed_p_dist.rsample()
                 )
-                fut_map_mean = fut_map_mean.view(fut_obst.shape[0], fut_obst.shape[1], -1, fut_map_mean.shape[2], fut_map_mean.shape[3])
-                fut_map_dist = Laplace(fut_map_mean, torch.tensor(0.01).to(self.device))
-
-                loglikelihood = fut_map_dist.log_prob(fut_obst).sum().div(batch).div(self.map_size**2)
+                fut_map_mean = fut_map_mean.view(fut_obst.shape[0], fut_obst.shape[1], -1, fut_map_mean.shape[2],
+                                                 fut_map_mean.shape[3])
+                # fut_map_dist = Laplace(fut_map_mean, torch.tensor(0.01).to(self.device))
+                # loglikelihood = fut_map_dist.log_prob(fut_obst).sum().div(batch).div(self.map_size**2)
+                loglikelihood = -(torch.norm(fut_obst - fut_map_mean, 1)).div(batch).div(self.map_size ** 2)
 
                 loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
                 loss_kl = torch.clamp(loss_kl, min=0.07)
@@ -354,18 +356,29 @@ class Solver(object):
                 batch = fut_traj.size(1)
 
                 (last_past_map_feat, encX_h_feat, logitX) = self.encoderMx(past_obst, seq_start_end)
+                (fut_map_feat, encY_h_feat, logitY) \
+                    = self.encoderMy(past_obst[-1], fut_obst, seq_start_end, encX_h_feat)
 
 
-                relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
+
+                relaxed_q_dist = concrete(logits=logitY, temperature=self.temp)
+                # relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
                 fut_map_mean = self.decoderMy(
                     last_past_map_feat,
                     encX_h_feat,
-                    relaxed_p_dist.rsample()
+                    relaxed_q_dist.rsample()
                 )
                 fut_map_mean = fut_map_mean.view(fut_obst.shape[0], fut_obst.shape[1], -1, fut_map_mean.shape[2], fut_map_mean.shape[3])
                 fut_map_dist = Laplace(fut_map_mean, torch.tensor(0.01).to(self.device))
                 pred_map = fut_map_dist.rsample()
+
+                from torchvision.utils import save_image
+                out_dir = os.path.join('../output/' + self.name)
+                mkdirs(out_dir)
+                for i in range(10):
+                    save_image(pred_map[:, i], str(os.path.join(out_dir, 'recon_img'+str(i)+'.png')), nrow=self.pred_len)
+                    save_image(fut_obst[:, i], str(os.path.join(out_dir, 'gt_img'+str(i)+'.png')), nrow=self.pred_len)
 
                 break
 
