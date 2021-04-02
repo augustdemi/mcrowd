@@ -303,7 +303,6 @@ class Decoder(nn.Module):
         map_feat = self.fc(map_feat)
 
         map_mean = self.deconv(map_feat.view(-1,4,4,4))
-        map_mean = map_mean.view(fut_state.shape[0], fut_state.shape[1], -1, map_mean.shape[2], map_mean.shape[3])
-        map_dist=Laplace(map_mean, torch.tensor(0.01).to(z.device))
-        return map_dist
+
+        return map_mean
 
