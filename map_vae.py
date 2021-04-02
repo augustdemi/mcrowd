@@ -239,7 +239,7 @@ class Solver(object):
 
             (last_past_map_feat, encX_h_feat, logitX) = self.encoderMx(past_obst, seq_start_end, train=True)
 
-            (fut_map_feat, encY_h_feat, logitY) \
+            (fut_map_emb, encY_h_feat, logitY) \
                 = self.encoderMy(past_obst[-1], fut_obst, seq_start_end, encX_h_feat, train=True)
 
             p_dist = discrete(logits=logitX)
@@ -251,7 +251,7 @@ class Solver(object):
                 last_past_map_feat,
                 encX_h_feat,
                 relaxed_q_dist.rsample(),
-                fut_map_feat
+                fut_map_emb
             )
             fut_map_mean = fut_map_mean.view(fut_obst.shape[0], fut_obst.shape[1], -1, fut_map_mean.shape[2], fut_map_mean.shape[3])
             # fut_map_dist = Laplace(fut_map_mean, torch.tensor(0.01).to(self.device))
@@ -318,7 +318,7 @@ class Solver(object):
 
                 (last_past_map_feat, encX_h_feat, logitX) = self.encoderMx(past_obst, seq_start_end)
 
-                (fut_map_feat, encY_h_feat, logitY) \
+                (_, _, logitY) \
                     = self.encoderMy(past_obst[-1], fut_obst, seq_start_end, encX_h_feat)
 
                 p_dist = discrete(logits=logitX)
@@ -356,10 +356,8 @@ class Solver(object):
                 batch = fut_traj.size(1)
 
                 (last_past_map_feat, encX_h_feat, logitX) = self.encoderMx(past_obst, seq_start_end)
-                (fut_map_feat, encY_h_feat, logitY) \
+                (fut_map_emb, _, logitY) \
                     = self.encoderMy(past_obst[-1], fut_obst, seq_start_end, encX_h_feat)
-
-
 
                 relaxed_q_dist = concrete(logits=logitY, temperature=self.temp)
                 # relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
@@ -367,7 +365,8 @@ class Solver(object):
                 fut_map_mean = self.decoderMy(
                     last_past_map_feat,
                     encX_h_feat,
-                    relaxed_q_dist.rsample()
+                    relaxed_q_dist.rsample(),
+                    fut_map_emb
                 )
                 fut_map_mean = fut_map_mean.view(fut_obst.shape[0], fut_obst.shape[1], -1, fut_map_mean.shape[2], fut_map_mean.shape[3])
                 fut_map_dist = Laplace(fut_map_mean, torch.tensor(0.01).to(self.device))
