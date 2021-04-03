@@ -11,6 +11,7 @@ from utils import transform
 from torch.distributions import RelaxedOneHotCategorical as concrete
 from torch.distributions import OneHotCategorical as discrete
 from torch.distributions import kl_divergence
+from torchvision.utils import save_image
 
 import imageio
 
@@ -348,36 +349,45 @@ class Solver(object):
     def recon(self, data_loader):
         self.set_mode(train=False)
         with torch.no_grad():
-            for abatch in data_loader:
+            fixed_idxs=range(5)
 
-                # sample a mini-batch
-                (obs_traj, fut_traj, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst) = abatch
-                batch = fut_traj.size(1)
+            from data.obstacles import seq_collate
+            data = []
+            for i, idx in enumerate(fixed_idxs):
+                data.append(data_loader.dataset.__getitem__(idx))
 
-                (last_past_map_feat, encX_h_feat, logitX) = self.encoderMx(past_obst, seq_start_end)
-                (fut_map_emb, _, logitY) \
-                    = self.encoderMy(past_obst[-1], fut_obst, seq_start_end, encX_h_feat)
+            (obs_traj, fut_traj, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst) = seq_collate(data)
 
-                relaxed_q_dist = concrete(logits=logitY, temperature=self.temp)
-                relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
-                fut_map_mean = self.decoderMy(
-                    last_past_map_feat,
-                    encX_h_feat,
-                    relaxed_p_dist.rsample()
-                )
-                fut_map_mean = fut_map_mean.view(fut_obst.shape[0], fut_obst.shape[1], -1, fut_map_mean.shape[2], fut_map_mean.shape[3])
-                fut_map_dist = Laplace(fut_map_mean, torch.tensor(0.01).to(self.device))
-                pred_map = fut_map_dist.rsample()
+            (last_past_map_feat, encX_h_feat, logitX) = self.encoderMx(past_obst, seq_start_end)
+            (fut_map_emb, _, logitY) = self.encoderMy(past_obst[-1], fut_obst, seq_start_end, encX_h_feat)
 
-                from torchvision.utils import save_image
-                out_dir = os.path.join('../output/' + self.name)
-                mkdirs(out_dir)
-                for i in range(10):
-                    save_image(fut_map_mean[:, i], str(os.path.join(out_dir, 'recon_img'+str(i)+'.png')), nrow=self.pred_len)
-                    save_image(fut_obst[:, i], str(os.path.join(out_dir, 'gt_img'+str(i)+'.png')), nrow=self.pred_len)
+            relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
+            relaxed_q_dist = concrete(logits=logitY, temperature=self.temp)
 
-                break
+
+            prior_fut_map_mean = self.decoderMy(
+                last_past_map_feat,
+                encX_h_feat,
+                relaxed_p_dist.rsample()
+            )
+
+            posterior_fut_map_mean = self.decoderMy(
+                last_past_map_feat,
+                encX_h_feat,
+                relaxed_q_dist.rsample(),
+                fut_map_emb,
+            )
+
+            prior_fut_map_mean = prior_fut_map_mean.view(fut_obst.shape[0], fut_obst.shape[1], -1, prior_fut_map_mean.shape[2], prior_fut_map_mean.shape[3])
+            posterior_fut_map_mean = posterior_fut_map_mean.view(fut_obst.shape[0], fut_obst.shape[1], -1, posterior_fut_map_mean.shape[2], posterior_fut_map_mean.shape[3])
+
+            out_dir = os.path.join('../output',self.name, str(self.ckpt_load_iter))
+            mkdirs(out_dir)
+            for i in range(fut_obst.shape[1]):
+                save_image(prior_fut_map_mean[:, i], str(os.path.join(out_dir, 'prior_recon_img'+str(i)+'.png')), nrow=self.pred_len, pad_value=1)
+                save_image(posterior_fut_map_mean[:, i], str(os.path.join(out_dir, 'posterior_recon_img'+str(i)+'.png')), nrow=self.pred_len, pad_value=1)
+                save_image(fut_obst[:, i], str(os.path.join(out_dir, 'gt_img'+str(i)+'.png')), nrow=self.pred_len, pad_value=1)
 
         self.set_mode(train=True)
 
