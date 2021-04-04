@@ -303,6 +303,8 @@ class Solver(object):
             if self.viz_on and (iteration % self.viz_la_iter == 0):
                 self.visualize_line()
                 self.line_gather.flush()
+            if (iteration % self.output_save_iter == 0):
+                self.recon(self.val_loader)
 
     def test(self):
         self.set_mode(train=False)
@@ -383,7 +385,7 @@ class Solver(object):
             prior_fut_map_mean = prior_fut_map_mean.view(fut_obst.shape[0], fut_obst.shape[1], -1, prior_fut_map_mean.shape[2], prior_fut_map_mean.shape[3])
             posterior_fut_map_mean = posterior_fut_map_mean.view(fut_obst.shape[0], fut_obst.shape[1], -1, posterior_fut_map_mean.shape[2], posterior_fut_map_mean.shape[3])
 
-            out_dir = os.path.join('../output',self.name, str(self.ckpt_load_iter))
+            out_dir = os.path.join('./output',self.name, str(self.ckpt_load_iter))
             mkdirs(out_dir)
             for i in range(fut_obst.shape[1]):
                 save_image(prior_fut_map_mean[:, i], str(os.path.join(out_dir, 'prior_recon_img'+str(i)+'.png')), nrow=self.pred_len, pad_value=1)
