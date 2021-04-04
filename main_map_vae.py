@@ -42,7 +42,7 @@ def create_parser():
     
     parser = argparse.ArgumentParser()
 
-    parser.add_argument( '--run_id', default=0, type=int,
+    parser.add_argument( '--run_id', default=4, type=int,
       help='run id (default=-1 to create a new id)' )
 
     parser.add_argument( '--device', default='cpu', type=str,
@@ -62,10 +62,10 @@ def create_parser():
 
     
     # saving directories and checkpoint/sample iterations
-    parser.add_argument( '--ckpt_load_iter', default=100, type=int,
+    parser.add_argument( '--ckpt_load_iter', default=0, type=int,
       help='iter# to load the previously saved model ' + 
         '(default=0 to start from the scratch)' )
-    parser.add_argument( '--max_iter', default=100, type=float,
+    parser.add_argument( '--max_iter', default=0, type=float,
       help='maximum number of batch iterations' )
     parser.add_argument( '--ckpt_save_iter', default=100, type=int,
       help='checkpoint saved every # iters' )
@@ -100,7 +100,7 @@ def create_parser():
     # dataset
     parser.add_argument( '--dataset_dir', default='../datasets/map', type=str,
       help='dataset directory' )
-    parser.add_argument( '--dataset_name', default='hotel', type=str,
+    parser.add_argument( '--dataset_name', default='eth', type=str,
       help='dataset name' )
     parser.add_argument( '--num_workers', default=0, type=int,
       help='dataloader num_workers' )
@@ -123,9 +123,9 @@ def create_parser():
     parser.add_argument('--mlp_dim', default=32, type=int)
     parser.add_argument('--batch_norm', default=0, type=bool_flag)
 
-    parser.add_argument( '--kl_weight', default=100.0, type=float,
+    parser.add_argument( '--kl_weight', default=10.0, type=float,
       help='kl weight' )
-    parser.add_argument('--map_size', default=128, type=int)
+    parser.add_argument('--map_size', default=198, type=int)
     parser.add_argument( '--desc', default='data', type=str,
       help='run description' )
     return parser

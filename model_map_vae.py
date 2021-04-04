@@ -85,7 +85,7 @@ class Encoder(nn.Module):
             nn.ReLU(),
             nn.MaxPool2d(2, 2), # torch.Size([1088, 4, 4, 4])
         )
-        self.map_fc = nn.Linear(4 * 4 * 4, emb_dim, bias=False)
+        self.map_fc = nn.Linear(4 * 7 * 7, emb_dim, bias=False)
 
         # pool = nn.MaxUnpool2d(2,2)
         # de1 = nn.ConvTranspose2d(4, 4, 4, stride=2, padding=1, bias=False)
@@ -163,14 +163,14 @@ class EncoderY(nn.Module):
         Trajectron++ map network
         '''
         self.map_encoder = nn.Sequential(
-            nn.Conv2d(1, 4, 7, stride=3, bias=False), # torch.Size([1088, 4, 41, 41])
+            nn.Conv2d(1, 4, 7, stride=3, bias=False), # torch.Size([1088, 4, 41, 41]) [56, 4, 64, 64])
             nn.ReLU(),
-            nn.MaxPool2d(2, 2), # torch.Size([1088, 4, 20, 20])
-            nn.Conv2d(4, 4, 5, stride=2, bias=False), # torch.Size([1088, 4, 8, 8])
+            nn.MaxPool2d(2, 2), # torch.Size([1088, 4, 20, 20]) ([56, 4, 32, 32])
+            nn.Conv2d(4, 4, 5, stride=2, bias=False), # torch.Size([1088, 4, 8, 8]) torch.Size([56, 4, 14, 14])
             nn.ReLU(),
             nn.MaxPool2d(2, 2), # torch.Size([1088, 4, 4, 4])
         )
-        self.map_fc = nn.Linear(4 * 4 * 4, emb_dim, bias=False)
+        self.map_fc = nn.Linear(4 * 7 * 7, emb_dim, bias=False)
 
 
         self.rnn_encoder = nn.LSTM(
@@ -249,7 +249,7 @@ class Decoder(nn.Module):
         self.enc_h_dim = enc_h_dim
         self.device=device
         self.num_layers = num_layers
-        map_feat_size=64
+        map_feat_size=4*7*7
 
         self.dec_hidden = nn.Linear(mlp_dim + z_dim, dec_h_dim)
 
@@ -263,11 +263,11 @@ class Decoder(nn.Module):
         self.fc = nn.Linear(emb_dim, map_feat_size)
 
         self.deconv = nn.Sequential(
-            nn.Upsample(8),
-            nn.ConvTranspose2d(4, 4, 4, stride=2, bias=False),
+            nn.Upsample(14),
+            nn.ConvTranspose2d(4, 4, 6, stride=2, bias=False), #(32)
             nn.ReLU(),
-            nn.Upsample(41),
-            nn.ConvTranspose2d(4, 1, 8, stride=3, bias=False),
+            nn.Upsample(64),
+            nn.ConvTranspose2d(4, 1, 9, stride=3, bias=False), #(198)
             nn.Sigmoid()
         )
         # de1 = nn.ConvTranspose2d(4, 4, 4, stride=2, bias=False)
@@ -304,7 +304,7 @@ class Decoder(nn.Module):
         map_feat = torch.stack(map_feat, dim=0)
         map_feat = self.fc(map_feat)
 
-        map_mean = self.deconv(map_feat.view(-1,4,4,4))
+        map_mean = self.deconv(map_feat.view(-1,4,7,7))
 
         return map_mean
 

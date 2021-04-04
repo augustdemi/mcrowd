@@ -70,6 +70,26 @@ def read_file(_path, delim='\t'):
     return np.asarray(data)
 
 
+def crop(map, target_pos, inv_h_t, context_size=198):
+    expanded_obs_img = np.full((map.shape[0] + context_size, map.shape[1] + context_size), False, dtype=np.float32)
+    expanded_obs_img[context_size//2:-context_size//2, context_size//2:-context_size//2] = map.astype(np.float32) # 99~-99
+
+    target_pos = np.expand_dims(target_pos, 0)
+    target_pos = np.concatenate([target_pos, np.ones((len(target_pos), 1))], axis=1)
+    target_pixel = np.matmul(target_pos, inv_h_t)
+    target_pixel /= np.expand_dims(target_pixel[:, 2], 1)
+    target_pixel = target_pixel[:,:2]
+    # plt.imshow(map)
+    # plt.scatter(target_pixel[0][1], target_pixel[0][0], c='r', s=1)
+    img_pts = context_size//2 + np.round(target_pixel).astype(int)
+    # plt.imshow(expanded_obs_img)
+    # plt.scatter(img_pts[0][1], img_pts[0][0], c='r', s=1)
+    cropped_img = np.stack([expanded_obs_img[img_pts[i, 0] - context_size//2 : img_pts[i, 0] + context_size//2,
+                                      img_pts[i, 1] - context_size//2 : img_pts[i, 1] + context_size//2]
+                      for i in range(target_pos.shape[0])], axis=0)
+    # plt.imshow(cropped_img[0])
+    return cropped_img / 255.0
+
 
 class TrajectoryDataset(Dataset):
     """Dataloder for the Trajectory datasets"""
@@ -103,10 +123,10 @@ class TrajectoryDataset(Dataset):
         # h = np.loadtxt('D:\crowd\ewap_dataset\seq_hotel\H.txt')
 
         self.map = imageio.imread(os.path.join(data_dir,'map.png'))
-        h = np.loadtxt(os.path.join(data_dir,'H.txt'))
-        self.inv_h_t = np.linalg.pinv(np.transpose(h))
+        self.h = np.loadtxt(os.path.join(data_dir,'H.txt'))
+        self.inv_h_t = np.linalg.pinv(np.transpose(self.h))
         self.pixel_distance=pixel_distance
-        self.resize=resize
+        self.context_size=resize
 
         n_state=2
 
@@ -220,33 +240,42 @@ class TrajectoryDataset(Dataset):
             for t in range(self.obs_len):
                 cp_map = map.copy()
                 gt_real = past_obst[i][t]
+                # mark the obstacle pedestrians
                 if len(gt_real) > 0:
                     gt_real = np.concatenate([gt_real, np.ones((len(gt_real), 1))], axis=1)
                     gt_pixel = np.matmul(gt_real, self.inv_h_t)
                     gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
-                    # for d in gt_pixel:
-                    #     plt.scatter(d[1], d[0], c='r')
+                    # mark all pixel size
                     for p in np.round(gt_pixel)[:, :2].astype(int):
                         x = range(max(p[0] - pixel_distance, 0), min(p[0] + pixel_distance + 1, map.shape[0]))
                         y = range(max(p[1] - pixel_distance, 0), min(p[1] + pixel_distance + 1, map.shape[1]))
                         idx = np.transpose([np.tile(x, len(y)), np.repeat(y, len(x))])
                         within_dist_idx = idx[np.linalg.norm(np.ones_like(idx)*p - idx, ord=2, axis=1) < pixel_distance]
                         cp_map[within_dist_idx[:,0], within_dist_idx[:,1]] = 255
-                seq_map.append(transform(cp_map, (self.resize, self.resize)))
-            past_map_obst.append(torch.stack(seq_map))
-        past_map_obst = torch.stack(past_map_obst) # (8, batch, 1, 128,128)
+                # crop the map near the target pedestrian
+                cp_map = crop(cp_map, self.obs_traj[start:end][i,:,t], self.inv_h_t, self.context_size)
+                seq_map.append(cp_map)
+            past_map_obst.append(np.stack(seq_map))
+        past_map_obst = np.stack(past_map_obst) # (batch(start-end), 8, 1, 128,128)
+        past_map_obst = torch.from_numpy(past_map_obst)
+
+        # image = transforms.Compose([
+        #     transforms.ToTensor()
+        # ])(image)
+
 
         ## real frame img
         # import cv2
         # fig, ax = plt.subplots()
         # cap = cv2.VideoCapture(
         #     'D:\crowd\ewap_dataset\seq_eth\seq_eth.avi')
-        # cap.set(1,self.obs_frame_num[start:end][i][t])
+        # cap.set(1,820)
         # _, frame = cap.read()
         # ax.imshow(frame)
-
-        # plt.imshow(cp_map)
-        # fake=np.array([[-2.37,  6.54]])
+        #
+        # # plt.imshow(cp_map)
+        # # fake=np.array([[-2.37,  6.54]])
+        # fake = np.expand_dims(self.obs_traj[start:end][i,:,t],0)
         # fake = np.concatenate([fake, np.ones((len(fake), 1))], axis=1)
         # fake_pixel = np.matmul(fake, self.inv_h_t)
         # fake_pixel /= np.expand_dims(fake_pixel[:, 2], 1)
@@ -270,24 +299,15 @@ class TrajectoryDataset(Dataset):
                         idx = np.transpose([np.tile(x, len(y)), np.repeat(y, len(x))])
                         within_dist_idx = idx[np.linalg.norm(np.ones_like(idx)*p - idx, ord=2, axis=1) < pixel_distance]
                         cp_map[within_dist_idx[:,0], within_dist_idx[:,1]] = 255
-                seq_map.append(transform(cp_map, (self.resize, self.resize)))
-            fut_map_obst.append(torch.stack(seq_map))
-        fut_map_obst = torch.stack(fut_map_obst)
+                        # crop the map near the target pedestrian
+                cp_map = crop(cp_map, self.pred_traj[start:end][i, :, t], self.inv_h_t, self.context_size)
+                seq_map.append(cp_map)
+            fut_map_obst.append(np.stack(seq_map))
+        fut_map_obst = np.stack(fut_map_obst)  # (batch(start-end), 8, 1, 128,128)
+        fut_map_obst = torch.from_numpy(fut_map_obst)
 
         out = [
             self.obs_traj[start:end, :].to(self.device) , self.pred_traj[start:end, :].to(self.device),
             self.obs_frame_num[start:end], self.fut_frame_num[start:end], past_map_obst.to(self.device), fut_map_obst.to(self.device)
         ]
         return out
-
-
-# path = '../../datasets/hotel/'
-# split = 'dist'
-# dset = TrajectoryDataset(
-#     path,
-#     split,
-#     obs_len=8,
-#     pred_len=12,
-#     skip=1,
-#     delim='tab',
-#     device='cpu')

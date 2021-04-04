@@ -141,6 +141,7 @@ class Solver(object):
                 enc_h_dim=args.encoder_h_dim,
                 mlp_dim=args.mlp_dim,
                 emb_dim=args.emb_dim,
+                map_size=args.map_size,
                 num_layers=args.num_layers,
                 dropout_rnn=args.dropout_rnn,
                 dropout_map=args.dropout_map,
