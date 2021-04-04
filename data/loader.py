@@ -9,7 +9,8 @@ def data_loader(args, path, shuffle=True):
         pred_len=args.pred_len,
         skip=args.skip,
         delim=args.delim,
-        device=args.device)
+        device=args.device,
+        resize=args.map_size)
 
     loader = DataLoader(
         dset,

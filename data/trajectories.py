@@ -6,17 +6,18 @@ import pandas as pd
 import numpy as np
 import torch
 from torch.utils.data import Dataset
-
 from utils import derivative_of
+
+import matplotlib.pyplot as plt
+from utils import transform
+import imageio
 
 logger = logging.getLogger(__name__)
 
 
 def seq_collate(data):
-    # (obs_seq_list, pred_seq_list, obs_seq_rel_list, pred_seq_rel_list,
-    #  non_linear_ped_list, loss_mask_list) = zip(*data)
     (obs_seq_list, pred_seq_list, obs_seq_rel_list, pred_seq_rel_list,
-     non_linear_ped_list, loss_mask_list, obs_frames, fut_frames) = zip(*data)
+     obs_frames, fut_frames, past_obst, fut_obst) = zip(*data)
 
     _len = [len(seq) for seq in obs_seq_list]
     cum_start_idx = [0] + np.cumsum(_len).tolist()
@@ -29,16 +30,17 @@ def seq_collate(data):
     pred_traj = torch.cat(pred_seq_list, dim=0).permute(2, 0, 1)
     obs_traj_rel = torch.cat(obs_seq_rel_list, dim=0).permute(2, 0, 1)
     pred_traj_rel = torch.cat(pred_seq_rel_list, dim=0).permute(2, 0, 1)
-    non_linear_ped = torch.cat(non_linear_ped_list)
-    loss_mask = torch.cat(loss_mask_list, dim=0)
     seq_start_end = torch.LongTensor(seq_start_end)
 
     obs_frames = np.concatenate(obs_frames, 0)
     fut_frames = np.concatenate(fut_frames, 0)
 
+    past_obst = torch.cat(past_obst, 0).permute((1, 0, 2, 3, 4))
+    fut_obst = torch.cat(fut_obst, 0).permute((1, 0, 2, 3, 4))
+
+
     out = [
-        obs_traj, pred_traj, obs_traj_rel, pred_traj_rel, non_linear_ped,
-        loss_mask, seq_start_end, obs_frames, fut_frames
+        obs_traj, pred_traj, obs_traj_rel, pred_traj_rel, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst
     ]
 
     return tuple(out)
@@ -76,10 +78,33 @@ def poly_fit(traj, traj_len, threshold):
         return 0.0
 
 
+
+
+def crop(map, target_pos, inv_h_t, context_size=198):
+    expanded_obs_img = np.full((map.shape[0] + context_size, map.shape[1] + context_size), False, dtype=np.float32)
+    expanded_obs_img[context_size//2:-context_size//2, context_size//2:-context_size//2] = map.astype(np.float32) # 99~-99
+
+    target_pos = np.expand_dims(target_pos, 0)
+    target_pixel = np.matmul(np.concatenate([target_pos, np.ones((len(target_pos), 1))], axis=1), inv_h_t)
+    target_pixel /= np.expand_dims(target_pixel[:, 2], 1)
+    target_pixel = target_pixel[:,:2]
+    # plt.imshow(map)
+    # plt.scatter(target_pixel[0][1], target_pixel[0][0], c='r', s=1)
+    img_pts = context_size//2 + np.round(target_pixel).astype(int)
+    # plt.imshow(expanded_obs_img)
+    # plt.scatter(img_pts[0][1], img_pts[0][0], c='r', s=1)
+    cropped_img = np.stack([expanded_obs_img[img_pts[i, 0] - context_size//2 : img_pts[i, 0] + context_size//2,
+                                      img_pts[i, 1] - context_size//2 : img_pts[i, 1] + context_size//2]
+                      for i in range(target_pos.shape[0])], axis=0)
+    # plt.imshow(cropped_img[0])
+    return cropped_img / 255.0
+
+
+
 class TrajectoryDataset(Dataset):
     """Dataloder for the Trajectory datasets"""
     def __init__(
-        self, data_dir, obs_len=8, pred_len=12, skip=1, threshold=0.002,
+        self, data_dir, obs_len=8, pred_len=12, skip=1, resize=198,
         min_ped=0, delim='\t', device='cpu', dt=0.4
     ):
         """
@@ -106,17 +131,36 @@ class TrajectoryDataset(Dataset):
         n_pred_state=2
         n_state=6
 
+        self.context_size=resize
+
         all_files = os.listdir(self.data_dir)
         all_files = [os.path.join(self.data_dir, _path) for _path in all_files]
         num_peds_in_seq = []
         seq_list = []
         seq_list_rel = []
-        loss_mask_list = []
-        non_linear_ped = []
+
+        seq_past_obst_list = []
+        seq_fut_obst_list = []
         obs_frame_num = []
         fut_frame_num = []
+        map_dirs=[]
         for path in all_files:
-            print(path)
+            print('data paht:', path)
+            if 'hotel' in path.split('\\')[-1]:
+                map_dir = '../datasets/map/hotel/test'
+                # self.pixel_distance = 5
+            elif 'eth' in path.split('\\')[-1]:
+                map_dir = '../datasets/map/eth/test'
+                # self.pixel_distance = 3
+            else:
+                map_dir = None
+            print('map path: ', map_dir)
+                # self.pixel_distance = 0
+            # if map_dir is not None:
+            #     self.map = imageio.imread(os.path.join(map_dir, 'map.png'))
+            #     self.h = np.loadtxt(os.path.join(map_dir, 'H.txt'))
+            #     self.inv_h_t = np.linalg.pinv(np.transpose(self.h))
+
             data = read_file(path, delim)
             # print('uniq ped: ', len(np.unique(data[:, 1])))
 
@@ -136,9 +180,7 @@ class TrajectoryDataset(Dataset):
 
                 curr_seq_rel = np.zeros((len(peds_in_curr_seq), n_pred_state, self.seq_len))
                 curr_seq = np.zeros((len(peds_in_curr_seq), n_state, self.seq_len))
-                curr_loss_mask = np.zeros((len(peds_in_curr_seq), self.seq_len))
                 num_peds_considered = 0
-                _non_linear_ped = []
                 ped_ids = []
                 for _, ped_id in enumerate(peds_in_curr_seq): # current frame sliding에 들어온 각 agent에 대해
                     curr_ped_seq = curr_seq_data[curr_seq_data[:, 1] == ped_id, :] # frame#, agent id, pos_x, pos_y
@@ -148,10 +190,9 @@ class TrajectoryDataset(Dataset):
                     if pad_end - pad_front != self.seq_len: # seq_len만큼의 sliding동안 매 프레임마다 agent가 존재하지 않은 데이터였던것.
                         continue
                     ped_ids.append(ped_id)
-                    curr_ped_seq = curr_ped_seq[:, 2:]
                     # x,y,x',y',x'',y''
-                    x = curr_ped_seq[:, 0]
-                    y = curr_ped_seq[:, 1]
+                    x = curr_ped_seq[:,2]
+                    y = curr_ped_seq[:,3]
                     vx = derivative_of(x, dt)
                     vy = derivative_of(y, dt)
                     ax = derivative_of(vx, dt)
@@ -161,18 +202,45 @@ class TrajectoryDataset(Dataset):
                     _idx = num_peds_considered
                     curr_seq[_idx, :, pad_front:pad_end] = np.stack([x, y, vx, vy, ax, ay])
                     curr_seq_rel[_idx, :, pad_front:pad_end] = np.stack([vx, vy])
-                    curr_loss_mask[_idx, pad_front:pad_end] = 1
                     num_peds_considered += 1
 
+                    ### others
+                    per_frame_past_obst = []
+                    per_frame_fut_obst = []
+                    if map_dir is None:
+                        per_frame_past_obst = [[]] * self.obs_len
+                        per_frame_fut_obst = [[]] * self.pred_len
+                    else:
+                        curr_obst_seq = curr_seq_data[curr_seq_data[:, 1] != ped_id, :] # frame#, agent id, pos_x, pos_y
+                        i=0
+                        for frame in np.unique(curr_ped_seq[:,0]): # curr_ped_seq는 continue를 지나왔으므로 반드시 20임
+                            neighbor_ped = curr_obst_seq[curr_obst_seq[:, 0] == frame][:, 2:]
+                            if i < self.obs_len:
+                                # print('neighbor_ped:', len(neighbor_ped))
+                                if len(neighbor_ped) ==0:
+                                    per_frame_past_obst.append([])
+                                else:
+                                    per_frame_past_obst.append(np.around(neighbor_ped, decimals=4))
+                            else:
+                                if len(neighbor_ped) ==0:
+                                    per_frame_fut_obst.append([])
+                                else:
+                                    per_frame_fut_obst.append(np.around(neighbor_ped, decimals=4))
+                            i += 1
+                    seq_past_obst_list.append(per_frame_past_obst)
+                    seq_fut_obst_list.append(per_frame_fut_obst)
+
+
+
                 if num_peds_considered > min_ped: # 주어진 하나의 sliding(16초)동안 등장한 agent수가 min_ped보다 큼을 만족하는 경우에만 이 slide데이터를 채택
-                    non_linear_ped += _non_linear_ped
                     num_peds_in_seq.append(num_peds_considered)
                     # 다음 list의 initialize는 peds_in_curr_seq만큼 해뒀었지만, 조건을 만족하는 slide의 agent만 차례로 append 되었기 때문에 num_peds_considered만큼만 잘라서 씀
-                    loss_mask_list.append(curr_loss_mask[:num_peds_considered])
                     seq_list.append(curr_seq[:num_peds_considered])
                     seq_list_rel.append(curr_seq_rel[:num_peds_considered])
                     obs_frame_num.append(np.ones((num_peds_considered, self.obs_len)) * frames[idx:idx + self.obs_len])
                     fut_frame_num.append(np.ones((num_peds_considered, self.pred_len)) * frames[idx + self.obs_len:idx + self.seq_len])
+                    # map_dirs.append(num_peds_considered*[map_dir])
+                    map_dirs.append(map_dir)
 
             #     ped_ids = np.array(ped_ids)
             #     # if 'test' in path and len(ped_ids) > 0:
@@ -188,9 +256,10 @@ class TrajectoryDataset(Dataset):
         self.num_seq = len(seq_list) # = slide (seq. of 16 frames) 수 = 2692
         seq_list = np.concatenate(seq_list, axis=0) # (32686, 2, 16)
         seq_list_rel = np.concatenate(seq_list_rel, axis=0)
-        loss_mask_list = np.concatenate(loss_mask_list, axis=0)
         self.obs_frame_num = np.concatenate(obs_frame_num, axis=0)
         self.fut_frame_num = np.concatenate(fut_frame_num, axis=0)
+        self.past_obst = seq_past_obst_list
+        self.fut_obst = seq_fut_obst_list
 
         # Convert numpy -> Torch Tensor
         self.obs_traj = torch.from_numpy(
@@ -201,13 +270,13 @@ class TrajectoryDataset(Dataset):
             seq_list_rel[:, :, :self.obs_len]).type(torch.float)
         self.pred_traj_rel = torch.from_numpy(
             seq_list_rel[:, :, self.obs_len:]).type(torch.float)
-        self.loss_mask = torch.from_numpy(loss_mask_list).type(torch.float)
         # frame seq순, 그리고 agent id순으로 쌓아온 데이터에 대한 index를 부여하기 위해 cumsum으로 index생성 ==> 한 슬라이드(16 seq. of frames)에서 고려된 agent의 data를 start, end로 끊어내서 index로 골래내기 위해
         cum_start_idx = [0] + np.cumsum(num_peds_in_seq).tolist() # num_peds_in_seq = 각 slide(16개 frames)별로 고려된 agent수.따라서 len(num_peds_in_seq) = slide 수 = 2692 = self.num_seq
         self.seq_start_end = [
             (start, end)
             for start, end in zip(cum_start_idx, cum_start_idx[1:])
         ] # [(0, 2),  (2, 4),  (4, 7),  (7, 10), ... (32682, 32684),  (32684, 32686)]
+        self.map_dir = map_dirs
 
 
 
@@ -216,9 +285,98 @@ class TrajectoryDataset(Dataset):
 
     def __getitem__(self, index):
         start, end = self.seq_start_end[index]
+        map_dir = self.map_dir[index]
+        if map_dir is not None:
+            map = imageio.imread(os.path.join(map_dir, 'map.png'))
+            h = np.loadtxt(os.path.join(map_dir, 'H.txt'))
+            inv_h_t = np.linalg.pinv(np.transpose(h))
+            if 'hotel' in map_dir:
+                pixel_distance = 5
+            else:
+                pixel_distance = 3
+
+            past_map_obst = []
+            past_obst = self.past_obst[start:end]
+            for i in range(len(past_obst)):  # len(past_obst) = batch
+                seq_map = []
+                for t in range(self.obs_len):
+                    cp_map = map.copy()
+                    gt_real = past_obst[i][t]
+                    # mark the obstacle pedestrians
+                    if len(gt_real) > 0:
+                        gt_pixel = np.matmul(np.concatenate([gt_real, np.ones((len(gt_real), 1))], axis=1), inv_h_t)
+                        gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
+                        # mark all pixel size
+                        for p in np.round(gt_pixel)[:, :2].astype(int):
+                            x = range(max(p[0] - pixel_distance, 0), min(p[0] + pixel_distance + 1, map.shape[0]))
+                            y = range(max(p[1] - pixel_distance, 0), min(p[1] + pixel_distance + 1, map.shape[1]))
+                            idx = np.transpose([np.tile(x, len(y)), np.repeat(y, len(x))])
+                            within_dist_idx = idx[np.linalg.norm(np.ones_like(idx)*p - idx, ord=2, axis=1) < pixel_distance]
+                            cp_map[within_dist_idx[:,0], within_dist_idx[:,1]] = 255
+                    # crop the map near the target pedestrian
+                    cp_map = crop(cp_map, self.obs_traj[start:end][i,:2,t], inv_h_t, self.context_size)
+                    seq_map.append(cp_map)
+                past_map_obst.append(np.stack(seq_map))
+
+            past_map_obst = np.stack(past_map_obst) # (batch(start-end), 8, 1, map_size,map_size)
+            past_map_obst = torch.from_numpy(past_map_obst)
+
+            fut_map_obst = []
+            fut_obst = self.fut_obst[start:end]
+            for i in range(len(fut_obst)):
+                seq_map = []
+                for t in range(self.pred_len):
+                    cp_map = map.copy()
+                    gt_real = fut_obst[i][t]
+                    if len(gt_real) > 0:
+                        gt_pixel = np.matmul(np.concatenate([gt_real, np.ones((len(gt_real), 1))], axis=1), inv_h_t)
+                        gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
+                        for p in np.round(gt_pixel)[:, :2].astype(int):
+                            x = range(max(p[0] - pixel_distance, 0), min(p[0] + pixel_distance + 1, map.shape[0]))
+                            y = range(max(p[1] - pixel_distance, 0), min(p[1] + pixel_distance + 1, map.shape[1]))
+                            idx = np.transpose([np.tile(x, len(y)), np.repeat(y, len(x))])
+                            within_dist_idx = idx[
+                                np.linalg.norm(np.ones_like(idx) * p - idx, ord=2, axis=1) < pixel_distance]
+                            cp_map[within_dist_idx[:, 0], within_dist_idx[:, 1]] = 255
+                            # crop the map near the target pedestrian
+                    cp_map = crop(cp_map, self.pred_traj[start:end][i, :2, t], inv_h_t, self.context_size)
+                    seq_map.append(cp_map)
+                fut_map_obst.append(np.stack(seq_map))
+            fut_map_obst = np.stack(fut_map_obst)  # (batch(start-end), 8, 1, 128,128)
+            fut_map_obst = torch.from_numpy(fut_map_obst)
+        else: # map is not available
+            past_map_obst = torch.zeros(end - start, self.obs_len, 1, self.context_size, self.context_size)
+            fut_map_obst = torch.zeros(end - start, self.pred_len, 1, self.context_size, self.context_size)
+
+
+        # image = transforms.Compose([
+        #     transforms.ToTensor()
+        # ])(image)
+
+
+        ## real frame img
+        # import cv2
+        # fig, ax = plt.subplots()
+        # cap = cv2.VideoCapture(
+        #     'D:\crowd\ewap_dataset\seq_eth\seq_eth.avi')
+        # cap.set(1, self.obs_frame_num[start:end][i][t])
+        # _, frame = cap.read()
+        # ax.imshow(frame)
+        #
+        # # plt.imshow(cp_map)
+        # # fake=np.array([[-2.37,  6.54]])
+        # fake = np.expand_dims(self.obs_traj[start:end][i,:,t],0)
+        # fake = np.concatenate([fake, np.ones((len(fake), 1))], axis=1)
+        # fake_pixel = np.matmul(fake, self.inv_h_t)
+        # fake_pixel /= np.expand_dims(fake_pixel[:, 2], 1)
+        # plt.scatter(fake_pixel[0,1], fake_pixel[0,0], c='r', s=1)
+        # np.linalg.norm(gt_pixel-fake_pixel,2) #  2.5415
+
+
         out = [
             self.obs_traj[start:end, :].to(self.device) , self.pred_traj[start:end, :].to(self.device),
             self.obs_traj_rel[start:end, :].to(self.device), self.pred_traj_rel[start:end, :].to(self.device),
-            self.loss_mask[start:end].to(self.device), self.loss_mask[start:end, :].to(self.device), self.obs_frame_num[start:end], self.fut_frame_num[start:end]
+            self.obs_frame_num[start:end], self.fut_frame_num[start:end],
+            past_map_obst.to(self.device), fut_map_obst.to(self.device)
         ]
         return out

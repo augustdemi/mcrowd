@@ -65,7 +65,7 @@ def create_parser():
     parser.add_argument( '--ckpt_load_iter', default=0, type=int,
       help='iter# to load the previously saved model ' + 
         '(default=0 to start from the scratch)' )
-    parser.add_argument( '--max_iter', default=5500, type=float,
+    parser.add_argument( '--max_iter', default=10, type=float,
       help='maximum number of batch iterations' )
     parser.add_argument( '--ckpt_save_iter', default=100, type=int,
       help='checkpoint saved every # iters' )
@@ -100,7 +100,7 @@ def create_parser():
     # dataset
     parser.add_argument( '--dataset_dir', default='../datasets', type=str,
       help='dataset directory' )
-    parser.add_argument( '--dataset_name', default='eth', type=str,
+    parser.add_argument( '--dataset_name', default='hotel', type=str,
       help='dataset name' )
     parser.add_argument( '--num_workers', default=0, type=int,
       help='dataloader num_workers' )
@@ -126,6 +126,7 @@ def create_parser():
       help='pool/attn' )
     parser.add_argument( '--kl_weight', default=100.0, type=float,
       help='kl weight' )
+    parser.add_argument('--map_size', default=198, type=int)
 
     parser.add_argument( '--desc', default='data', type=str,
       help='run description' )
@@ -170,7 +171,7 @@ def main(args):
             test_path = os.path.join(args.dataset_dir, args.dataset_name, 'test')
             args.batch_size=364
             _, test_loader = data_loader(args, test_path,shuffle=False)
-            # solver.plot_traj_var(test_loader)
+            solver.plot_traj_var(test_loader)
             # solver.draw_traj(test_loader, 20)
             # solver.check_dist_stat(test_loader)
 
