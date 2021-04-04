@@ -266,6 +266,9 @@ class Encoder(nn.Module):
         # map encoding
         if self.map_size:
             obst_feat = self.map_net(past_obstacle[-1], obs_state[-1,:,2:4]) # obstacle map + velocity
+            obst_feat = F.dropout(obst_feat,
+                                     p=0.5,
+                                     training=train)
             dist_fc_input = torch.cat([dist_fc_input, obst_feat], dim=1)
 
         # final distribution
