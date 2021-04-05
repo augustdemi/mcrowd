@@ -105,7 +105,7 @@ class TrajectoryDataset(Dataset):
     """Dataloder for the Trajectory datasets"""
     def __init__(
         self, data_dir, obs_len=8, pred_len=12, skip=1, resize=198,
-        min_ped=0, delim='\t', device='cpu', dt=0.4
+        min_ped=0, delim='\t', device='cpu', dt=0.4, map_ae=False
     ):
         """
         Args:
@@ -154,6 +154,8 @@ class TrajectoryDataset(Dataset):
                 # self.pixel_distance = 3
             else:
                 map_dir = None
+            if map_dir is None and map_ae:
+                continue
             print('map path: ', map_dir)
                 # self.pixel_distance = 0
             # if map_dir is not None:

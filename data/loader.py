@@ -2,7 +2,7 @@ from torch.utils.data import DataLoader
 
 from .trajectories import TrajectoryDataset, seq_collate
 
-def data_loader(args, path, shuffle=True):
+def data_loader(args, path, shuffle=True, map_ae=False):
     dset = TrajectoryDataset(
         path,
         obs_len=args.obs_len,
@@ -10,7 +10,8 @@ def data_loader(args, path, shuffle=True):
         skip=args.skip,
         delim=args.delim,
         device=args.device,
-        resize=args.map_size)
+        resize=args.map_size,
+        map_ae=map_ae)
 
     loader = DataLoader(
         dset,
