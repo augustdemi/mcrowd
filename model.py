@@ -5,7 +5,6 @@ import torch.nn.functional as F
 import numpy as np
 from gmm2d import GMM2D
 from torch.distributions.normal import Normal
-import random
 
 ###############################################################################
 
@@ -125,10 +124,25 @@ class PoolHiddenNet(nn.Module):
 class AttentionHiddenNet(nn.Module):
     """Pooling module as proposed in our paper"""
     def __init__(
-        self, enc_h_dim=64
+        self, embedding_dim=64, h_dim=64, pool_dim=1024,
+        activation='relu', batch_norm=True, dropout=0.0
     ):
         super(AttentionHiddenNet, self).__init__()
-        self.h_dim = enc_h_dim
+
+        self.mlp_dim = 1024
+        self.h_dim = h_dim
+        self.pool_dim = pool_dim
+        self.embedding_dim = embedding_dim
+
+        mlp_pre_dim = embedding_dim + h_dim
+        mlp_pre_pool_dims = [mlp_pre_dim, 512, pool_dim]
+
+        self.spatial_embedding = nn.Linear(2, embedding_dim)
+        self.mlp_pre_pool = make_mlp(
+            mlp_pre_pool_dims,
+            activation=activation,
+            batch_norm=batch_norm,
+            dropout=dropout)
 
     def repeat(self, tensor, num_reps):
         """
@@ -143,7 +157,7 @@ class AttentionHiddenNet(nn.Module):
         tensor = tensor.view(-1, col_len)
         return tensor
 
-    def forward(self, h_states, seq_start_end):
+    def forward(self, h_states, seq_start_end, end_pos):
         """
         Inputs:
         - h_states: Tensor of shape (num_layers, batch, h_dim)
@@ -160,7 +174,7 @@ class AttentionHiddenNet(nn.Module):
             curr_hidden = h_states.view(-1, self.h_dim)[start:end] #num_ped, latent
             score=torch.matmul(curr_hidden, curr_hidden.transpose(1,0)) #num_ped, num_ped
             attn_dist = torch.softmax(score, dim=1) #(num_ped, num_ped)
-            curr_context_mat= [] # 현재 start-end 프레임 안의 num ped만큼의 hidden feat들이 서로간 이루는 attn_dist(score)값을 반영한 context vec를 모음.
+            curr_context_mat= []
             for i in range(num_ped):
                 curr_attn = attn_dist[i].repeat(curr_hidden.size(1), 1).transpose(1, 0)
                 context_vec = torch.sum(curr_attn * curr_hidden, dim=0)
@@ -172,62 +186,48 @@ class AttentionHiddenNet(nn.Module):
             #     curr_context_mat.append(context_vec)
             context_mat.append(torch.stack(curr_context_mat))
 
+
+
         context_mat = torch.cat(context_mat, dim=0)
         return context_mat
 
-class CNNMapEncoder(nn.Module):
-    def __init__(self, fc_hidden_dim, output_dim):
-        super(CNNMapEncoder, self).__init__()
-        self.conv1 = nn.Conv2d(1, 4, 7, stride=3, bias=False)
-        self.pool = nn.MaxPool2d(2, 2)
-        self.conv2 = nn.Conv2d(4, 4, 5, stride=2, bias=False)
-        self.fc1 = nn.Linear(4 * 7 * 7 + 2, fc_hidden_dim, bias=False)
-        self.fc2 = nn.Linear(fc_hidden_dim, output_dim, bias=False)
 
-    def forward(self, x, v):
-        x = self.pool(F.relu(self.conv1(x)))  # (94 - 7)/3 + 1 = 30 / 2 = 15
-        x = self.pool(F.relu(self.conv2(x)))  # (15 - 5)/2 + 1 = 6 / 2 = 3
-        x = x.view(-1, 4 * 7 * 7)
-        x = torch.cat((x, v), -1)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
 
 class Encoder(nn.Module):
     """Encoder:spatial emb -> lstm -> pooling -> fc for posterior / conditional prior"""
     def __init__(
-        self, zS_dim, enc_h_dim=64, mlp_dim=32, attention=False, map_size=None,
-            batch_norm=False, num_layers=1, dropout_mlp=0.0, dropout_rnn=0.0,  activation='relu'
+        self, zS_dim, enc_h_dim=64, mlp_dim=32, pool_dim=32,
+            batch_norm=False, num_layers=1, dropout_mlp=0.0, dropout_rnn=0.0,  activation='relu', pooling_type='pool'
     ):
         super(Encoder, self).__init__()
 
         self.zS_dim=zS_dim
         self.enc_h_dim = enc_h_dim
         self.num_layers = num_layers
+        self.pooling_type = pooling_type
         self.dropout_rnn=dropout_rnn
-        self.attention=attention
-        self.map_size=map_size
         n_state=6
-        map_out_dim=8
 
         self.rnn_encoder = nn.LSTM(
             input_size=n_state, hidden_size=enc_h_dim
         )
 
-        input_dim = enc_h_dim
+        # if pooling_type=='pool':
+        #     self.pool_net = PoolHiddenNet(
+        #         embedding_dim=self.embedding_dim,
+        #         h_dim=enc_h_dim,
+        #         pool_dim=pool_dim,
+        #         batch_norm=batch_norm
+        #     )
+        # elif pooling_type=='attn':
+        #     self.pool_net = AttentionHiddenNet(
+        #         embedding_dim=self.embedding_dim,
+        #         h_dim=enc_h_dim,
+        #         pool_dim=pool_dim,
+        #         batch_norm=batch_norm
+        #     )
 
-        if attention:
-            self.attn_net = AttentionHiddenNet(
-                enc_h_dim=enc_h_dim,
-            )
-            input_dim += enc_h_dim
-
-        if map_size:
-            self.map_net = CNNMapEncoder(
-                fc_hidden_dim=mlp_dim,
-                output_dim=map_out_dim
-            )
-            input_dim += map_out_dim
+        input_dim = enc_h_dim + pool_dim
 
         self.fc1 = make_mlp(
             [input_dim, mlp_dim],
@@ -238,7 +238,7 @@ class Encoder(nn.Module):
         self.fc2 = nn.Linear(mlp_dim, zS_dim)
 
 
-    def forward(self, obs_state, seq_start_end, past_obstacle, train=False):
+    def forward(self, rel_traj, seq_start_end, train=False):
         """
         Inputs:
         - obs_traj: Tensor of shape (obs_len, batch, 2)
@@ -248,28 +248,21 @@ class Encoder(nn.Module):
         # Encode observed Trajectory
         # batch = rel_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
-        _, (final_encoder_h, _) = self.rnn_encoder(obs_state) # [8, 656, 16], 두개의 [1, 656, 32]
+        _, (final_encoder_h, _) = self.rnn_encoder(rel_traj) # [8, 656, 16], 두개의 [1, 656, 32]
 
         final_encoder_h = F.dropout(final_encoder_h,
                             p=self.dropout_rnn,
                             training=train)  # [bs, max_time, enc_rnn_dim]
 
-        # attention
-        if self.attention:
-            pool_h = self.attn_net(final_encoder_h, seq_start_end) # 656, 32
+        # pooling
+        if self.pooling_type:
+            end_pos = rel_traj[-1, :, :] # 656, 2
+            pool_h = self.pool_net(final_encoder_h, seq_start_end, end_pos) # 656, 32
             # Construct input hidden states for decoder
-            dist_fc_input = torch.cat([final_encoder_h.view(-1, self.enc_h_dim), pool_h], dim=1) # [656, 64]
+            dist_fc_input = torch.cat([final_encoder_h.squeeze(0), pool_h], dim=1) # [656, 64]
         else:
             dist_fc_input = final_encoder_h.view(-1, self.enc_h_dim)
 
-
-        # map encoding
-        if self.map_size:
-            obst_feat = self.map_net(past_obstacle[-1], obs_state[-1,:,2:4]) # obstacle map + velocity
-            obst_feat = F.dropout(obst_feat,
-                                     p=0.5,
-                                     training=train)
-            dist_fc_input = torch.cat([dist_fc_input, obst_feat], dim=1)
 
         # final distribution
         dist_fc_input = self.fc1(dist_fc_input)
@@ -281,16 +274,16 @@ class Encoder(nn.Module):
 class EncoderY(nn.Module):
     """Encoder:spatial emb -> lstm -> pooling -> fc for posterior / conditional prior"""
     def __init__(
-        self, zS_dim, enc_h_dim=64, mlp_dim=32, attention=False,
-            batch_norm=False, num_layers=1,  dropout_mlp=0.0, dropout_rnn=0.0, activation='relu', device='cpu'
+        self, zS_dim, enc_h_dim=64, mlp_dim=32, pool_dim=32,
+            batch_norm=False, num_layers=1,  dropout_mlp=0.0, dropout_rnn=0.0, activation='relu', pooling_type='pool', device='cpu'
     ):
         super(EncoderY, self).__init__()
 
         self.zS_dim=zS_dim
         self.enc_h_dim = enc_h_dim
         self.num_layers = num_layers
+        self.pooling_type = pooling_type
         self.device = device
-        self.attention=attention
         n_state=6
         n_pred_state=2
         self.dropout_rnn=dropout_rnn
@@ -299,13 +292,22 @@ class EncoderY(nn.Module):
             input_size=n_pred_state, hidden_size=enc_h_dim, num_layers=1, bidirectional=True
         )
 
-        input_dim = enc_h_dim*4 + mlp_dim
-
-        if attention:
-            self.attn_net = AttentionHiddenNet(
-                enc_h_dim=enc_h_dim,
+        if pooling_type=='pool':
+            self.pool_net = PoolHiddenNet(
+                embedding_dim=n_pred_state,
+                h_dim=enc_h_dim,
+                pool_dim=pool_dim,
+                batch_norm=batch_norm
             )
-            input_dim +=enc_h_dim
+        elif pooling_type=='attn':
+            self.pool_net = AttentionHiddenNet(
+                embedding_dim=n_pred_state,
+                h_dim=enc_h_dim,
+                pool_dim=pool_dim,
+                batch_norm=batch_norm
+            )
+
+        input_dim = enc_h_dim*4 + mlp_dim
 
 
         # self.fc1 = make_mlp(
@@ -320,7 +322,7 @@ class EncoderY(nn.Module):
         self.initial_c_model = nn.Linear(n_state, enc_h_dim)
 
 
-    def forward(self, last_obs_state, fut_vel, seq_start_end, obs_enc_feat, train=False):
+    def forward(self, last_obs_rel_traj, fut_rel_traj, seq_start_end, obs_enc_feat, train=False):
         """
         Inputs:
         - obs_traj: Tensor of shape (obs_len, batch, 2)
@@ -329,14 +331,14 @@ class EncoderY(nn.Module):
         """
         # Encode observed Trajectory
 
-        initial_h = self.initial_h_model(last_obs_state) # 81, 32
+        initial_h = self.initial_h_model(last_obs_rel_traj) # 81, 32
         initial_h = torch.stack([initial_h, torch.zeros_like(initial_h, device=self.device)], dim=0) # 2, 81, 32
 
-        initial_c = self.initial_c_model(last_obs_state)
+        initial_c = self.initial_c_model(last_obs_rel_traj)
         initial_c = torch.stack([initial_c, torch.zeros_like(initial_c, device=self.device)], dim=0)
         state_tuple=(initial_h, initial_c)
 
-        _, state = self.rnn_encoder(fut_vel, state_tuple)
+        _, state = self.rnn_encoder(fut_rel_traj, state_tuple)
 
         state = torch.cat(state, dim=0).permute(1, 0, 2)  # 2,81,32두개 -> 4, 81,32 -> 81,4,32
         state_size = state.size()
@@ -346,16 +348,7 @@ class EncoderY(nn.Module):
                             p=self.dropout_rnn,
                             training=train)  # [bs, max_time, enc_rnn_dim]
 
-        # attention
-        if self.attention:
-            pool_h = self.attn_net(final_encoder_h, seq_start_end) # 656, 32
-            # Construct input hidden states for decoder
-            dist_fc_input = torch.cat([final_encoder_h.view(-1, 4*self.enc_h_dim), pool_h], dim=1) # [656, 64]
-        else:
-            dist_fc_input = final_encoder_h.view(-1, 4*self.enc_h_dim)
-
-
-        dist_fc_input = torch.cat([dist_fc_input, obs_enc_feat], dim=1)
+        dist_fc_input = torch.cat([final_encoder_h, obs_enc_feat], dim=1)
 
 
         # final distribution
@@ -402,7 +395,7 @@ class Decoder(nn.Module):
         self.fc_mu = nn.Linear(dec_h_dim, n_pred_state)
         self.fc_std = nn.Linear(dec_h_dim, n_pred_state)
 
-    def forward(self, last_obs_state, enc_h_feat, z, fut_state=None):
+    def forward(self, last_state, enc_h_feat, z, fut_state=None):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
@@ -417,7 +410,7 @@ class Decoder(nn.Module):
         # x_feat+z(=zx) initial state생성(FC)
         zx = torch.cat([enc_h_feat, z], dim=1) # 493, 89(64+25)
         decoder_h=self.dec_hidden(zx) # 493, 128
-        a = self.to_vel(last_obs_state)
+        a = self.to_vel(last_state)
 
         mus = []
         stds = []
@@ -427,7 +420,7 @@ class Decoder(nn.Module):
             logVar = self.fc_std(decoder_h)
             std = torch.sqrt(torch.exp(logVar))
             if fut_state is not None:
-                a = fut_state[i, :, 2:4]
+                a = fut_state[i,:,2:4]
             else:
                 a = Normal(mu, std).rsample()
             mus.append(mu)
