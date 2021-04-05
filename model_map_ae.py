@@ -72,7 +72,7 @@ class Encoder(nn.Module):
         self.conv3 = nn.Conv2d(4, 4, 3, stride=1, bias=False) #20->10
         self.conv4 = nn.Conv2d(4, 4, 3, stride=1, bias=False) # 8 -> 4
         self.fc1 = nn.Linear(4 * 4 * 4 + 2, fc_hidden_dim, bias=False)
-        self.fc2 = nn.Linear(fc_hidden_dim, output_dim, bias=False)
+        # self.fc2 = nn.Linear(fc_hidden_dim, output_dim, bias=False)
 
     def forward(self, state, map, train=False):
         """
@@ -87,8 +87,8 @@ class Encoder(nn.Module):
         x = self.pool(F.relu(self.conv4(x)))
         x = x.view(-1, 4 * 4 * 4)
         x = torch.cat((x, state[:, 2:4]), -1)
-        x = F.relu(self.fc1(x))
-        obst_feat = self.fc2(x)
+        # x = F.relu(self.fc1(x))
+        obst_feat = self.fc1(x)
         obst_feat = F.dropout(obst_feat,
                             p=self.drop_out,
                             training=train)
@@ -101,7 +101,7 @@ class Decoder(nn.Module):
     """Decoder is part of TrajectoryGenerator"""
     def __init__(self, fc_hidden_dim, input_dim):
         super(Decoder, self).__init__()
-        self.fc1 = nn.Linear(input_dim, fc_hidden_dim, bias=False)
+        # self.fc1 = nn.Linear(input_dim, fc_hidden_dim, bias=False)
         self.fc2 = nn.Linear(fc_hidden_dim, 4 * 4 * 4 + 2, bias=False)
         self.deconv = nn.Sequential(
             nn.Upsample(8),
@@ -129,8 +129,8 @@ class Decoder(nn.Module):
         Output:
         - pred_traj: tensor of shape (self.seq_len, batch, 2)
         """
-        x= self.fc1(obst_feat)
-        x= self.fc2(F.relu(x))
+        # x= self.fc1(obst_feat)
+        x= self.fc2(obst_feat)
         x = x[:, :-2].view(-1, 4, 4, 4)
         map = self.deconv(F.relu(x))
         return F.sigmoid(map)
