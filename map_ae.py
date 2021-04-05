@@ -71,15 +71,10 @@ class Solver(object):
         self.viz_on = args.viz_on
         if self.viz_on:
             self.win_id = dict(
-                recon='win_recon', loss_kl='win_loss_kl', loss_recon='win_loss_recon', total_loss='win_total_loss'
-                , ade_min='win_ade_min', fde_min='win_fde_min', ade_avg='win_ade_avg', fde_avg='win_fde_avg',
-                ade_std='win_ade_std', fde_std='win_fde_std',
-                test_loss_recon='win_test_loss_recon', test_loss_kl='win_test_loss_kl', test_total_loss='win_test_total_loss'
+                recon='win_loss', loss_kl='win_test_loss',
             )
             self.line_gather = DataGather(
-                'iter', 'loss_recon', 'loss_kl', 'total_loss', 'ade_min', 'fde_min',
-                'ade_avg', 'fde_avg', 'ade_std', 'fde_std',
-                'test_loss_recon', 'test_loss_kl', 'test_total_loss'
+                'iter', 'loss', 'test_loss'
             )
 
             import visdom
