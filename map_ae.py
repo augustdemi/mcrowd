@@ -251,6 +251,8 @@ class Solver(object):
             if self.viz_on and (iteration % self.viz_la_iter == 0):
                 self.visualize_line()
                 self.line_gather.flush()
+                self.recon(self.train_loader)
+                self.recon(self.val_loader)
 
     def test(self):
         self.set_mode(train=False)
