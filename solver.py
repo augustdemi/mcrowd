@@ -28,20 +28,20 @@ class Solver(object):
         # self.name = '%s_pred_len_%s_zS_%s_embedding_dim_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_pool_dim_%s_lr_%s_klw_%s' % \
         #             (args.dataset_name, args.pred_len, args.zS_dim, 16, args.encoder_h_dim, args.decoder_h_dim, args.mlp_dim, args.pool_dim, args.lr_VAE, args.kl_weight)
 
-        # self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_pool_dim_%s_lr_%s_klw_%s' % \
-        #             (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
-        #              args.decoder_h_dim, args.mlp_dim, 0, args.lr_VAE, args.kl_weight)
-
-        self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_attn_%s_lr_%s_klw_%s_map_size_%s' % \
+        self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_pool_dim_%s_lr_%s_klw_%s' % \
                     (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
-                     args.decoder_h_dim, args.mlp_dim, args.attention, args.lr_VAE, args.kl_weight, args.map_size)
+                     args.decoder_h_dim, args.mlp_dim, 0, args.lr_VAE, args.kl_weight)
+
+        # self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_attn_%s_lr_%s_klw_%s' % \
+        #             (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
+        #              args.decoder_h_dim, args.mlp_dim, args.attention, args.lr_VAE, args.kl_weight)
 
 
         # to be appended by run_id
 
         # self.use_cuda = args.cuda and torch.cuda.is_available()
         self.device = args.device
-        self.temp=0.66
+        self.temp=1.99
         self.dt=0.4
         self.kl_weight=args.kl_weight
 
@@ -138,7 +138,6 @@ class Solver(object):
                 enc_h_dim=args.encoder_h_dim,
                 mlp_dim=args.mlp_dim,
                 attention=args.attention,
-                map_size=args.map_size,
                 batch_norm=args.batch_norm,
                 num_layers=args.num_layers,
                 dropout_mlp=args.dropout_mlp,
@@ -195,6 +194,7 @@ class Solver(object):
         _, self.train_loader = data_loader(self.args, train_path)
         print("Initializing val dataset")
         _, self.val_loader = data_loader(self.args, val_path)
+        # self.val_loader = self.train_loader
 
         print(
             'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
@@ -230,21 +230,22 @@ class Solver(object):
             # ============================================
 
             # sample a mini-batch
-            (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst)  = next(iterator)
-            batch = obs_traj_vel.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
+            (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, non_linear_ped,
+             loss_mask, seq_start_end, obs_frames, pred_frames) = next(iterator)
+            batch = obs_traj_rel.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
 
             (encX_h_feat, logitX) \
-                = self.encoderMx(obs_traj, seq_start_end, past_obst, train=True)
+                = self.encoderMx(obs_traj, seq_start_end, train=True)
             (encY_h_feat, logitY) \
-                = self.encoderMy(obs_traj[-1], fut_traj_vel, seq_start_end, encX_h_feat, train=True)
+                = self.encoderMy(obs_traj[-1], fut_traj_rel, seq_start_end, encX_h_feat, train=True)
 
             p_dist = discrete(logits=logitX)
             q_dist = discrete(logits=logitY)
             relaxed_q_dist = concrete(logits=logitY, temperature=self.temp)
 
 
-            # 첫번째 iteration 디코더 인풋 = (obs_traj_vel의 마지막 값, (hidden_state, cell_state))
+            # 첫번째 iteration 디코더 인풋 = (obs_traj_rel의 마지막 값, (hidden_state, cell_state))
             # where hidden_state = "인코더의 마지막 hidden_layer아웃풋과 그것으로 만든 max_pooled값을 concat해서 mlp 통과시켜만든 feature인 noise_input에다 noise까지 추가한값)"
             fut_rel_pos_dist = self.decoderMy(
                 obs_traj[-1],
@@ -255,20 +256,20 @@ class Solver(object):
 
 
             ################# validate integration #################
-            # a = integrate_samples(fut_traj_vel, obs_traj[-1][:, :2])
+            # a = integrate_samples(fut_traj_rel, obs_traj[-1][:, :2])
             # d = a - fut_traj[:, :, :2]
-            # b = relative_to_abs(fut_traj_vel, obs_traj[-1][:, :2])
+            # b = relative_to_abs(fut_traj_rel, obs_traj[-1][:, :2])
             # e = b - fut_traj[:, :, :2]
             # d==e
             ####################################################################
 
             ################## total loss for vae ####################
-            # loglikelihood = fut_rel_pos_dist.log_prob(torch.reshape(fut_traj_vel, [batch, self.pred_len, 2])).sum().div(batch)
+            # loglikelihood = fut_rel_pos_dist.log_prob(torch.reshape(fut_traj_rel, [batch, self.pred_len, 2])).sum().div(batch)
 
-            # log_p_yt_xz=torch.clamp(fut_rel_pos_dist.log_prob(torch.reshape(fut_traj_vel, [batch, self.pred_len, 2])), max=6)
+            # log_p_yt_xz=torch.clamp(fut_rel_pos_dist.log_prob(torch.reshape(fut_traj_rel, [batch, self.pred_len, 2])), max=6)
             # print(">>>max:", log_p_yt_xz.max(), log_p_yt_xz.min(), log_p_yt_xz.mean())
             # loglikelihood = log_p_yt_xz.sum().div(batch)
-            loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_vel).sum().div(batch)
+            loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_rel).sum().div(batch)
 
             loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
             loss_kl = torch.clamp(loss_kl, min=0.07)
@@ -392,21 +393,19 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
-                 fut_obst) = batch
-
-                batch_size = obs_traj_vel.size(1)
+                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, non_linear_ped,
+                 loss_mask, seq_start_end, obs_frames, pred_frames) = batch
+                batch_size = obs_traj_rel.size(1)
                 total_traj += fut_traj.size(1)
 
                 (encX_h_feat, logitX) \
-                    = self.encoderMx(obs_traj, seq_start_end, past_obst)
-
+                    = self.encoderMx(obs_traj, seq_start_end)
                 p_dist = discrete(logits=logitX)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
                 if loss:
                     (encY_h_feat, logitY) \
-                        = self.encoderMy(obs_traj[-1], fut_traj_vel, seq_start_end, encX_h_feat)
+                        = self.encoderMy(obs_traj[-1], fut_traj_rel, seq_start_end, encX_h_feat)
 
                     q_dist = discrete(logits=logitY)
                     fut_rel_pos_dist = self.decoderMy(
@@ -414,9 +413,15 @@ class Solver(object):
                         encX_h_feat,
                         relaxed_p_dist.rsample()
                     )
+                    # fut_rel_pos_dist = self.decoderMy(
+                    #     obs_traj[-1],
+                    #     encX_h_feat,
+                    #     relaxed_p_dist.rsample((num_samples,)),
+                    #     num_samples=num_samples
+                    # )
 
                     ################## total loss for vae ####################
-                    loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_vel).sum().div(batch_size)
+                    loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_rel).sum().div(batch_size)
 
                     kld = kl_divergence(q_dist, p_dist).sum().div(batch_size)
                     kld = torch.clamp(kld, min=0.07)
@@ -432,9 +437,9 @@ class Solver(object):
                         encX_h_feat,
                         relaxed_p_dist.rsample()
                     )
-                    pred_fut_traj_vel = fut_rel_pos_dist.rsample()
+                    pred_fut_traj_rel = fut_rel_pos_dist.rsample()
 
-                    pred_fut_traj=integrate_samples(pred_fut_traj_vel, obs_traj[-1][:, :2], dt=self.dt)
+                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
 
 
                     ade.append(displacement_error(
@@ -503,9 +508,9 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
-                 fut_obst) = batch
-
+                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, non_linear_ped,
+                 loss_mask, seq_start_end, obs_frames, pred_frames) = batch
+                batch_size = obs_traj_rel.size(1)
                 total_traj += fut_traj.size(1)
 
                 # path = '../datasets\hotel\\test\\biwi_hotel.txt'
@@ -528,8 +533,7 @@ class Solver(object):
 
 
                 (encX_h_feat, logitX) \
-                    = self.encoderMx(obs_traj, seq_start_end, past_obst)
-
+                    = self.encoderMx(obs_traj, seq_start_end)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
                 # s=seq_start_end.numpy()
@@ -554,7 +558,7 @@ class Solver(object):
                 for s, e in seq_start_end:
                     agent_rng = range(s, e)
 
-                    frame_numbers = np.concatenate([obs_frames[agent_rng[0]], fut_frames[agent_rng[0]]])
+                    frame_numbers = np.concatenate([obs_frames[agent_rng[0]], pred_frames[agent_rng[0]]])
                     frame_number = frame_numbers[0]
                     cap.set(1, frame_number)
                     ret, frame = cap.read()
@@ -566,8 +570,8 @@ class Solver(object):
                             encX_h_feat,
                             relaxed_p_dist.rsample()
                         )
-                        pred_fut_traj_vel = fut_rel_pos_dist.rsample()
-                        pred_fut_traj = integrate_samples(pred_fut_traj_vel, obs_traj[-1][:, :2], dt=self.dt)
+                        pred_fut_traj_rel = fut_rel_pos_dist.rsample()
+                        pred_fut_traj = integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
 
                         gt_data, pred_data = [], []
 
