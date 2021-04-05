@@ -52,8 +52,9 @@ def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0.0):
 
 
 class Encoder(nn.Module):
-    def __init__(self, fc_hidden_dim, output_dim):
+    def __init__(self, fc_hidden_dim, output_dim, drop_out):
         super(Encoder, self).__init__()
+        self.drop_out = drop_out
         self.conv1 = nn.Conv2d(1, 4, 7, stride=3, bias=False)
         self.pool = nn.MaxPool2d(2, 2)
         self.conv2 = nn.Conv2d(4, 4, 5, stride=2, bias=False)
@@ -73,6 +74,9 @@ class Encoder(nn.Module):
         x = torch.cat((x, state[:, 2:4]), -1)
         x = F.relu(self.fc1(x))
         obst_feat = self.fc2(x)
+        obst_feat = F.dropout(obst_feat,
+                            p=self.drop_out,
+                            training=train)
 
         return obst_feat
 

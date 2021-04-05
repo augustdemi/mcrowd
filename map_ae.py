@@ -4,17 +4,13 @@ import torch.optim as optim
 # -----------------------------------------------------------------------------#
 from utils import DataGather, mkdirs, grid2gif2, apply_poe, sample_gaussian, sample_gumbel_softmax
 from model_map_ae import *
-from loss import kl_two_gaussian, displacement_error, final_displacement_error
-from utils_sgan import relative_to_abs, integrate_samples
 from data.loader import data_loader
 from eval_util import ploot
 
 import matplotlib.pyplot as plt
 from torch.distributions import RelaxedOneHotCategorical as concrete
-from torch.distributions import OneHotCategorical as discrete
-from torch.distributions import kl_divergence
-
-from gmm2d import GMM2D
+from torchvision.utils import save_image
+from data.obstacles import seq_collate
 
 ###############################################################################
 
@@ -32,8 +28,8 @@ class Solver(object):
         #             (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
         #              args.decoder_h_dim, args.mlp_dim, 0, args.lr_VAE, args.kl_weight)
 
-        self.name = '%s_map_size_%s' % \
-                    (args.dataset_name, args.map_size)
+        self.name = '%s_map_size_%s_drop_out%s' % \
+                    (args.dataset_name, args.map_size, args.dropout_map)
 
 
         # to be appended by run_id
@@ -71,7 +67,7 @@ class Solver(object):
         self.viz_on = args.viz_on
         if self.viz_on:
             self.win_id = dict(
-                recon='win_loss', loss_kl='win_test_loss',
+                loss='win_loss', test_loss='win_test_loss',
             )
             self.line_gather = DataGather(
                 'iter', 'loss', 'test_loss'
@@ -130,7 +126,8 @@ class Solver(object):
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
             self.encoder = Encoder(
                 fc_hidden_dim=32,
-                output_dim=8).to(self.device)
+                output_dim=8,
+                drop_out=args.dropout_map).to(self.device)
 
             self.decoder = Decoder(
                 fc_hidden_dim=32,
@@ -274,8 +271,6 @@ class Solver(object):
 
                 obst_feat = self.encoder(state, map, train=True)
 
-                # 첫번째 iteration 디코더 인풋 = (obs_traj_vel의 마지막 값, (hidden_state, cell_state))
-                # where hidden_state = "인코더의 마지막 hidden_layer아웃풋과 그것으로 만든 max_pooled값을 concat해서 mlp 통과시켜만든 feature인 noise_input에다 noise까지 추가한값)"
                 recon_map = self.decoder(
                     obst_feat
                 )
@@ -286,6 +281,50 @@ class Solver(object):
         return loss.div(b)
 
     ####
+
+    def recon(self, data_loader):
+        self.set_mode(train=False)
+        with torch.no_grad():
+            dset = 'train'
+            # if 'eth' in self.name:
+            if 'train' in data_loader.dataset.data_dir:
+                fixed_idxs = [0,20,153]
+            else:
+                fixed_idxs = [4, 24, 26]
+                dset='test'
+            data = []
+            for i, idx in enumerate(fixed_idxs):
+                data.append(data_loader.dataset.__getitem__(idx))
+
+            (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
+             fut_obst) = seq_collate(data)
+            # out_dir = os.path.join('./output',self.name, dset + str(self.ckpt_load_iter))
+            # mkdirs(out_dir)
+            # for i in range(fut_obst.shape[1]):
+            #     save_image(fut_obst[:, i], str(os.path.join(out_dir, 'gt_img'+str(i)+'.png')), nrow=self.pred_len, pad_value=1)
+
+
+            state = torch.cat([obs_traj, fut_traj], dim=0)
+            state = state.view(-1, state.shape[2])
+            map = torch.cat([past_obst, fut_obst], dim=0)
+            map = map.view(-1, map.shape[2], map.shape[3], map.shape[4])
+
+            obst_feat = self.encoder(state, map, train=True)
+
+            recon_map = self.decoder(
+                obst_feat
+            )
+
+            out_dir = os.path.join('./output',self.name, dset)
+            mkdirs(out_dir)
+            for i in range(len(map)):
+                save_image(recon_map[i], str(os.path.join(out_dir, 'recon_img'+str(i)+'.png')), nrow=self.pred_len, pad_value=1)
+                save_image(map[i], str(os.path.join(out_dir, 'gt_img'+str(i)+'.png')), nrow=self.pred_len, pad_value=1)
+
+        self.set_mode(train=True)
+
+
+
 
     ####
     def viz_init(self):
