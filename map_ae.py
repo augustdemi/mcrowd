@@ -10,7 +10,7 @@ from eval_util import ploot
 import matplotlib.pyplot as plt
 from torch.distributions import RelaxedOneHotCategorical as concrete
 from torchvision.utils import save_image
-from data.obstacles import seq_collate
+from data.trajectories import seq_collate
 
 ###############################################################################
 
