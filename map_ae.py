@@ -290,9 +290,9 @@ class Solver(object):
             dset = 'train'
             # if 'eth' in self.name:
             if 'train' in data_loader.dataset.data_dir:
-                fixed_idxs = [0,20,153]
+                fixed_idxs = [250,20]
             else:
-                fixed_idxs = [4, 24, 26]
+                fixed_idxs = [20, 120]
                 dset='test'
             data = []
             for i, idx in enumerate(fixed_idxs):
@@ -311,7 +311,7 @@ class Solver(object):
             map = torch.cat([past_obst, fut_obst], dim=0)
             map = map.view(-1, map.shape[2], map.shape[3], map.shape[4])
 
-            obst_feat = self.encoder(state, map, train=True)
+            obst_feat = self.encoder(state, map)
 
             recon_map = self.decoder(
                 obst_feat
@@ -319,7 +319,7 @@ class Solver(object):
 
             out_dir = os.path.join('./output',self.name, dset)
             mkdirs(out_dir)
-            for i in range(len(map)):
+            for i in range(4):
                 save_image(recon_map[i], str(os.path.join(out_dir, 'recon_img'+str(i)+'.png')), nrow=self.pred_len, pad_value=1)
                 save_image(map[i], str(os.path.join(out_dir, 'gt_img'+str(i)+'.png')), nrow=self.pred_len, pad_value=1)
 
