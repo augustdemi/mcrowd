@@ -490,6 +490,91 @@ class Solver(object):
 
 
 
+
+    def evaluate_collision(self, data_loader, num_samples, threshold):
+        self.set_mode(train=False)
+        total_traj = 0
+        all_coll = []
+
+        with torch.no_grad():
+            b=0
+            for batch in data_loader:
+                b+=1
+                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, non_linear_ped,
+                 loss_mask, seq_start_end, obs_frames, pred_frames) = batch
+                total_traj += fut_traj.size(1)
+
+
+                (encX_h_feat, logitX) \
+                    = self.encoderMx(obs_traj, seq_start_end)
+                relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
+
+                coll_20samples = [] # (20, # seq, 12)
+                for _ in range(num_samples):
+                    fut_rel_pos_dist = self.decoderMy(
+                        obs_traj[-1],
+                        encX_h_feat,
+                        relaxed_p_dist.rsample()
+                    )
+                    pred_fut_traj_rel = fut_rel_pos_dist.rsample()
+
+                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
+
+                    seq_coll = [] #64
+                    for idx, (start, end) in enumerate(seq_start_end):
+
+                        start = start.item()
+                        end = end.item()
+                        num_ped = end - start
+                        if num_ped==1:
+                            continue
+                        one_frame_slide = pred_fut_traj[:,start:end,:] # (pred_len, num_ped, 2)
+
+                        frame_coll = [] #num_ped
+                        for i in range(self.pred_len):
+                            curr_frame = one_frame_slide[i] # frame of time=i #(num_ped,2)
+                            curr1 = curr_frame.repeat(num_ped, 1)
+                            curr2 = self.repeat(curr_frame, num_ped)
+                            dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
+                            dist = dist.reshape(num_ped, num_ped) # all distance between all num_ped*num_ped
+                            diff_agent_idx = np.triu_indices(num_ped, k=1) # only distinct distances of num_ped C 2(upper triange except for diag)
+                            diff_agent_dist = dist[diff_agent_idx]
+                            curr_coll_rate = (diff_agent_dist < threshold).sum() / len(diff_agent_dist)
+
+                            frame_coll.append(curr_coll_rate)
+                        seq_coll.append(frame_coll)
+                    coll_20samples.append(seq_coll)
+
+                all_coll.append(np.array(coll_20samples))
+
+            all_coll=np.concatenate(all_coll, axis=1) #(20,70,12)
+            print('all_coll: ', all_coll.shape)
+            coll_rate_min=all_coll.min(axis=0).mean()*100
+            coll_rate_avg=all_coll.mean(axis=0).mean()*100
+            coll_rate_std=all_coll.std(axis=0).mean()*100
+
+            #non-zero coll
+            non_zero_coll_avg = []
+            non_zero_coll_min = []
+            non_zero_coll_std = []
+            for sample in all_coll: #sample = [70,12]
+                non_zero_idx = np.where(sample > 0)
+                if len(non_zero_idx[0]) > 0:
+                    non_zero_coll_avg.append(sample[non_zero_idx].mean())
+                    non_zero_coll_std.append(sample[non_zero_idx].std())
+                    non_zero_coll_min.append(sample[non_zero_idx].min())
+
+            non_zero_coll_avg = np.array(non_zero_coll_avg).mean()*100
+            non_zero_coll_min = np.array(non_zero_coll_min).mean() *100
+            non_zero_coll_std = np.array(non_zero_coll_std).mean() *100
+
+        return coll_rate_min, non_zero_coll_min, \
+               coll_rate_avg, non_zero_coll_avg, \
+               coll_rate_std, non_zero_coll_std
+
+
+
+
     def plot_traj_var(self, data_loader, num_samples=20):
         import matplotlib.pyplot as plt
         from matplotlib.animation import FuncAnimation

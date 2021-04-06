@@ -149,16 +149,29 @@ def main(args):
                 test_path = os.path.join(args.dataset_dir, dataset_name, 'test')
                 _, test_loader = data_loader(args, test_path)
 
-                ade_min, fde_min, \
-                ade_avg, fde_avg, \
-                ade_std, fde_std = solver.evaluate_dist(test_loader, 20, loss=False)
-                print(args.dataset_name)
-                print('ade min: ', ade_min)
-                print('ade avg: ', ade_avg)
-                print('ade std: ', ade_std)
-                print('fde min: ', fde_min)
-                print('fde avg: ', fde_avg)
-                print('fde std: ', fde_std)
+                # ade_min, fde_min, \
+                # ade_avg, fde_avg, \
+                # ade_std, fde_std = solver.evaluate_dist(test_loader, 20, loss=False)
+                # print(args.dataset_name)
+                # print('ade min: ', ade_min)
+                # print('ade avg: ', ade_avg)
+                # print('ade std: ', ade_std)
+                # print('fde min: ', fde_min)
+                # print('fde avg: ', fde_avg)
+                # print('fde std: ', fde_std)
+
+
+                coll_rate_min, non_zero_coll_min, \
+                coll_rate_avg, non_zero_coll_avg, \
+                coll_rate_std, non_zero_coll_std = solver.evaluate_collision(test_loader, 20, 0.1)
+                print('-------------------- collision rate of ', args.dataset_name, '----------------------')
+                print('min: ', coll_rate_min)
+                print('avg: ', coll_rate_avg)
+                print('std: ', coll_rate_std)
+                print('// non zero //')
+                print('min: ', non_zero_coll_min)
+                print('avg: ', non_zero_coll_avg)
+                print('std: ', non_zero_coll_std)
         else:
             solver = Solver(args)
 
@@ -169,8 +182,20 @@ def main(args):
 
 
             test_path = os.path.join(args.dataset_dir, args.dataset_name, 'test')
-            args.batch_size = 320
+            # args.batch_size = 320
             _, test_loader = data_loader(args, test_path,shuffle=False)
+
+            coll_rate_min, non_zero_coll_min, \
+                   coll_rate_avg, non_zero_coll_avg, \
+                   coll_rate_std, non_zero_coll_std = solver.evaluate_collision(test_loader, 20, 0.1)
+            print('-------------------- collision rate of ', args.dataset_name , '----------------------')
+            print('min: ', coll_rate_min)
+            print('avg: ', coll_rate_avg)
+            print('std: ', coll_rate_std)
+            print('// non zero //')
+            print('min: ', non_zero_coll_min)
+            print('avg: ', non_zero_coll_avg)
+            print('std: ', non_zero_coll_std)
             solver.plot_traj_var(test_loader)
             # solver.draw_traj(test_loader, 20)
             # solver.check_dist_stat(test_loader)
