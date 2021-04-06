@@ -471,8 +471,52 @@ class Solver(object):
 
 
 
+    def evaluate_dtw(self, data_loader, num_samples):
+        self.set_mode(train=False)
+        all_dist = []
+        from dtaidistance import dtw_ndim
+        with torch.no_grad():
+            b=0
+            for batch in data_loader:
+                b+=1
+                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, non_linear_ped,
+                 loss_mask, seq_start_end, obs_frames, pred_frames) = batch
+                batch_size = fut_traj.size(1)
+
+                (encX_h_feat, logitX) \
+                    = self.encoderMx(obs_traj, seq_start_end)
+                relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
+
+                dist_20samples = [] # (20, # seq, 12)
+                for _ in range(num_samples):
+                    fut_rel_pos_dist = self.decoderMy(
+                        obs_traj[-1],
+                        encX_h_feat,
+                        relaxed_p_dist.rsample()
+                    )
+                    pred_fut_traj_rel = fut_rel_pos_dist.rsample()
+
+                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
+
+                    dtw_dist = []
+                    for i in range(batch_size):
+                        dtw_dist.append(dtw_ndim.distance(pred_fut_traj[:,i].cpu().numpy(), fut_traj[:, i,:2].cpu().numpy()))
+                    dist_20samples.append(dtw_dist)
+                all_dist.append(np.array(dist_20samples))
+
+            all_dist=np.concatenate(all_dist, axis=1) #(20,70,12)
+            print('all_coll: ', all_dist.shape)
+            dtw_min=all_dist.min(axis=0).mean()*100
+            dtw_avg=all_dist.mean(axis=0).mean()*100
+            dtw_std=all_dist.std(axis=0).mean()*100
+        self.set_mode(train=True)
+        return dtw_min, dtw_avg, dtw_std
+
+
+
     def evaluate_collision(self, data_loader, num_samples, threshold):
         self.set_mode(train=False)
+
         total_traj = 0
         all_coll = []
 
@@ -554,6 +598,51 @@ class Solver(object):
 
 
 
+    def evaluate_real_collision(self, data_loader, num_samples, threshold):
+        self.set_mode(train=False)
+        total_traj = 0
+        all_coll = []
+
+        with torch.no_grad():
+            b=0
+            for batch in data_loader:
+                b+=1
+                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, non_linear_ped,
+                 loss_mask, seq_start_end, obs_frames, pred_frames) = batch
+                total_traj += fut_traj.size(1)
+
+                seq_coll = []  # 64
+                for idx, (start, end) in enumerate(seq_start_end):
+
+                    start = start.item()
+                    end = end.item()
+                    num_ped = end - start
+                    if num_ped == 1:
+                        continue
+                    one_frame_slide = fut_traj[:, start:end, :2]  # (pred_len, num_ped, 2)
+
+                    frame_coll = []  # num_ped
+                    for i in range(self.pred_len):
+                        curr_frame = one_frame_slide[i]  # frame of time=i #(num_ped,2)
+                        curr1 = curr_frame.repeat(num_ped, 1)
+                        curr2 = self.repeat(curr_frame, num_ped)
+                        dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
+                        dist = dist.reshape(num_ped, num_ped)  # all distance between all num_ped*num_ped
+                        diff_agent_idx = np.triu_indices(num_ped,
+                                                         k=1)  # only distinct distances of num_ped C 2(upper triange except for diag)
+                        diff_agent_dist = dist[diff_agent_idx]
+                        curr_coll_rate = (diff_agent_dist < threshold).sum() / len(diff_agent_dist)
+
+                        frame_coll.append(curr_coll_rate)
+                    seq_coll.append(frame_coll)
+                all_coll.append(np.array(seq_coll))
+            all_coll=np.concatenate(all_coll, axis=0) #(70,12)
+            print('all_coll: ', all_coll.shape)
+            coll_rate=all_coll.mean()*100
+
+        self.set_mode(train=True)
+        return coll_rate
+
 
 
     def plot_traj_var(self, data_loader, num_samples=20):
@@ -584,7 +673,7 @@ class Solver(object):
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
 
-                agent_rng = range(45,49)
+                agent_rng = range(224,226)
                 # frame_number = obs_frames[95][-1]
                 frame_numbers = np.concatenate([obs_frames[agent_rng[0]], pred_frames[agent_rng[0]]])
                 frame_number = frame_numbers[0]

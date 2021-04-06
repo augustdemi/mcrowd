@@ -100,7 +100,7 @@ def create_parser():
     # dataset
     parser.add_argument( '--dataset_dir', default='../datasets', type=str,
       help='dataset directory' )
-    parser.add_argument( '--dataset_name', default='all', type=str,
+    parser.add_argument( '--dataset_name', default='eth', type=str,
       help='dataset name' )
     parser.add_argument( '--num_workers', default=0, type=int,
       help='dataloader num_workers' )
@@ -149,17 +149,27 @@ def main(args):
                 test_path = os.path.join(args.dataset_dir, dataset_name, 'test')
                 _, test_loader = data_loader(args, test_path)
 
+                dtw_min, dtw_avg, dtw_std = solver.evaluate_dtw(test_loader, 20)
+                print('--------------------', args.dataset_name, '----------------------')
+                print('dtw min: ', dtw_min)
+                print('dtw avg: ', dtw_avg)
+                print('dtw std: ', dtw_std)
 
-                coll_rate_min, non_zero_coll_min, \
-                coll_rate_avg, non_zero_coll_avg, \
-                coll_rate_std, non_zero_coll_std = solver.evaluate_collision(test_loader, 20, 0.1)
-                print('-------------------- collision rate of ', args.dataset_name, '----------------------')
-                print('min: ', coll_rate_min)
-                print('avg: ', coll_rate_avg)
-                print('std: ', coll_rate_std)
-                print('// non zero //')
-                print('min: ', non_zero_coll_min)
-                print('avg: ', non_zero_coll_avg)
+
+                # coll_rate = solver.evaluate_real_collision(test_loader, 20, 0.1)
+                # print('-------------------- collision rate of ', args.dataset_name, '----------------------')
+                # print('coll_rate: ', coll_rate)
+
+                # coll_rate_min, non_zero_coll_min, \
+                # coll_rate_avg, non_zero_coll_avg, \
+                # coll_rate_std, non_zero_coll_std = solver.evaluate_collision(test_loader, 20, 0.1)
+                # print('-------------------- collision rate of ', args.dataset_name, '----------------------')
+                # print('min: ', coll_rate_min)
+                # print('avg: ', coll_rate_avg)
+                # print('std: ', coll_rate_std)
+                # print('// non zero //')
+                # print('min: ', non_zero_coll_min)
+                # print('avg: ', non_zero_coll_avg)
 
                 # ade_min, fde_min, \
                 # ade_avg, fde_avg, \
@@ -181,7 +191,15 @@ def main(args):
 
 
             test_path = os.path.join(args.dataset_dir, args.dataset_name, 'test')
+            args.batch_size=300
             _, test_loader = data_loader(args, test_path,shuffle=False)
+
+            dtw_min, dtw_avg, dtw_std = solver.evaluate_dtw(test_loader, 20)
+            print('--------------------', args.dataset_name , '----------------------')
+            print('dtw min: ', dtw_min)
+            print('dtw avg: ', dtw_avg)
+            print('dtw std: ', dtw_std)
+
             solver.plot_traj_var(test_loader)
             # solver.draw_traj(test_loader, 20)
             # solver.check_dist_stat(test_loader)
