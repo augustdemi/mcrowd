@@ -27,15 +27,12 @@ class Solver(object):
 
         # self.name = '%s_pred_len_%s_zS_%s_embedding_dim_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_pool_dim_%s_lr_%s_klw_%s' % \
         #             (args.dataset_name, args.pred_len, args.zS_dim, 16, args.encoder_h_dim, args.decoder_h_dim, args.mlp_dim, args.pool_dim, args.lr_VAE, args.kl_weight)
-
-        self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_pool_dim_%s_lr_%s_klw_%s' % \
-                    (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
-                     args.decoder_h_dim, args.mlp_dim, 0, args.lr_VAE, args.kl_weight)
-
-        # self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_attn_%s_lr_%s_klw_%s' % \
+        # self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_pool_dim_%s_lr_%s_klw_%s' % \
         #             (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
-        #              args.decoder_h_dim, args.mlp_dim, args.attention, args.lr_VAE, args.kl_weight)
-
+        #              args.decoder_h_dim, args.mlp_dim, args.pool_dim, args.lr_VAE, args.kl_weight)
+        self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_attn_%s_lr_%s_klw_%s' % \
+                    (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
+                     args.decoder_h_dim, args.mlp_dim, '1', args.lr_VAE, args.kl_weight)
 
         # to be appended by run_id
 
@@ -137,6 +134,7 @@ class Solver(object):
                 args.zS_dim,
                 enc_h_dim=args.encoder_h_dim,
                 mlp_dim=args.mlp_dim,
+                attention=args.attention,
                 batch_norm=args.batch_norm,
                 num_layers=args.num_layers,
                 dropout_mlp=args.dropout_mlp,
@@ -145,6 +143,7 @@ class Solver(object):
                 args.zS_dim,
                 enc_h_dim=args.encoder_h_dim,
                 mlp_dim=args.mlp_dim,
+                attention=args.attention,
                 batch_norm=args.batch_norm,
                 num_layers=args.num_layers,
                 dropout_mlp=args.dropout_mlp,
@@ -379,6 +378,97 @@ class Solver(object):
 
 
 
+    def evaluate_dist(self, data_loader, num_samples, loss=False):
+        self.set_mode(train=False)
+        total_traj = 0
+
+        loss_recon = loss_kl = vae_loss = 0
+
+        all_ade =[]
+        all_fde =[]
+        with torch.no_grad():
+            b=0
+            for batch in data_loader:
+                b+=1
+                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, non_linear_ped,
+                 loss_mask, seq_start_end, obs_frames, pred_frames) = batch
+                batch_size = obs_traj_rel.size(1)
+                total_traj += fut_traj.size(1)
+
+                (encX_h_feat, logitX) \
+                    = self.encoderMx(obs_traj, seq_start_end)
+                p_dist = discrete(logits=logitX)
+                relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
+
+                if loss:
+                    (encY_h_feat, logitY) \
+                        = self.encoderMy(obs_traj[-1], fut_traj_rel, seq_start_end, encX_h_feat)
+
+                    q_dist = discrete(logits=logitY)
+                    fut_rel_pos_dist = self.decoderMy(
+                        obs_traj[-1],
+                        encX_h_feat,
+                        relaxed_p_dist.rsample()
+                    )
+                    # fut_rel_pos_dist = self.decoderMy(
+                    #     obs_traj[-1],
+                    #     encX_h_feat,
+                    #     relaxed_p_dist.rsample((num_samples,)),
+                    #     num_samples=num_samples
+                    # )
+
+                    ################## total loss for vae ####################
+                    loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_rel).sum().div(batch_size)
+
+                    kld = kl_divergence(q_dist, p_dist).sum().div(batch_size)
+                    kld = torch.clamp(kld, min=0.07)
+                    elbo = loglikelihood - self.kl_weight * kld
+                    vae_loss -=elbo
+                    loss_recon +=loglikelihood
+                    loss_kl +=kld
+
+                ade, fde = [], []
+                for _ in range(num_samples):
+                    fut_rel_pos_dist = self.decoderMy(
+                        obs_traj[-1],
+                        encX_h_feat,
+                        relaxed_p_dist.rsample()
+                    )
+                    pred_fut_traj_rel = fut_rel_pos_dist.rsample()
+
+                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
+
+
+                    ade.append(displacement_error(
+                        pred_fut_traj, fut_traj[:,:,:2], mode='raw'
+                    ))
+                    fde.append(final_displacement_error(
+                        pred_fut_traj[-1], fut_traj[-1,:,:2], mode='raw'
+                    ))
+                all_ade.append(torch.stack(ade))
+                all_fde.append(torch.stack(fde))
+
+
+            all_ade=torch.cat(all_ade, dim=1).cpu().numpy()
+            all_fde=torch.cat(all_fde, dim=1).cpu().numpy()
+
+            ade_min = np.min(all_ade, axis=0).mean()/self.pred_len
+            fde_min = np.min(all_fde, axis=0).mean()
+            ade_avg = np.mean(all_ade, axis=0).mean()/self.pred_len
+            fde_avg = np.mean(all_fde, axis=0).mean()
+            ade_std = np.std(all_ade, axis=0).mean()/self.pred_len
+            fde_std = np.std(all_fde, axis=0).mean()
+        self.set_mode(train=True)
+        if loss:
+            return ade_min, fde_min, \
+                   ade_avg, fde_avg, \
+                   ade_std, fde_std, \
+                   loss_recon/b, loss_kl/b, vae_loss/b
+        else:
+            return ade_min, fde_min, \
+                   ade_avg, fde_avg, \
+                   ade_std, fde_std
+
 
 
     def evaluate_dtw(self, data_loader, num_samples):
@@ -416,9 +506,9 @@ class Solver(object):
 
             all_dist=np.concatenate(all_dist, axis=1) #(20,70,12)
             print('all_coll: ', all_dist.shape)
-            dtw_min=all_dist.min(axis=0).mean()
-            dtw_avg=all_dist.mean(axis=0).mean()
-            dtw_std=all_dist.std(axis=0).mean()
+            dtw_min=all_dist.min(axis=0).mean()*100
+            dtw_avg=all_dist.mean(axis=0).mean()*100
+            dtw_std=all_dist.std(axis=0).mean()*100
         self.set_mode(train=True)
         return dtw_min, dtw_avg, dtw_std
 
@@ -426,6 +516,7 @@ class Solver(object):
 
     def evaluate_collision(self, data_loader, num_samples, threshold):
         self.set_mode(train=False)
+
         total_traj = 0
         all_coll = []
 
@@ -507,7 +598,6 @@ class Solver(object):
 
 
 
-
     def evaluate_real_collision(self, data_loader, threshold):
         self.set_mode(train=False)
         total_traj = 0
@@ -557,15 +647,15 @@ class Solver(object):
 
     def plot_traj_var(self, data_loader, num_samples=20):
         import matplotlib.pyplot as plt
-        from matplotlib.animation import FuncAnimation
+        from matplotlib.animation import FuncAnimation, PillowWriter
         import cv2
         gif_path = "D:\crowd\\fig\\runid" + str(self.run_id)
         mkdirs(gif_path)
         # read video
-        cap = cv2.VideoCapture('D:\crowd\ewap_dataset\seq_'+self.dataset_name+'\seq_'+self.dataset_name+'.avi')
+        cap = cv2.VideoCapture('D:\crowd\ewap_dataset\seq_eth\seq_eth.avi')
 
         colors = ['r', 'g', 'y', 'm', 'c', 'k', 'w', 'b']
-        h = np.loadtxt('D:\crowd\ewap_dataset\seq_'+self.dataset_name+'\H.txt')
+        h = np.loadtxt('D:\crowd\ewap_dataset\seq_eth\H.txt')
         inv_h_t = np.linalg.pinv(np.transpose(h))
 
         total_traj = 0
@@ -578,31 +668,81 @@ class Solver(object):
                 batch_size = obs_traj_rel.size(1)
                 total_traj += fut_traj.size(1)
 
-                # path = '../datasets\hotel\\test\\biwi_hotel.txt'
-                # l=f.readlines()
-                # data = read_file(path, 'tab')
-                # framd_num=6980
-                # np.where(obs_frames[:, 0] == framd_num)
-                # d = data[1989:2000]
-                # gt_real = d[..., -2:]
-                # gt_real = np.concatenate([gt_real, np.ones((2000-1989, 1))], axis=1)
-                # gt_pixel = np.matmul(gt_real, inv_h_t)
-                # gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
-                #
-                # fig, ax = plt.subplots()
-                # cap.set(1, framd_num)
-                # _, frame = cap.read()
-                # ax.imshow(frame)
-                # for i in range(len(d)):
-                #     ax.text(gt_pixel[i][1], gt_pixel[i][0], str(int(d[:,1][i])), fontsize=10)
-
-
                 (encX_h_feat, logitX) \
                     = self.encoderMx(obs_traj, seq_start_end)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
-                # s=seq_start_end.numpy()
-                # np.where(s[:,0]==63)
+
+                agent_rng = range(224,226)
+                # frame_number = obs_frames[95][-1]
+                frame_numbers = np.concatenate([obs_frames[agent_rng[0]], pred_frames[agent_rng[0]]])
+                frame_number = frame_numbers[0]
+                cap.set(1, frame_number)
+                ret, frame = cap.read()
+                multi_sample_pred = []
+
+                for _ in range(num_samples):
+                    fut_rel_pos_dist = self.decoderMy(
+                        obs_traj[-1],
+                        encX_h_feat,
+                        relaxed_p_dist.rsample()
+                    )
+                    pred_fut_traj_rel = fut_rel_pos_dist.rsample()
+                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
+
+                    gt_data, pred_data = [], []
+
+                    for idx in range(len(agent_rng)):
+                        one_ped = agent_rng[idx]
+                        obs_real = obs_traj[:, one_ped,:2]
+                        obs_real = np.concatenate([obs_real, np.ones((self.obs_len, 1))], axis=1)
+                        obs_pixel = np.matmul(obs_real, inv_h_t)
+                        obs_pixel /= np.expand_dims(obs_pixel[:, 2], 1)
+
+                        gt_real = fut_traj[:, one_ped, :2]
+                        gt_real = np.concatenate([gt_real, np.ones((self.pred_len, 1))], axis=1)
+                        gt_pixel = np.matmul(gt_real, inv_h_t)
+                        gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
+
+                        pred_real = pred_fut_traj[:, one_ped].numpy()
+                        pred_pixel = np.concatenate([pred_real, np.ones((self.pred_len, 1))], axis=1)
+                        pred_pixel = np.matmul(pred_pixel, inv_h_t)
+                        pred_pixel /= np.expand_dims(pred_pixel[:, 2], 1)
+
+                        gt_data.append(np.concatenate([obs_pixel, gt_pixel], 0)) # (20, 3)
+                        pred_data.append(np.concatenate([obs_pixel, pred_pixel], 0))
+
+                    gt_data = np.stack(gt_data)
+                    pred_data = np.stack(pred_data)
+
+                    if self.dataset_name == 'eth':
+                        gt_data[:,:, [0,1]] = gt_data[:,:,[1,0]]
+                        pred_data[:,:,[0,1]] = pred_data[:,:,[1,0]]
+
+                    multi_sample_pred.append(pred_data)
+
+
+                n_agent = gt_data.shape[0]
+                n_frame = gt_data.shape[1]
+
+                fig, ax = plt.subplots()
+                title = ",".join([str(int(elt)) for elt in frame_numbers[:8]]) + ' -->\n'
+                title += ",".join([str(int(elt)) for elt in frame_numbers[8:]])
+                ax.set_title(title, fontsize=9)
+                fig.tight_layout()
+
+
+                ln_gt = []
+                all_ln_pred = []
+
+
+                for i in range(n_agent):
+                    ln_gt.append(ax.plot([], [], colors[i] + '--')[0])
+                    ln_pred = []
+                    for _ in range(20):
+                        ln_pred.append(ax.plot([], [], colors[i], alpha=0.3, linewidth=1)[0])
+                    all_ln_pred.append(ln_pred)
+
 
                 def init():
                     ax.imshow(frame)
@@ -617,86 +757,14 @@ class Solver(object):
                         ln_gt[i].set_data(gt_data[i, :num_t, 0], gt_data[i, :num_t, 1])
 
                         for j in range(20):
-                            all_ln_pred[i][j].set_data(multi_sample_pred[j][i, :num_t, 0],
-                                                       multi_sample_pred[j][i, :num_t, 1])
-
-                for s, e in seq_start_end:
-                    agent_rng = range(s, e)
-
-                    frame_numbers = np.concatenate([obs_frames[agent_rng[0]], pred_frames[agent_rng[0]]])
-                    frame_number = frame_numbers[0]
-                    cap.set(1, frame_number)
-                    ret, frame = cap.read()
-                    multi_sample_pred = []
-
-                    for _ in range(num_samples):
-                        fut_rel_pos_dist = self.decoderMy(
-                            obs_traj[-1],
-                            encX_h_feat,
-                            relaxed_p_dist.rsample()
-                        )
-                        pred_fut_traj_rel = fut_rel_pos_dist.rsample()
-                        pred_fut_traj = integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
-
-                        gt_data, pred_data = [], []
-
-                        for idx in range(len(agent_rng)):
-                            one_ped = agent_rng[idx]
-                            obs_real = obs_traj[:, one_ped,:2]
-                            obs_real = np.concatenate([obs_real, np.ones((self.obs_len, 1))], axis=1)
-                            obs_pixel = np.matmul(obs_real, inv_h_t)
-                            obs_pixel /= np.expand_dims(obs_pixel[:, 2], 1)
-
-                            gt_real = fut_traj[:, one_ped, :2]
-                            gt_real = np.concatenate([gt_real, np.ones((self.pred_len, 1))], axis=1)
-                            gt_pixel = np.matmul(gt_real, inv_h_t)
-                            gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
-
-                            pred_real = pred_fut_traj[:, one_ped].numpy()
-                            pred_pixel = np.concatenate([pred_real, np.ones((self.pred_len, 1))], axis=1)
-                            pred_pixel = np.matmul(pred_pixel, inv_h_t)
-                            pred_pixel /= np.expand_dims(pred_pixel[:, 2], 1)
-
-                            gt_data.append(np.concatenate([obs_pixel, gt_pixel], 0)) # (20, 3)
-                            pred_data.append(np.concatenate([obs_pixel, pred_pixel], 0))
-
-                        gt_data = np.stack(gt_data)
-                        pred_data = np.stack(pred_data)
-
-                        # if self.dataset_name == 'eth':
-                        gt_data[:,:, [0,1]] = gt_data[:,:,[1,0]]
-                        pred_data[:,:,[0,1]] = pred_data[:,:,[1,0]]
-
-                        multi_sample_pred.append(pred_data)
+                            all_ln_pred[i][j].set_data(multi_sample_pred[j][i, :num_t, 0], multi_sample_pred[j][i, :num_t, 1])
 
 
-                    n_agent = gt_data.shape[0]
-                    n_frame = gt_data.shape[1]
+                ani = FuncAnimation(fig, update_dot, frames=n_frame, interval=1, init_func=init())
 
-                    fig, ax = plt.subplots()
-                    title = ",".join([str(int(elt)) for elt in frame_numbers[:8]]) + ' -->\n'
-                    title += ",".join([str(int(elt)) for elt in frame_numbers[8:]])
-                    ax.set_title(title, fontsize=9)
-                    fig.tight_layout()
+                # writer = PillowWriter(fps=3000)
 
-
-                    ln_gt = []
-                    all_ln_pred = []
-
-
-                    for i in range(n_agent):
-                        ln_gt.append(ax.plot([], [], colors[i] + '--')[0])
-                        ln_pred = []
-                        for _ in range(20):
-                            ln_pred.append(ax.plot([], [], colors[i], alpha=0.3, linewidth=1)[0])
-                        all_ln_pred.append(ln_pred)
-
-
-                    ani = FuncAnimation(fig, update_dot, frames=n_frame, interval=1, init_func=init())
-
-                    # writer = PillowWriter(fps=3000)
-
-                    ani.save(gif_path + "/" +self.dataset_name+ "_f" + str(int(frame_numbers[0])) + "_agent" + str(agent_rng[0]) +"to" +str(agent_rng[-1]) +".gif", fps=4)
+                ani.save(gif_path + "/eth_f" + str(int(frame_numbers[0])) + "_agent" + str(agent_rng[0]) +"to" +str(agent_rng[-1]) +".gif", fps=4)
 
 
 
