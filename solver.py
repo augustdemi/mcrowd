@@ -381,115 +381,6 @@ class Solver(object):
 
 
 
-    def evaluate_dist(self, data_loader, num_samples, loss=False):
-        self.set_mode(train=False)
-        total_traj = 0
-
-        loss_recon = loss_kl = vae_loss = 0
-
-        all_ade =[]
-        all_fde =[]
-        with torch.no_grad():
-            b=0
-            for batch in data_loader:
-                b+=1
-                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, non_linear_ped,
-                 loss_mask, seq_start_end, obs_frames, pred_frames) = batch
-                batch_size = obs_traj_rel.size(1)
-                total_traj += fut_traj.size(1)
-
-                (encX_h_feat, logitX) \
-                    = self.encoderMx(obs_traj, seq_start_end)
-                p_dist = discrete(logits=logitX)
-                relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
-
-                if loss:
-                    (encY_h_feat, logitY) \
-                        = self.encoderMy(obs_traj[-1], fut_traj_rel, seq_start_end, encX_h_feat)
-
-                    q_dist = discrete(logits=logitY)
-                    fut_rel_pos_dist = self.decoderMy(
-                        obs_traj[-1],
-                        encX_h_feat,
-                        relaxed_p_dist.rsample()
-                    )
-                    # fut_rel_pos_dist = self.decoderMy(
-                    #     obs_traj[-1],
-                    #     encX_h_feat,
-                    #     relaxed_p_dist.rsample((num_samples,)),
-                    #     num_samples=num_samples
-                    # )
-
-                    ################## total loss for vae ####################
-                    loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_rel).sum().div(batch_size)
-
-                    kld = kl_divergence(q_dist, p_dist).sum().div(batch_size)
-                    kld = torch.clamp(kld, min=0.07)
-                    elbo = loglikelihood - self.kl_weight * kld
-                    vae_loss -=elbo
-                    loss_recon +=loglikelihood
-                    loss_kl +=kld
-
-                ade, fde = [], []
-                for _ in range(num_samples):
-                    fut_rel_pos_dist = self.decoderMy(
-                        obs_traj[-1],
-                        encX_h_feat,
-                        relaxed_p_dist.rsample()
-                    )
-                    pred_fut_traj_rel = fut_rel_pos_dist.rsample()
-
-                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
-
-
-                    ade.append(displacement_error(
-                        pred_fut_traj, fut_traj[:,:,:2], mode='raw'
-                    ))
-                    fde.append(final_displacement_error(
-                        pred_fut_traj[-1], fut_traj[-1,:,:2], mode='raw'
-                    ))
-                all_ade.append(torch.stack(ade))
-                all_fde.append(torch.stack(fde))
-
-
-            all_ade=torch.cat(all_ade, dim=1).cpu().numpy()
-            all_fde=torch.cat(all_fde, dim=1).cpu().numpy()
-
-
-            # import pandas as pd
-            # ade_min = np.min(all_ade, axis=0)/self.pred_len
-            # fde_min = np.min(all_fde, axis=0)
-            # ade_avg = np.mean(all_ade, axis=0)/self.pred_len
-            # fde_avg = np.mean(all_fde, axis=0)
-            # ade_std = np.std(all_ade, axis=0)/self.pred_len
-            # fde_std = np.std(all_fde, axis=0)
-            #
-            # ade=np.stack([ade_min, ade_avg, ade_std]).transpose((1,0))
-            # fde=np.stack([fde_min, fde_avg, fde_std]).transpose((1,0))
-            #
-            # pd.DataFrame(ade).to_csv("./ade_" +self.dataset_name+ ".csv")
-            # pd.DataFrame(fde).to_csv("./fde_" +self.dataset_name+ ".csv")
-
-
-            ade_min = np.min(all_ade, axis=0).mean()/self.pred_len
-            fde_min = np.min(all_fde, axis=0).mean()
-            ade_avg = np.mean(all_ade, axis=0).mean()/self.pred_len
-            fde_avg = np.mean(all_fde, axis=0).mean()
-            ade_std = np.std(all_ade, axis=0).mean()/self.pred_len
-            fde_std = np.std(all_fde, axis=0).mean()
-        self.set_mode(train=True)
-        if loss:
-            return ade_min, fde_min, \
-                   ade_avg, fde_avg, \
-                   ade_std, fde_std, \
-                   loss_recon/b, loss_kl/b, vae_loss/b
-        else:
-            return ade_min, fde_min, \
-                   ade_avg, fde_avg, \
-                   ade_std, fde_std
-
-
-
 
 
     def evaluate_dtw(self, data_loader, num_samples):
@@ -616,6 +507,53 @@ class Solver(object):
                coll_rate_avg, non_zero_coll_avg, \
                coll_rate_std, non_zero_coll_std
 
+
+
+
+    def evaluate_real_collision(self, data_loader, threshold):
+        self.set_mode(train=False)
+        total_traj = 0
+        all_coll = []
+
+        with torch.no_grad():
+            b=0
+            for batch in data_loader:
+                b+=1
+                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, non_linear_ped,
+                 loss_mask, seq_start_end, obs_frames, pred_frames) = batch
+                total_traj += fut_traj.size(1)
+
+                seq_coll = []  # 64
+                for idx, (start, end) in enumerate(seq_start_end):
+
+                    start = start.item()
+                    end = end.item()
+                    num_ped = end - start
+                    if num_ped == 1:
+                        continue
+                    one_frame_slide = fut_traj[:, start:end, :2]  # (pred_len, num_ped, 2)
+
+                    frame_coll = []  # num_ped
+                    for i in range(self.pred_len):
+                        curr_frame = one_frame_slide[i]  # frame of time=i #(num_ped,2)
+                        curr1 = curr_frame.repeat(num_ped, 1)
+                        curr2 = self.repeat(curr_frame, num_ped)
+                        dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
+                        dist = dist.reshape(num_ped, num_ped)  # all distance between all num_ped*num_ped
+                        diff_agent_idx = np.triu_indices(num_ped,
+                                                         k=1)  # only distinct distances of num_ped C 2(upper triange except for diag)
+                        diff_agent_dist = dist[diff_agent_idx]
+                        curr_coll_rate = (diff_agent_dist < threshold).sum() / len(diff_agent_dist)
+
+                        frame_coll.append(curr_coll_rate)
+                    seq_coll.append(frame_coll)
+                all_coll.append(np.array(seq_coll))
+            all_coll=np.concatenate(all_coll, axis=0) #(70,12)
+            print('all_coll: ', all_coll.shape)
+            coll_rate=all_coll.mean()*100
+
+        self.set_mode(train=True)
+        return coll_rate
 
 
 
