@@ -106,7 +106,7 @@ class Decoder(nn.Module):
         """
         x= self.fc1(obst_feat)
         x= self.fc2(F.relu(x))
-        x = x[:, :-2].view(-1, 4, 7, 7)
+        x = x.view(-1, 4, 7, 7)
         x = self.upsample1(F.relu(x))
         x = self.deconv1(x) # 32, 32
         x = self.upsample2(F.relu(x)) #64
