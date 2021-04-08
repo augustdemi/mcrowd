@@ -55,10 +55,11 @@ class Encoder(nn.Module):
     def __init__(self, fc_hidden_dim, output_dim, drop_out):
         super(Encoder, self).__init__()
         self.drop_out = drop_out
-        self.conv1 = nn.Conv2d(1, 4, 7, stride=3, bias=False)
+        self.conv1 = nn.Conv2d(1, 4, 4, stride=1, bias=False)
         self.pool = nn.MaxPool2d(2, 2)
-        self.conv2 = nn.Conv2d(4, 4, 5, stride=1, bias=False)
-        self.fc1 = nn.Linear(4 * 11 * 11, fc_hidden_dim, bias=False)
+        self.conv2 = nn.Conv2d(4, 4, 3, stride=1, bias=False)
+        self.conv3 = nn.Conv2d(4, 4, 3, stride=1, bias=False)
+        self.fc1 = nn.Linear(4 * 6 * 6, fc_hidden_dim, bias=False)
         self.fc2 = nn.Linear(fc_hidden_dim, output_dim, bias=False)
 
     def forward(self, state, map, train=False):
@@ -70,7 +71,8 @@ class Encoder(nn.Module):
         """
         x = self.pool(F.relu(self.conv1(map))) # 52->26
         x = self.pool(F.relu(self.conv2(x)))  # 22->11
-        x = x.view(-1, 4 * 11 * 11)
+        x = self.pool(F.relu(self.conv3(x)))  # 22->11
+        x = x.view(-1, 4 * 6 * 6)
         # x = torch.cat((x, state[:, 2:4]), -1)
         x = F.relu(self.fc1(x))
         obst_feat = self.fc2(x)
@@ -87,11 +89,11 @@ class Decoder(nn.Module):
     def __init__(self, fc_hidden_dim, input_dim):
         super(Decoder, self).__init__()
         self.fc1 = nn.Linear(input_dim, fc_hidden_dim, bias=False)
-        self.fc2 = nn.Linear(fc_hidden_dim, 4 * 11 * 11, bias=False)
+        self.fc2 = nn.Linear(fc_hidden_dim, 4 * 6 * 6, bias=False)
         # self.upsample1 = nn.Upsample(22)
         self.deconv1 = nn.ConvTranspose2d(4, 4, 4, stride=2, bias=False)
-        self.deconv2 = nn.ConvTranspose2d(4, 4, 6, stride=2, bias=False)
-        self.deconv3 = nn.ConvTranspose2d(4, 1, 7, stride=3, bias=False)
+        self.deconv2 = nn.ConvTranspose2d(4, 4, 4, stride=2, bias=False)
+        self.deconv3 = nn.ConvTranspose2d(4, 1, 6, stride=2, bias=False)
 
     def forward(self, obst_feat):
         """
@@ -106,7 +108,7 @@ class Decoder(nn.Module):
         """
         x= self.fc1(obst_feat)
         x= self.fc2(F.relu(x))
-        x = x.view(-1, 4, 11, 11)
+        x = x.view(-1, 4, 6, 6)
         x = self.deconv1(F.relu(x)) # 32, 32
         x = self.deconv2(F.relu(x))
         x = self.deconv3(F.relu(x))
