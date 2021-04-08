@@ -4,13 +4,13 @@ import torch.optim as optim
 # -----------------------------------------------------------------------------#
 from utils import DataGather, mkdirs, grid2gif2, apply_poe, sample_gaussian, sample_gumbel_softmax
 from model_map_ae import *
-from data.loader import data_loader
+from data.ae_loader import data_loader
 from eval_util import ploot
 
 import matplotlib.pyplot as plt
 from torch.distributions import RelaxedOneHotCategorical as concrete
 from torchvision.utils import save_image
-from data.trajectories import seq_collate
+from data.ae_map import seq_collate
 
 ###############################################################################
 
