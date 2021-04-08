@@ -268,6 +268,7 @@ class TrajectoryDataset(Dataset):
                     fut_frame_num.append(np.ones((num_peds_considered, self.pred_len)) * frames[idx + self.obs_len:idx + self.seq_len])
                     # map_dirs.append(num_peds_considered*[map_dir])
                     map_dirs.append(map_dir)
+            print(sum(num_peds_in_seq))
 
             #     ped_ids = np.array(ped_ids)
             #     # if 'test' in path and len(ped_ids) > 0:
@@ -331,18 +332,18 @@ class TrajectoryDataset(Dataset):
                 seq_map = []
                 for t in range(self.obs_len):
                     cp_map = map.copy()
-                    gt_real = past_obst[i][t]
-                    # mark the obstacle pedestrians
-                    if len(gt_real) > 0:
-                        gt_pixel = np.matmul(np.concatenate([gt_real, np.ones((len(gt_real), 1))], axis=1), inv_h_t)
-                        gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
-                        # mark all pixel size
-                        for p in np.round(gt_pixel)[:, :2].astype(int):
-                            x = range(max(p[0] - pixel_distance, 0), min(p[0] + pixel_distance + 1, map.shape[0]))
-                            y = range(max(p[1] - pixel_distance, 0), min(p[1] + pixel_distance + 1, map.shape[1]))
-                            idx = np.transpose([np.tile(x, len(y)), np.repeat(y, len(x))])
-                            within_dist_idx = idx[np.linalg.norm(np.ones_like(idx)*p - idx, ord=2, axis=1) < pixel_distance]
-                            cp_map[within_dist_idx[:,0], within_dist_idx[:,1]] = 255
+                    # gt_real = past_obst[i][t]
+                    # # mark the obstacle pedestrians
+                    # if len(gt_real) > 0:
+                    #     gt_pixel = np.matmul(np.concatenate([gt_real, np.ones((len(gt_real), 1))], axis=1), inv_h_t)
+                    #     gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
+                    #     # mark all pixel size
+                    #     for p in np.round(gt_pixel)[:, :2].astype(int):
+                    #         x = range(max(p[0] - pixel_distance, 0), min(p[0] + pixel_distance + 1, map.shape[0]))
+                    #         y = range(max(p[1] - pixel_distance, 0), min(p[1] + pixel_distance + 1, map.shape[1]))
+                    #         idx = np.transpose([np.tile(x, len(y)), np.repeat(y, len(x))])
+                    #         within_dist_idx = idx[np.linalg.norm(np.ones_like(idx)*p - idx, ord=2, axis=1) < pixel_distance]
+                    #         cp_map[within_dist_idx[:,0], within_dist_idx[:,1]] = 255
                     # crop the map near the target pedestrian
                     cp_map = crop(cp_map, self.obs_traj[start:end][i,:2,t], inv_h_t, self.context_size)
                     cp_map = transform(cp_map, aug=aug)  / 255.0
@@ -358,18 +359,18 @@ class TrajectoryDataset(Dataset):
                 seq_map = []
                 for t in range(self.pred_len):
                     cp_map = map.copy()
-                    gt_real = fut_obst[i][t]
-                    if len(gt_real) > 0:
-                        gt_pixel = np.matmul(np.concatenate([gt_real, np.ones((len(gt_real), 1))], axis=1), inv_h_t)
-                        gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
-                        for p in np.round(gt_pixel)[:, :2].astype(int):
-                            x = range(max(p[0] - pixel_distance, 0), min(p[0] + pixel_distance + 1, map.shape[0]))
-                            y = range(max(p[1] - pixel_distance, 0), min(p[1] + pixel_distance + 1, map.shape[1]))
-                            idx = np.transpose([np.tile(x, len(y)), np.repeat(y, len(x))])
-                            within_dist_idx = idx[
-                                np.linalg.norm(np.ones_like(idx) * p - idx, ord=2, axis=1) < pixel_distance]
-                            cp_map[within_dist_idx[:, 0], within_dist_idx[:, 1]] = 255
-                            # crop the map near the target pedestrian
+                    # gt_real = fut_obst[i][t]
+                    # if len(gt_real) > 0:
+                    #     gt_pixel = np.matmul(np.concatenate([gt_real, np.ones((len(gt_real), 1))], axis=1), inv_h_t)
+                    #     gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
+                    #     for p in np.round(gt_pixel)[:, :2].astype(int):
+                    #         x = range(max(p[0] - pixel_distance, 0), min(p[0] + pixel_distance + 1, map.shape[0]))
+                    #         y = range(max(p[1] - pixel_distance, 0), min(p[1] + pixel_distance + 1, map.shape[1]))
+                    #         idx = np.transpose([np.tile(x, len(y)), np.repeat(y, len(x))])
+                    #         within_dist_idx = idx[
+                    #             np.linalg.norm(np.ones_like(idx) * p - idx, ord=2, axis=1) < pixel_distance]
+                    #         cp_map[within_dist_idx[:, 0], within_dist_idx[:, 1]] = 255
+                    #         # crop the map near the target pedestrian
                     cp_map = crop(cp_map, self.pred_traj[start:end][i, :2, t], inv_h_t, self.context_size)
                     cp_map = transform(cp_map, aug=aug)  / 255.0
                     seq_map.append(cp_map)
