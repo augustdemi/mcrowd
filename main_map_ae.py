@@ -42,7 +42,7 @@ def create_parser():
     
     parser = argparse.ArgumentParser()
 
-    parser.add_argument( '--run_id', default=3, type=int,
+    parser.add_argument( '--run_id', default=4, type=int,
       help='run id (default=-1 to create a new id)' )
 
     parser.add_argument( '--device', default='cpu', type=str,
@@ -62,7 +62,7 @@ def create_parser():
 
     
     # saving directories and checkpoint/sample iterations
-    parser.add_argument( '--ckpt_load_iter', default=0, type=int,
+    parser.add_argument( '--ckpt_load_iter', default=10000, type=int,
       help='iter# to load the previously saved model ' + 
         '(default=0 to start from the scratch)' )
     parser.add_argument( '--max_iter', default=10000, type=float,
@@ -127,6 +127,8 @@ def create_parser():
       help='kl weight' )
     parser.add_argument('--map_size', default=198, type=int)
     parser.add_argument( '--gamma', default=0.0, type=float,
+      help='focal loss' )
+    parser.add_argument( '--alpha', default=0.5, type=float,
       help='focal loss' )
     parser.add_argument( '--desc', default='data', type=str,
       help='run description' )

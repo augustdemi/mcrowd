@@ -32,9 +32,12 @@ class Solver(object):
             self.name = '%s_map_size_%s_drop_out%s' % \
                         (args.dataset_name, args.map_size, args.dropout_map)
         else:
-            self.name = '%s_map_size_%s_drop_out%s_gamma%s' % \
-                        (args.dataset_name, args.map_size, args.dropout_map, args.gamma)
-
+            if args.alpha==0.5:
+                self.name = '%s_map_size_%s_drop_out%s_gamma%s' % \
+                            (args.dataset_name, args.map_size, args.dropout_map, args.gamma)
+            else:
+                self.name = '%s_map_size_%s_drop_out%s_gamma%s_alpha%s' % \
+                            (args.dataset_name, args.map_size, args.dropout_map, args.gamma, args.alpha)
 
         # to be appended by run_id
 
@@ -44,6 +47,7 @@ class Solver(object):
         self.dt=0.4
         self.eps=1e-9
         self.gamma = args.gamma
+        self.alpha = args.alpha
         self.kl_weight=args.kl_weight
 
         self.max_iter = int(args.max_iter)
@@ -220,8 +224,8 @@ class Solver(object):
                 obst_feat
             )
 
-            focal_loss = map * torch.log(recon_map + self.eps) * ((1-recon_map) ** self.gamma) \
-                         + (1 - map) * torch.log(1 - recon_map + self.eps) * (recon_map ** self.gamma)
+            focal_loss = self.alpha * map * torch.log(recon_map + self.eps) * ((1-recon_map) ** self.gamma) \
+                         + (1-self.alpha) * (1 - map) * torch.log(1 - recon_map + self.eps) * (recon_map ** self.gamma)
 
             loss =  - focal_loss.sum().div(batch)
 
@@ -302,7 +306,7 @@ class Solver(object):
             dset = 'train'
             # if 'eth' in self.name:
             if 'train' in data_loader.dataset.data_dir:
-                fixed_idxs = [250,20]
+                fixed_idxs = [250,20,300]
             else:
                 fixed_idxs = [20, 120]
                 dset='test'
@@ -331,7 +335,7 @@ class Solver(object):
 
             out_dir = os.path.join('./output',self.name, dset)
             mkdirs(out_dir)
-            for i in range(4):
+            for i in range(10):
                 save_image(recon_map[i], str(os.path.join(out_dir, 'recon_img'+str(i)+'.png')), nrow=self.pred_len, pad_value=1)
                 save_image(map[i], str(os.path.join(out_dir, 'gt_img'+str(i)+'.png')), nrow=self.pred_len, pad_value=1)
 
