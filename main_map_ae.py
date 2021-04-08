@@ -3,7 +3,7 @@ import numpy as np
 import torch
 
 #-----------------------------------------------------------------------------#
-from data.map_loader import data_loader
+from data.ae_loader import data_loader
 from map_ae import Solver
 from utils import str2bool, bool_flag
 import os
@@ -42,7 +42,7 @@ def create_parser():
     
     parser = argparse.ArgumentParser()
 
-    parser.add_argument( '--run_id', default=5, type=int,
+    parser.add_argument( '--run_id', default=3, type=int,
       help='run id (default=-1 to create a new id)' )
 
     parser.add_argument( '--device', default='cpu', type=str,
@@ -62,10 +62,10 @@ def create_parser():
 
     
     # saving directories and checkpoint/sample iterations
-    parser.add_argument( '--ckpt_load_iter', default=0, type=int,
+    parser.add_argument( '--ckpt_load_iter', default=10000, type=int,
       help='iter# to load the previously saved model ' + 
         '(default=0 to start from the scratch)' )
-    parser.add_argument( '--max_iter', default=7400, type=float,
+    parser.add_argument( '--max_iter', default=10000, type=float,
       help='maximum number of batch iterations' )
     parser.add_argument( '--ckpt_save_iter', default=100, type=int,
       help='checkpoint saved every # iters' )
@@ -100,7 +100,7 @@ def create_parser():
     # dataset
     parser.add_argument( '--dataset_dir', default='../datasets', type=str,
       help='dataset directory' )
-    parser.add_argument( '--dataset_name', default='eth', type=str,
+    parser.add_argument( '--dataset_name', default='nmap', type=str,
       help='dataset name' )
     parser.add_argument( '--num_workers', default=0, type=int,
       help='dataloader num_workers' )
@@ -118,7 +118,7 @@ def create_parser():
     parser.add_argument('--num_layers', default=1, type=int)
     parser.add_argument('--dropout_mlp', default=0.1, type=float)
     parser.add_argument('--dropout_rnn', default=0.25, type=float)
-    parser.add_argument('--dropout_map', default=0.5, type=float)
+    parser.add_argument('--dropout_map', default=0.2, type=float)
     # Decoder
     parser.add_argument('--mlp_dim', default=32, type=int)
     parser.add_argument('--batch_norm', default=0, type=bool_flag)
@@ -140,7 +140,7 @@ def main(args):
         print("Initializing test dataset")
         solver = Solver(args)
         test_path = os.path.join(args.dataset_dir, args.dataset_name, 'train')
-        _, test_loader = data_loader(args, test_path, shuffle=False, map_ae=True)
+        _, test_loader = data_loader(args, test_path, shuffle=True, map_ae=True)
         solver.recon(test_loader)
 
 
