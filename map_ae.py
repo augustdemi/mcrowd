@@ -28,8 +28,8 @@ class Solver(object):
         #             (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
         #              args.decoder_h_dim, args.mlp_dim, 0, args.lr_VAE, args.kl_weight)
 
-        self.name = '%s_map_size_%s_drop_out%s' % \
-                    (args.dataset_name, args.map_size, args.dropout_map)
+        self.name = '%s_map_size_%s_drop_out%s_gamma%s' % \
+                    (args.dataset_name, args.map_size, args.dropout_map, args.gamma)
 
 
         # to be appended by run_id
@@ -39,6 +39,7 @@ class Solver(object):
         self.temp=0.66
         self.dt=0.4
         self.eps=1e-9
+        self.gamma = args.gamma
         self.kl_weight=args.kl_weight
 
         self.max_iter = int(args.max_iter)
@@ -215,11 +216,16 @@ class Solver(object):
                 obst_feat
             )
 
-            loss = - (torch.log(recon_map + self.eps) * map +
-              torch.log(1 - recon_map + self.eps) * (1 - map)).sum().div(batch)
+            focal_loss = map * torch.log(recon_map + self.eps) * ((1-recon_map) ** self.gamma) \
+                         + (1 - map) * torch.log(1 - recon_map + self.eps) * (recon_map ** self.gamma)
+
+            loss =  - focal_loss.sum().div(batch)
+
+            # loss = - (torch.log(recon_map + self.eps) * map +
+            #           torch.log(1 - recon_map + self.eps) * (1 - map)).sum().div(batch)
 
             self.optim_vae.zero_grad()
-            loss.backward()
+            focal_loss.backward()
             self.optim_vae.step()
 
 
@@ -277,8 +283,10 @@ class Solver(object):
                     obst_feat
                 )
 
-                loss -= (torch.log(recon_map + self.eps) * map +
-                          torch.log(1 - recon_map + self.eps) * (1 - map)).sum().div(batch)
+                focal_loss = map * torch.log(recon_map + self.eps) * ((1 - recon_map) ** self.gamma) \
+                             + (1 - map) * torch.log(1 - recon_map + self.eps) * (recon_map ** self.gamma)
+
+                loss = - focal_loss.sum().div(batch)
         self.set_mode(train=True)
         return loss.div(b)
 
