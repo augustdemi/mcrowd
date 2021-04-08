@@ -1,8 +1,7 @@
 import logging
 import os
 import math
-import pandas as pd
-
+from PIL import Image
 import numpy as np
 import torch
 from torch.utils.data import Dataset
@@ -78,15 +77,16 @@ def poly_fit(traj, traj_len, threshold):
         return 0.0
 
 def transform(image, aug):
-    from PIL import Image
     im = Image.fromarray(image[0])
     if aug:
         image = transforms.Compose([
             transforms.RandomRotation(180, fill=(0,)),
+            transforms.Resize(64),
             transforms.ToTensor()
         ])(im)
     else:
         image= transforms.Compose([
+            transforms.Resize(64),
             transforms.ToTensor()
         ])(im)
     # plt.imshow(b[0])
