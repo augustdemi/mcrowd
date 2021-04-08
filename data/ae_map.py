@@ -81,18 +81,10 @@ def transform(image, aug):
     from PIL import Image
     im = Image.fromarray(image[0])
     if aug:
-        if np.random.rand() < 0.2:
-            image= transforms.Compose([
-                transforms.RandomRotation(180, fill=(0,)),
-                transforms.RandomCrop(150),
-                transforms.Resize(198),
-                transforms.ToTensor()
-            ])(im)
-        else:
-            image= transforms.Compose([
-                transforms.RandomRotation(180, fill=(0,)),
-                transforms.ToTensor()
-            ])(im)
+        image = transforms.Compose([
+            transforms.RandomRotation(180, fill=(0,)),
+            transforms.ToTensor()
+        ])(im)
     else:
         image= transforms.Compose([
             transforms.ToTensor()
