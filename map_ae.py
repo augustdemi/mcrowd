@@ -225,7 +225,7 @@ class Solver(object):
             #           torch.log(1 - recon_map + self.eps) * (1 - map)).sum().div(batch)
 
             self.optim_vae.zero_grad()
-            focal_loss.backward()
+            loss.backward()
             self.optim_vae.step()
 
 
