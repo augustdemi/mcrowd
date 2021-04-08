@@ -28,8 +28,12 @@ class Solver(object):
         #             (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
         #              args.decoder_h_dim, args.mlp_dim, 0, args.lr_VAE, args.kl_weight)
 
-        self.name = '%s_map_size_%s_drop_out%s_gamma%s' % \
-                    (args.dataset_name, args.map_size, args.dropout_map, args.gamma)
+        if args.gamma==0:
+            self.name = '%s_map_size_%s_drop_out%s' % \
+                        (args.dataset_name, args.map_size, args.dropout_map)
+        else:
+            self.name = '%s_map_size_%s_drop_out%s_gamma%s' % \
+                        (args.dataset_name, args.map_size, args.dropout_map, args.gamma)
 
 
         # to be appended by run_id
