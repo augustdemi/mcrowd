@@ -188,7 +188,7 @@ class Solver(object):
 
         # prepare dataloader (iterable)
         print('Start loading data...')
-        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'train')
+        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
         val_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
 
         # long_dtype, float_dtype = get_dtypes(args)
@@ -794,6 +794,9 @@ class Solver(object):
         self.encoderMx.map_net.conv1.weight = loaded_map_w.conv1.weight
         self.encoderMx.map_net.conv2.weight = loaded_map_w.conv2.weight
         self.encoderMx.map_net.conv3.weight = loaded_map_w.conv3.weight
+        self.encoderMx.map_net.conv1.weight.requires_grad=False
+        self.encoderMx.map_net.conv2.weight.requires_grad=False
+        self.encoderMx.map_net.conv3.weight.requires_grad=False
 
 
     def load_checkpoint(self):
