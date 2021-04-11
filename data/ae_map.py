@@ -111,7 +111,7 @@ def crop(map, target_pos, inv_h_t, context_size=198):
     cropped_img = np.stack([expanded_obs_img[img_pts[i, 0] - context_size//2 : img_pts[i, 0] + context_size//2,
                                       img_pts[i, 1] - context_size//2 : img_pts[i, 1] + context_size//2]
                       for i in range(target_pos.shape[0])], axis=0)
-    cropped_img[0, int(context_size/2), int(context_size/2)] = 255
+    # cropped_img[0, int(context_size/2), int(context_size/2)] = 255
     # plt.imshow(cropped_img[0])
     return cropped_img
 
@@ -326,12 +326,6 @@ class TrajectoryDataset(Dataset):
                 seq_map = []
                 for t in range(self.obs_len):
                     cp_map = map.copy()
-                    # target_pos = self.obs_traj[start:end][i,:2,t]
-                    # target_pos = np.expand_dims(target_pos, 0)
-                    # target_pixel = np.matmul(np.concatenate([target_pos, np.ones((len(target_pos), 1))], axis=1), inv_h_t)
-                    # target_pixel /= np.expand_dims(target_pixel[:, 2], 1)
-                    # cp_map[target_pixel[:,0], target_pixel[:,1]] = 255
-
                     # gt_real = past_obst[i][t]
                     # # mark the obstacle pedestrians
                     # if len(gt_real) > 0:
@@ -359,12 +353,6 @@ class TrajectoryDataset(Dataset):
                 seq_map = []
                 for t in range(self.pred_len):
                     cp_map = map.copy()
-                    # target_pos = self.fut_traj[start:end][i,:2,t]
-                    # target_pos = np.expand_dims(target_pos, 0)
-                    # target_pixel = np.matmul(np.concatenate([target_pos, np.ones((len(target_pos), 1))], axis=1), inv_h_t)
-                    # target_pixel /= np.expand_dims(target_pixel[:, 2], 1)
-                    # cp_map[target_pixel[:,0], target_pixel[:,1]] = 255
-                    
                     # gt_real = fut_obst[i][t]
                     # if len(gt_real) > 0:
                     #     gt_pixel = np.matmul(np.concatenate([gt_real, np.ones((len(gt_real), 1))], axis=1), inv_h_t)
@@ -379,13 +367,14 @@ class TrajectoryDataset(Dataset):
                     #         # crop the map near the target pedestrian
                     cp_map = crop(cp_map, self.fut_traj[start:end][i, :2, t], inv_h_t, self.context_size)
                     cp_map = transform(cp_map, aug=aug)  / 255.0
+                    cp_map[0,32,32] = 1
                     seq_map.append(cp_map)
                 fut_map_obst.append(np.stack(seq_map))
             fut_map_obst = np.stack(fut_map_obst)  # (batch(start-end), 8, 1, 128,128)
             fut_map_obst = torch.from_numpy(fut_map_obst)
         else: # map is not available
-            past_map_obst = torch.zeros(end - start, self.obs_len, 1, self.context_size, self.context_size)
-            fut_map_obst = torch.zeros(end - start, self.pred_len, 1, self.context_size, self.context_size)
+            past_map_obst = torch.zeros(end - start, self.obs_len, 1, 64, 64)
+            fut_map_obst = torch.zeros(end - start, self.pred_len, 1, 64, 64)
 
 
         # image = transforms.Compose([
