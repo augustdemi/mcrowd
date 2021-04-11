@@ -165,7 +165,7 @@ class Solver(object):
                 dropout_rnn=args.dropout_rnn,
                 batch_norm=args.batch_norm).to(self.device)
             #### load map ####
-            self.load_map_weights('./ckpts/nmap_map_size_160_drop_out0.0_run_10/iter_10000_encoder.pt')
+            self.load_map_weights('./ckpts/nmap_map_size_160_drop_out0.0_run_11/iter_10000_encoder.pt')
 
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
