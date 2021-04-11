@@ -26,9 +26,9 @@ def seq_collate(data):
     # Data format: batch, input_size, seq_len
     # LSTM input format: seq_len, batch, input_size
     obs_traj = torch.cat(obs_seq_list, dim=0).permute(2, 0, 1)
-    pred_traj = torch.cat(pred_seq_list, dim=0).permute(2, 0, 1)
+    fut_traj = torch.cat(pred_seq_list, dim=0).permute(2, 0, 1)
     obs_traj_rel = torch.cat(obs_seq_rel_list, dim=0).permute(2, 0, 1)
-    pred_traj_rel = torch.cat(pred_seq_rel_list, dim=0).permute(2, 0, 1)
+    fut_traj_rel = torch.cat(pred_seq_rel_list, dim=0).permute(2, 0, 1)
     seq_start_end = torch.LongTensor(seq_start_end)
 
     obs_frames = np.concatenate(obs_frames, 0)
@@ -39,7 +39,7 @@ def seq_collate(data):
 
 
     out = [
-        obs_traj, pred_traj, obs_traj_rel, pred_traj_rel, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst
+        obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst
     ]
 
     return tuple(out)
@@ -102,6 +102,7 @@ def crop(map, target_pos, inv_h_t, context_size=198):
     target_pixel = np.matmul(np.concatenate([target_pos, np.ones((len(target_pos), 1))], axis=1), inv_h_t)
     target_pixel /= np.expand_dims(target_pixel[:, 2], 1)
     target_pixel = target_pixel[:,:2]
+    # map[np.int(target_pixel[0, 0]), np.int(target_pixel[0, 1])] = 255
     # plt.imshow(map)
     # plt.scatter(target_pixel[0][1], target_pixel[0][0], c='r', s=1)
     img_pts = context_size//2 + np.round(target_pixel).astype(int)
@@ -110,6 +111,7 @@ def crop(map, target_pos, inv_h_t, context_size=198):
     cropped_img = np.stack([expanded_obs_img[img_pts[i, 0] - context_size//2 : img_pts[i, 0] + context_size//2,
                                       img_pts[i, 1] - context_size//2 : img_pts[i, 1] + context_size//2]
                       for i in range(target_pos.shape[0])], axis=0)
+    cropped_img[0, int(context_size/2), int(context_size/2)] = 255
     # plt.imshow(cropped_img[0])
     return cropped_img
 
@@ -284,11 +286,11 @@ class TrajectoryDataset(Dataset):
         # Convert numpy -> Torch Tensor
         self.obs_traj = torch.from_numpy(
             seq_list[:, :, :self.obs_len]).type(torch.float)
-        self.pred_traj = torch.from_numpy(
+        self.fut_traj = torch.from_numpy(
             seq_list[:, :, self.obs_len:]).type(torch.float)
         self.obs_traj_rel = torch.from_numpy(
             seq_list_rel[:, :, :self.obs_len]).type(torch.float)
-        self.pred_traj_rel = torch.from_numpy(
+        self.fut_traj_rel = torch.from_numpy(
             seq_list_rel[:, :, self.obs_len:]).type(torch.float)
         # frame seq순, 그리고 agent id순으로 쌓아온 데이터에 대한 index를 부여하기 위해 cumsum으로 index생성 ==> 한 슬라이드(16 seq. of frames)에서 고려된 agent의 data를 start, end로 끊어내서 index로 골래내기 위해
         cum_start_idx = [0] + np.cumsum(num_peds_in_seq).tolist() # num_peds_in_seq = 각 slide(16개 frames)별로 고려된 agent수.따라서 len(num_peds_in_seq) = slide 수 = 2692 = self.num_seq
@@ -324,6 +326,12 @@ class TrajectoryDataset(Dataset):
                 seq_map = []
                 for t in range(self.obs_len):
                     cp_map = map.copy()
+                    # target_pos = self.obs_traj[start:end][i,:2,t]
+                    # target_pos = np.expand_dims(target_pos, 0)
+                    # target_pixel = np.matmul(np.concatenate([target_pos, np.ones((len(target_pos), 1))], axis=1), inv_h_t)
+                    # target_pixel /= np.expand_dims(target_pixel[:, 2], 1)
+                    # cp_map[target_pixel[:,0], target_pixel[:,1]] = 255
+
                     # gt_real = past_obst[i][t]
                     # # mark the obstacle pedestrians
                     # if len(gt_real) > 0:
@@ -351,6 +359,12 @@ class TrajectoryDataset(Dataset):
                 seq_map = []
                 for t in range(self.pred_len):
                     cp_map = map.copy()
+                    # target_pos = self.fut_traj[start:end][i,:2,t]
+                    # target_pos = np.expand_dims(target_pos, 0)
+                    # target_pixel = np.matmul(np.concatenate([target_pos, np.ones((len(target_pos), 1))], axis=1), inv_h_t)
+                    # target_pixel /= np.expand_dims(target_pixel[:, 2], 1)
+                    # cp_map[target_pixel[:,0], target_pixel[:,1]] = 255
+                    
                     # gt_real = fut_obst[i][t]
                     # if len(gt_real) > 0:
                     #     gt_pixel = np.matmul(np.concatenate([gt_real, np.ones((len(gt_real), 1))], axis=1), inv_h_t)
@@ -363,7 +377,7 @@ class TrajectoryDataset(Dataset):
                     #             np.linalg.norm(np.ones_like(idx) * p - idx, ord=2, axis=1) < pixel_distance]
                     #         cp_map[within_dist_idx[:, 0], within_dist_idx[:, 1]] = 255
                     #         # crop the map near the target pedestrian
-                    cp_map = crop(cp_map, self.pred_traj[start:end][i, :2, t], inv_h_t, self.context_size)
+                    cp_map = crop(cp_map, self.fut_traj[start:end][i, :2, t], inv_h_t, self.context_size)
                     cp_map = transform(cp_map, aug=aug)  / 255.0
                     seq_map.append(cp_map)
                 fut_map_obst.append(np.stack(seq_map))
@@ -399,8 +413,8 @@ class TrajectoryDataset(Dataset):
 
 
         out = [
-            self.obs_traj[start:end, :].to(self.device) , self.pred_traj[start:end, :].to(self.device),
-            self.obs_traj_rel[start:end, :].to(self.device), self.pred_traj_rel[start:end, :].to(self.device),
+            self.obs_traj[start:end, :].to(self.device) , self.fut_traj[start:end, :].to(self.device),
+            self.obs_traj_rel[start:end, :].to(self.device), self.fut_traj_rel[start:end, :].to(self.device),
             self.obs_frame_num[start:end], self.fut_frame_num[start:end],
             past_map_obst.to(self.device), fut_map_obst.to(self.device)
         ]
