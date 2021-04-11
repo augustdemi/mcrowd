@@ -104,6 +104,7 @@ def crop(map, target_pos, inv_h_t, context_size=198):
     cropped_img = np.stack([expanded_obs_img[img_pts[i, 0] - context_size//2 : img_pts[i, 0] + context_size//2,
                                       img_pts[i, 1] - context_size//2 : img_pts[i, 1] + context_size//2]
                       for i in range(target_pos.shape[0])], axis=0)
+    cropped_img[0, int(context_size / 2), int(context_size / 2)] = 255
     # plt.imshow(cropped_img[0])
     return cropped_img
 
@@ -359,7 +360,15 @@ class TrajectoryDataset(Dataset):
             fut_map_obst = torch.from_numpy(fut_map_obst)
         else: # map is not available
             past_map_obst = torch.zeros(end - start, self.obs_len, 1, self.resize, self.resize)
+            past_map_obst[:, :, 0, 31,31] =0.0144
+            past_map_obst[:, :, 0, 31,32] =0.0336
+            past_map_obst[:, :, 0, 32,31] =0.0336
+            past_map_obst[:, :, 0, 32,32] =0.0784
             fut_map_obst = torch.zeros(end - start, self.pred_len, 1, self.resize, self.resize)
+            fut_map_obst[:, :, 0, 31, 31] = 0.0144
+            fut_map_obst[:, :, 0, 31, 32] = 0.0336
+            fut_map_obst[:, :, 0, 32, 31] = 0.0336
+            fut_map_obst[:, :, 0, 32, 32] = 0.0784
 
 
         # image = transforms.Compose([
