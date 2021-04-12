@@ -791,10 +791,11 @@ class Solver(object):
             loaded_map_w = torch.load(map_path)
         else:
             loaded_map_w = torch.load(map_path, map_location='cpu')
-        # self.encoderMx.map_net.conv1.weight = loaded_map_w.conv1.weight
-        # self.encoderMx.map_net.conv2.weight = loaded_map_w.conv2.weight
-        # self.encoderMx.map_net.conv3.weight = loaded_map_w.conv3.weight
-        self.encoderMx.map_net= loaded_map_w
+        self.encoderMx.map_net.conv1.weight = loaded_map_w.conv1.weight
+        self.encoderMx.map_net.conv2.weight = loaded_map_w.conv2.weight
+        self.encoderMx.map_net.conv3.weight = loaded_map_w.conv3.weight
+        self.encoderMx.map_net.fc1.weight = loaded_map_w.fc1.weight
+        self.encoderMx.map_net.fc2.weight = loaded_map_w.fc2.weight
         self.encoderMx.map_net.conv1.weight.requires_grad=False
         self.encoderMx.map_net.conv2.weight.requires_grad=False
         self.encoderMx.map_net.conv3.weight.requires_grad=False
