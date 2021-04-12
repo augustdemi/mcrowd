@@ -799,6 +799,8 @@ class Solver(object):
         self.encoderMx.map_net.conv1.weight.requires_grad=False
         self.encoderMx.map_net.conv2.weight.requires_grad=False
         self.encoderMx.map_net.conv3.weight.requires_grad=False
+        self.encoderMx.map_net.fc1.weight.requires_grad=False
+        self.encoderMx.map_net.fc2.weight.requires_grad=False
 
 
     def load_checkpoint(self):
