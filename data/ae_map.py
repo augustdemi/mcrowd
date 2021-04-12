@@ -163,7 +163,10 @@ class TrajectoryDataset(Dataset):
         for path in all_files:
             print('data paht:', path)
             if 'hotel' in path.split('/')[-1]:
-                map_dir = '../datasets/map/hotel/test'
+                if 'aug'  in path.split('/')[-1]:
+                    map_dir = '../datasets/map/aug_hotel/test'
+                else:
+                    map_dir = '../datasets/map/hotel/test'
                 # self.pixel_distance = 5
             elif 'eth' in path.split('/')[-1]:
                 if 'aug'  in path.split('/')[-1]:
