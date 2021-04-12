@@ -165,7 +165,7 @@ class Solver(object):
                 dropout_rnn=args.dropout_rnn,
                 batch_norm=args.batch_norm).to(self.device)
             #### load map ####
-            self.load_map_weights('./ckpts/nmap_map_size_160_drop_out0.0_run_11/iter_10000_encoder.pt')
+            self.load_map_weights('./ckpts/nmap2_map_size_160_drop_out0.0_run_16/iter_10000_encoder.pt')
 
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
@@ -791,9 +791,10 @@ class Solver(object):
             loaded_map_w = torch.load(map_path)
         else:
             loaded_map_w = torch.load(map_path, map_location='cpu')
-        self.encoderMx.map_net.conv1.weight = loaded_map_w.conv1.weight
-        self.encoderMx.map_net.conv2.weight = loaded_map_w.conv2.weight
-        self.encoderMx.map_net.conv3.weight = loaded_map_w.conv3.weight
+        # self.encoderMx.map_net.conv1.weight = loaded_map_w.conv1.weight
+        # self.encoderMx.map_net.conv2.weight = loaded_map_w.conv2.weight
+        # self.encoderMx.map_net.conv3.weight = loaded_map_w.conv3.weight
+        self.encoderMx.map_net= loaded_map_w
         self.encoderMx.map_net.conv1.weight.requires_grad=False
         self.encoderMx.map_net.conv2.weight.requires_grad=False
         self.encoderMx.map_net.conv3.weight.requires_grad=False
