@@ -137,6 +137,8 @@ class TrajectoryDataset(Dataset):
         self.seq_len = self.obs_len + self.pred_len
         self.delim = delim
         self.device = device
+        self.map_dir =  '../datasets/nmap/map/'
+
         n_pred_state=2
         n_state=6
 
@@ -153,30 +155,39 @@ class TrajectoryDataset(Dataset):
         seq_fut_obst_list = []
         obs_frame_num = []
         fut_frame_num = []
-        map_dirs=[]
+        map_file_names=[]
+        deli = '\\'
+
         for path in all_files:
-            print('data paht:', path)
-            if 'hotel' in path.split('/')[-1]:
-                map_dir = '../datasets/map/hotel/test'
-                # self.pixel_distance = 5
-            elif 'eth' in path.split('/')[-1]:
-                map_dir = '../datasets/map/eth/test'
-                # self.pixel_distance = 3
+            print('data path:', path)
+            # if 'zara' in path or 'eth' in path or 'hotel' in path:
+            # if 'zara02' not in path:
+            #     continue
+            if 'zara01' in path.split(deli)[-1]:
+                map_file_name = 'zara01'
+            elif 'zara02' in path.split(deli)[-1]:
+                map_file_name = 'zara02'
+            elif 'eth' in path.split(deli)[-1]:
+                map_file_name = 'eth'
+            elif 'hotel' in path.split(deli)[-1]:
+                map_file_name = 'hotel'
+            elif 'students003' in path.split(deli)[-1]:
+                map_file_name = 'univ'
             else:
-                map_dir = None
-            if map_dir is None and map_ae:
-                continue
-            print('map path: ', map_dir)
-                # self.pixel_distance = 0
-            # if map_dir is not None:
-            #     self.map = imageio.imread(os.path.join(map_dir, 'map.png'))
-            #     self.h = np.loadtxt(os.path.join(map_dir, 'H.txt'))
-            #     self.inv_h_t = np.linalg.pinv(np.transpose(self.h))
+                map_file_name = None
+
+            print('map path: ', map_file_name)
+
 
             data = read_file(path, delim)
             # print('uniq ped: ', len(np.unique(data[:, 1])))
 
-            frames = np.unique(data[:, 0]).tolist()
+
+            if 'zara01' in map_file_name:
+                frames = (np.unique(data[:, 0]) + 10).tolist()
+            else:
+                frames = np.unique(data[:, 0]).tolist()
+
             df = []
             # print('uniq frames: ', len(frames))
             frame_data = [] # all data per frame
@@ -213,13 +224,13 @@ class TrajectoryDataset(Dataset):
                     # Make coordinates relative
                     _idx = num_peds_considered
                     curr_seq[_idx, :, pad_front:pad_end] = np.stack([x, y, vx, vy, ax, ay])
-                    curr_seq_rel[_idx, :, pad_front:pad_end] = np.stack([vx, vy])
+                    curr_seq_rel[_idx, :, pad_front:pad_end] = np.stack(f[vx, vy])
                     num_peds_considered += 1
 
                     ### others
                     per_frame_past_obst = []
                     per_frame_fut_obst = []
-                    if map_dir is None:
+                    if map_file_name is None:
                         per_frame_past_obst = [[]] * self.obs_len
                         per_frame_fut_obst = [[]] * self.pred_len
                     else:
@@ -251,8 +262,8 @@ class TrajectoryDataset(Dataset):
                     seq_list_rel.append(curr_seq_rel[:num_peds_considered])
                     obs_frame_num.append(np.ones((num_peds_considered, self.obs_len)) * frames[idx:idx + self.obs_len])
                     fut_frame_num.append(np.ones((num_peds_considered, self.pred_len)) * frames[idx + self.obs_len:idx + self.seq_len])
-                    # map_dirs.append(num_peds_considered*[map_dir])
-                    map_dirs.append(map_dir)
+                    # map_file_names.append(num_peds_considered*[map_file_name])
+                    map_file_names.append(map_file_name)
 
             #     ped_ids = np.array(ped_ids)
             #     # if 'test' in path and len(ped_ids) > 0:
@@ -288,7 +299,7 @@ class TrajectoryDataset(Dataset):
             (start, end)
             for start, end in zip(cum_start_idx, cum_start_idx[1:])
         ] # [(0, 2),  (2, 4),  (4, 7),  (7, 10), ... (32682, 32684),  (32684, 32686)]
-        self.map_dir = map_dirs
+        self.map_file_name = map_file_names
 
 
 
@@ -297,12 +308,13 @@ class TrajectoryDataset(Dataset):
 
     def __getitem__(self, index):
         start, end = self.seq_start_end[index]
-        map_dir = self.map_dir[index]
-        if map_dir is not None:
-            map = imageio.imread(os.path.join(map_dir, 'map.png'))
-            h = np.loadtxt(os.path.join(map_dir, 'H.txt'))
+        map_file_name = self.map_file_name[index]
+        if map_file_name is not None:
+            map = imageio.imread(os.path.join(self.map_dir, map_file_name + '_map.png'))
+            h = np.loadtxt(os.path.join(self.map_dir, map_file_name + '_H.txt'))
+
             inv_h_t = np.linalg.pinv(np.transpose(h))
-            if 'hotel' in map_dir:
+            if 'hotel' in map_file_name:
                 pixel_distance = 5
             else:
                 pixel_distance = 3
