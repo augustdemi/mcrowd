@@ -101,9 +101,27 @@ def crop(map, target_pos, inv_h_t, context_size=198):
     img_pts = context_size//2 + np.round(target_pixel).astype(int)
     # plt.imshow(expanded_obs_img)
     # plt.scatter(img_pts[0][1], img_pts[0][0], c='r', s=1)
-    cropped_img = np.stack([expanded_obs_img[img_pts[i, 0] - context_size//2 : img_pts[i, 0] + context_size//2,
-                                      img_pts[i, 1] - context_size//2 : img_pts[i, 1] + context_size//2]
+
+    nearby_area = context_size//2 - 10
+    if img_pts[0][0] < nearby_area:
+        img_pts[0][0] = nearby_area
+        print(target_pos[0])
+    elif img_pts[0][0] > expanded_obs_img.shape[0] - nearby_area:
+        img_pts[0][0] = expanded_obs_img.shape[0] - nearby_area
+        print(target_pos[0])
+
+    if img_pts[0][1] < nearby_area :
+        img_pts[0][1] = nearby_area
+        print(target_pos[0])
+    elif img_pts[0][1] > expanded_obs_img.shape[1] - nearby_area:
+        img_pts[0][1] = expanded_obs_img.shape[1] - nearby_area
+        print(target_pos[0])
+
+    cropped_img = np.stack([expanded_obs_img[img_pts[i, 0] - nearby_area : img_pts[i, 0] + nearby_area,
+                                      img_pts[i, 1] - nearby_area : img_pts[i, 1] + nearby_area]
                       for i in range(target_pos.shape[0])], axis=0)
+
+
     cropped_img[0, int(context_size / 2), int(context_size / 2)] = 255
     # plt.imshow(cropped_img[0])
     return cropped_img
@@ -156,7 +174,7 @@ class TrajectoryDataset(Dataset):
         obs_frame_num = []
         fut_frame_num = []
         map_file_names=[]
-        deli = '\\'
+        deli = '/'
 
         for path in all_files:
             print('data path:', path)
