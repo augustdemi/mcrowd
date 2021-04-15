@@ -292,8 +292,9 @@ class Solver(object):
                     obst_feat
                 )
 
-                focal_loss = map * torch.log(recon_map + self.eps) * ((1 - recon_map) ** self.gamma) \
-                             + (1 - map) * torch.log(1 - recon_map + self.eps) * (recon_map ** self.gamma)
+                focal_loss = self.alpha * map * torch.log(recon_map + self.eps) * ((1 - recon_map) ** self.gamma) \
+                             + (1 - self.alpha) * (1 - map) * torch.log(1 - recon_map + self.eps) * (
+                recon_map ** self.gamma)
 
                 recon_vel = F.mse_loss(pred_vel, state[:, 2:4], reduction='sum')
 
