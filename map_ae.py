@@ -219,17 +219,15 @@ class Solver(object):
 
             # 첫번째 iteration 디코더 인풋 = (obs_traj_vel의 마지막 값, (hidden_state, cell_state))
             # where hidden_state = "인코더의 마지막 hidden_layer아웃풋과 그것으로 만든 max_pooled값을 concat해서 mlp 통과시켜만든 feature인 noise_input에다 noise까지 추가한값)"
-            recon_map, pred_vel = self.decoder(
+            recon_map = self.decoder(
                 obst_feat
             )
 
             focal_loss = self.alpha * map * torch.log(recon_map + self.eps) * ((1-recon_map) ** self.gamma) \
                          + (1-self.alpha) * (1 - map) * torch.log(1 - recon_map + self.eps) * (recon_map ** self.gamma)
 
-            recon_vel = F.mse_loss(pred_vel, state[:,2:4], reduction='sum')
 
-            loss =  - focal_loss.sum().div(state.shape[0]) + recon_vel.div(state.shape[0])
-
+            loss =  - focal_loss.sum().div(state.shape[0])
             # loss = - (torch.log(recon_map + self.eps) * map +
             #           torch.log(1 - recon_map + self.eps) * (1 - map)).sum().div(batch)
 
@@ -288,7 +286,7 @@ class Solver(object):
 
                 obst_feat = self.encoder(state, map, train=True)
 
-                recon_map, pred_vel = self.decoder(
+                recon_map = self.decoder(
                     obst_feat
                 )
 
@@ -296,9 +294,8 @@ class Solver(object):
                              + (1 - self.alpha) * (1 - map) * torch.log(1 - recon_map + self.eps) * (
                 recon_map ** self.gamma)
 
-                recon_vel = F.mse_loss(pred_vel, state[:, 2:4], reduction='sum')
 
-                loss = - focal_loss.sum().div(state.shape[0]) + recon_vel.div(state.shape[0])
+                loss = - focal_loss.sum().div(state.shape[0])
         self.set_mode(train=True)
         return loss.div(b)
 
