@@ -224,7 +224,7 @@ class TrajectoryDataset(Dataset):
                     # Make coordinates relative
                     _idx = num_peds_considered
                     curr_seq[_idx, :, pad_front:pad_end] = np.stack([x, y, vx, vy, ax, ay])
-                    curr_seq_rel[_idx, :, pad_front:pad_end] = np.stack(f[vx, vy])
+                    curr_seq_rel[_idx, :, pad_front:pad_end] = np.stack([vx, vy])
                     num_peds_considered += 1
 
                     ### others
