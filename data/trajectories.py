@@ -327,7 +327,7 @@ class TrajectoryDataset(Dataset):
     def __getitem__(self, index):
         start, end = self.seq_start_end[index]
         map_file_name = self.map_file_name[index]
-        if map_file_name is not None:
+        if map_file_name is not '':
             map = imageio.imread(os.path.join(self.map_dir, map_file_name + '_map.png'))
             h = np.loadtxt(os.path.join(self.map_dir, map_file_name + '_H.txt'))
 
