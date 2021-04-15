@@ -109,8 +109,8 @@ def crop(map, target_pos, inv_h_t, context_size=198):
 
     img_pts = context_size//2 + np.round(target_pixel).astype(int)
 
-    plt.imshow(expanded_obs_img)
-    plt.scatter(img_pts[0][1], img_pts[0][0], c='r', s=1)
+    # plt.imshow(expanded_obs_img)
+    # plt.scatter(img_pts[0][1], img_pts[0][0], c='r', s=1)
 
     # nearby_area = context_size//2
     nearby_area = context_size//2 - 10
