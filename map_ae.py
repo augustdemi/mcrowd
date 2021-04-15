@@ -312,37 +312,14 @@ class Solver(object):
                 data_loader = self.train_loader
             else:
                 # fixed_idxs = [20, 120, 33, 55, 140, 139, 25, 115, 24, 26, 27, 28, 31]
-                fixed_idxs = [125, 135, 136, 117, 114, 116]
+                fixed_idxs = [1, 10, 40, 125, 135, 136, 117, 114, 116]
                 # fixed_idxs = range(30,60)
                 # fixed_idxs = range(49)
                 dset='test'
                 data_loader = self.val_loader
 
-            b=0
-            maxx = 0
-            for abatch in data_loader:
+            data_loader.shuffle = False
 
-                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
-                 fut_obst) = abatch
-                state = torch.cat([obs_traj, fut_traj], dim=0)
-                state = state.view(-1, state.shape[2])
-                map = torch.cat([past_obst, fut_obst], dim=0)
-                map = map.view(-1, map.shape[2], map.shape[3], map.shape[4])
-
-                obst_feat = self.encoder(state, map, train=True)
-
-                recon_map, _ = self.decoder(
-                    obst_feat
-                )
-                for i in range(recon_map.shape[0]):
-                    maxx +=recon_map[i].max()
-                b+=recon_map.shape[0]
-            avg_max = maxx/b
-            print(avg_max)
-
-
-
-##########################
             data = []
             for i, idx in enumerate(fixed_idxs):
                 data.append(data_loader.dataset.__getitem__(idx))
@@ -361,7 +338,7 @@ class Solver(object):
 
             obst_feat = self.encoder(state, map)
 
-            recon_map, _ = self.decoder(
+            recon_map = self.decoder(
                 obst_feat
             )
             for i in range(map.shape[0]):
