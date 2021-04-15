@@ -192,7 +192,7 @@ class TrajectoryDataset(Dataset):
             elif 'students003' in path.split(deli)[-1]:
                 map_file_name = 'univ'
             else:
-                map_file_name = None
+                map_file_name = ''
 
             print('map path: ', map_file_name)
 
@@ -248,7 +248,7 @@ class TrajectoryDataset(Dataset):
                     ### others
                     per_frame_past_obst = []
                     per_frame_fut_obst = []
-                    if map_file_name is None:
+                    if map_file_name is '':
                         per_frame_past_obst = [[]] * self.obs_len
                         per_frame_fut_obst = [[]] * self.pred_len
                     else:
