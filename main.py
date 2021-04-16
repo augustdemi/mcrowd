@@ -42,7 +42,7 @@ def create_parser():
     
     parser = argparse.ArgumentParser()
 
-    parser.add_argument( '--run_id', default=71, type=int,
+    parser.add_argument( '--run_id', default=72, type=int,
       help='run id (default=-1 to create a new id)' )
 
     parser.add_argument( '--device', default='cpu', type=str,
@@ -62,10 +62,10 @@ def create_parser():
 
 
     # saving directories and checkpoint/sample iterations
-    parser.add_argument( '--ckpt_load_iter', default=1500, type=int,
+    parser.add_argument( '--ckpt_load_iter', default=4500, type=int,
       help='iter# to load the previously saved model ' +
         '(default=0 to start from the scratch)' )
-    parser.add_argument( '--max_iter', default=1500, type=float,
+    parser.add_argument( '--max_iter', default=4500, type=float,
       help='maximum number of batch iterations' )
     parser.add_argument( '--ckpt_save_iter', default=100, type=int,
       help='checkpoint saved every # iters' )
@@ -217,7 +217,7 @@ def main(args):
 
             coll_rate_min, non_zero_coll_min, \
             coll_rate_avg, non_zero_coll_avg, \
-            coll_rate_std, non_zero_coll_std = solver.evaluate_collision(test_loader, 5, threshold)
+            coll_rate_std, non_zero_coll_std = solver.evaluate_collision(test_loader, 20, threshold)
             print('-------------------- collision rate of ', args.dataset_name, '----------------------')
             print('min: ', coll_rate_min)
             print('avg: ', coll_rate_avg)
