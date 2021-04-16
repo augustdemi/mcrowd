@@ -42,7 +42,7 @@ def create_parser():
     
     parser = argparse.ArgumentParser()
 
-    parser.add_argument( '--run_id', default=42, type=int,
+    parser.add_argument( '--run_id', default=71, type=int,
       help='run id (default=-1 to create a new id)' )
 
     parser.add_argument( '--device', default='cpu', type=str,
@@ -62,10 +62,10 @@ def create_parser():
 
 
     # saving directories and checkpoint/sample iterations
-    parser.add_argument( '--ckpt_load_iter', default=5500, type=int,
+    parser.add_argument( '--ckpt_load_iter', default=1500, type=int,
       help='iter# to load the previously saved model ' +
         '(default=0 to start from the scratch)' )
-    parser.add_argument( '--max_iter', default=5500, type=float,
+    parser.add_argument( '--max_iter', default=1500, type=float,
       help='maximum number of batch iterations' )
     parser.add_argument( '--ckpt_save_iter', default=100, type=int,
       help='checkpoint saved every # iters' )
@@ -148,8 +148,9 @@ def main(args):
                 solver = Solver(args)
                 test_path = os.path.join(args.dataset_dir, dataset_name, 'test')
                 _, test_loader = data_loader(args, test_path)
-
+                print('--------------------', args.dataset_name, '----------------------')
                 their_viol, min_viol, avg_viol, std_viol = solver.map_collision(test_loader)
+                print('//// map violation ////')
                 print('their_viol: ', their_viol)
                 print('min_viol: ', min_viol)
                 print('avg_viol: ', avg_viol)
@@ -158,7 +159,8 @@ def main(args):
                 ade_min, fde_min, \
                 ade_avg, fde_avg, \
                 ade_std, fde_std = solver.evaluate_dist(test_loader, 20, loss=False)
-                print(args.dataset_name)
+                print('//// ADE / FDE ////')
+
                 print('ade min: ', ade_min)
                 print('ade avg: ', ade_avg)
                 print('ade std: ', ade_std)
@@ -181,7 +183,7 @@ def main(args):
                 coll_rate_min, non_zero_coll_min, \
                 coll_rate_avg, non_zero_coll_avg, \
                 coll_rate_std, non_zero_coll_std = solver.evaluate_collision(test_loader, 20, threshold)
-                print('-------------------- collision rate of ', args.dataset_name, '----------------------')
+                print('//// agent collisions ////')
                 print('min: ', coll_rate_min)
                 print('avg: ', coll_rate_avg)
                 print('std: ', coll_rate_std)
@@ -211,9 +213,11 @@ def main(args):
             args.batch_size=364
             _, test_loader = data_loader(args, test_path,shuffle=False)
 
+            # solver.plot_traj_var(test_loader)
+
             coll_rate_min, non_zero_coll_min, \
             coll_rate_avg, non_zero_coll_avg, \
-            coll_rate_std, non_zero_coll_std = solver.evaluate_collision(test_loader, 20, threshold)
+            coll_rate_std, non_zero_coll_std = solver.evaluate_collision(test_loader, 5, threshold)
             print('-------------------- collision rate of ', args.dataset_name, '----------------------')
             print('min: ', coll_rate_min)
             print('avg: ', coll_rate_avg)
