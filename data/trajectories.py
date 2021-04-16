@@ -122,7 +122,7 @@ def crop(map, target_pos, inv_h_t, context_size=198):
                       for i in range(target_pos.shape[0])], axis=0)
 
 
-    cropped_img[0, int(context_size / 2), int(context_size / 2)] = 255
+    cropped_img[0, nearby_area, nearby_area] = 255
     # plt.imshow(cropped_img[0])
     return cropped_img
 
