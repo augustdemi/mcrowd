@@ -7,13 +7,14 @@ from model import *
 from loss import kl_two_gaussian, displacement_error, final_displacement_error
 from utils_sgan import relative_to_abs, integrate_samples
 from data.loader import data_loader
-from eval_util import ploot
+import imageio
 
 import matplotlib.pyplot as plt
 from torch.distributions import RelaxedOneHotCategorical as concrete
 from torch.distributions import OneHotCategorical as discrete
 from torch.distributions import kl_divergence
-
+from scipy.interpolate import RectBivariateSpline
+from scipy.ndimage import binary_dilation
 from gmm2d import GMM2D
 
 ###############################################################################
@@ -34,7 +35,7 @@ class Solver(object):
 
         self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_attn_%s_lr_%s_klw_%s_map_size_%s' % \
                     (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
-                     args.decoder_h_dim, args.mlp_dim, args.attention, args.lr_VAE, args.kl_weight, args.map_size)
+                     args.decoder_h_dim, args.mlp_dim, False, args.lr_VAE, args.kl_weight, args.map_size)
 
 
         # to be appended by run_id
@@ -165,7 +166,9 @@ class Solver(object):
                 dropout_rnn=args.dropout_rnn,
                 batch_norm=args.batch_norm).to(self.device)
             #### load map ####
-            self.load_map_weights('./ckpts/nmap2_map_size_160_drop_out0.0_run_16/iter_10000_encoder.pt')
+            map_path = './ckpts/nmap_map_size_180_drop_out0.0_run_22/iter_9000_encoder.pt'
+            self.load_map_weights(map_path)
+            print('>>>>>>>>>>>> map loaded: ', map_path)
 
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
@@ -193,14 +196,15 @@ class Solver(object):
 
         # long_dtype, float_dtype = get_dtypes(args)
 
-        print("Initializing train dataset")
-        _, self.train_loader = data_loader(self.args, train_path)
-        print("Initializing val dataset")
-        _, self.val_loader = data_loader(self.args, val_path)
+        if self.ckpt_load_iter != self.max_iter:
+            print("Initializing train dataset")
+            _, self.train_loader = data_loader(self.args, train_path)
+            print("Initializing val dataset")
+            _, self.val_loader = data_loader(self.args, val_path)
 
-        print(
-            'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
-        )
+            print(
+                'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
+            )
         print('...done')
 
 
@@ -379,6 +383,158 @@ class Solver(object):
         tensor = tensor.view(-1, col_len)
         return tensor
 
+    def to_map_points(self, world_pts):
+        homography = np.loadtxt('D:\crowd\Trajectron-plus-plus\experiments\pedestrians\orig_data\eth/H.txt')
+        homography /= homography[2, 2]
+        homography = np.linalg.inv(homography)
+
+        org_shape = None
+        if len(world_pts.shape) > 2:
+            org_shape = world_pts.shape
+            world_pts = world_pts.reshape((-1, 2))
+        N, dims = world_pts.shape
+        points_with_one = np.ones((dims + 1, N))
+        points_with_one[:dims] = world_pts.T
+        map_points = np.fliplr((homography @ points_with_one).T[..., :dims])
+        if org_shape is not None:
+            map_points = map_points.reshape(org_shape)
+        return map_points
+
+    def compute_obs_violations(self, predicted_trajs, obs_map):
+        interp_obs_map = RectBivariateSpline(range(obs_map.shape[0]),
+                                             range(obs_map.shape[1]),
+                                             binary_dilation(obs_map, iterations=1),
+                                             kx=1, ky=1)
+
+        old_shape = predicted_trajs.shape
+        predicted_trajs = predicted_trajs.reshape((-1,2))
+
+        # plt.imshow(obs_map)
+        # import cv2
+        # cap = cv2.VideoCapture(os.path.join('D:\crowd\datasets/nmap\map2', self.dataset_name + '_video.avi'))
+        # cap.set(1, int(880))
+        # _, ff = cap.read()
+        # plt.imshow(ff)
+        # for i in range(12):
+        #     plt.scatter(predicted_trajs[i,0], predicted_trajs[i,1], s=1)
+        #
+        # a = binary_dilation(obs_map, iterations=1)
+        # plt.imshow(a)
+        # for i in range(12):
+        #     plt.scatter(predicted_trajs[i,0], predicted_trajs[i,1], s=1)
+
+        traj_obs_values = interp_obs_map(predicted_trajs[:, 1], predicted_trajs[:, 0], grid=False)
+        traj_obs_values = traj_obs_values.reshape((old_shape[0], old_shape[1]))
+        num_viol_trajs = np.sum(traj_obs_values.max(axis=1) > 0,
+                                dtype=float)  # 20개 case 각각에 대해 12 future time중 한번이라도(12개중 max) 충돌이 있었나 확인
+
+        return num_viol_trajs, traj_obs_values.sum(axis=1)
+
+    def map_collision(self, data_loader, num_samples=20):
+
+        obs_map = imageio.imread(os.path.join('../datasets/nmap/map', self.dataset_name + '_map.png'))
+        h = np.loadtxt(os.path.join('../datasets/nmap/map', self.dataset_name +'_H.txt'))
+        inv_h_t = np.linalg.pinv(np.transpose(h))
+
+        total_traj = 0
+        total_viol = 0
+        min_viol = []
+        avg_viol = []
+        std_viol = []
+        with torch.no_grad():
+            b=0
+            for batch in data_loader:
+                b+=1
+                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
+                 fut_obst) = batch
+
+                total_traj += fut_traj.size(1)
+
+                (encX_h_feat, logitX) \
+                    = self.encoderMx(obs_traj, seq_start_end, past_obst)
+                relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
+
+                for s, e in seq_start_end:
+                    agent_rng = range(s, e)
+
+                    multi_sample_pred = []
+                    for _ in range(num_samples):
+                        fut_rel_pos_dist = self.decoderMy(
+                            obs_traj[-1],
+                            encX_h_feat,
+                            relaxed_p_dist.rsample()
+                        )
+                        pred_fut_traj_vel = fut_rel_pos_dist.rsample()
+                        pred_fut_traj = integrate_samples(pred_fut_traj_vel, obs_traj[-1][:, :2], dt=self.dt)
+
+                        pred_data = []
+                        for idx in range(len(agent_rng)):
+                            one_ped = agent_rng[idx]
+                            pred_real = pred_fut_traj[:, one_ped].numpy()
+                            pred_pixel = np.concatenate([pred_real, np.ones((self.pred_len, 1))], axis=1)
+                            pred_pixel = np.matmul(pred_pixel, inv_h_t)
+                            pred_pixel /= np.expand_dims(pred_pixel[:, 2], 1)
+                            pred_data.append(pred_pixel)
+
+                        pred_data = np.stack(pred_data)
+                        pred_data[:,:,[0,1]] = pred_data[:,:,[1,0]]
+
+                        multi_sample_pred.append(pred_data)
+
+                    for a in range(len(agent_rng)):
+                        num_viol_trajs, viol20 = self.compute_obs_violations(np.array(multi_sample_pred)[:,a,:,:2], obs_map)
+                        total_viol += num_viol_trajs
+                        min_viol.append(np.min(viol20))
+                        avg_viol.append(np.mean(viol20))
+                        std_viol.append(np.std(viol20))
+        return total_viol / total_traj, np.mean(np.array(min_viol)), np.mean(np.array(avg_viol)), np.mean(np.array(std_viol))
+
+
+
+
+    def evaluate_real_collision(self, data_loader, threshold):
+        self.set_mode(train=False)
+        total_traj = 0
+        all_coll = []
+
+        with torch.no_grad():
+            b=0
+            for batch in data_loader:
+                b+=1
+                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, non_linear_ped,
+                 loss_mask, seq_start_end, obs_frames, pred_frames) = batch
+                total_traj += fut_traj.size(1)
+
+                seq_coll = []  # 64
+                for idx, (start, end) in enumerate(seq_start_end):
+
+                    start = start.item()
+                    end = end.item()
+                    num_ped = end - start
+                    if num_ped == 1:
+                        continue
+                    one_frame_slide = fut_traj[:, start:end, :2]  # (pred_len, num_ped, 2)
+
+                    frame_coll = []  # num_ped
+                    for i in range(self.pred_len):
+                        curr_frame = one_frame_slide[i]  # frame of time=i #(num_ped,2)
+                        curr1 = curr_frame.repeat(num_ped, 1)
+                        curr2 = self.repeat(curr_frame, num_ped)
+                        dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
+                        dist = dist.reshape(num_ped, num_ped)  # all distance between all num_ped*num_ped
+                        diff_agent_idx = np.triu_indices(num_ped,
+                                                         k=1)  # only distinct distances of num_ped C 2(upper triange except for diag)
+                        diff_agent_dist = dist[diff_agent_idx]
+                        curr_coll_rate = (diff_agent_dist < threshold).sum()
+                        frame_coll.append(curr_coll_rate)
+                    seq_coll.append(frame_coll)
+                all_coll.append(np.array(seq_coll))
+            all_coll=np.concatenate(all_coll, axis=0) #(70,12)
+            print('all_coll: ', all_coll.shape)
+            coll_rate=all_coll.sum()
+
+        self.set_mode(train=True)
+        return coll_rate
 
 
 
@@ -794,11 +950,12 @@ class Solver(object):
         self.encoderMx.map_net.conv1.weight = loaded_map_w.conv1.weight
         self.encoderMx.map_net.conv2.weight = loaded_map_w.conv2.weight
         self.encoderMx.map_net.conv3.weight = loaded_map_w.conv3.weight
-        self.encoderMx.map_net.fc1.weight = loaded_map_w.fc1.weight
-        self.encoderMx.map_net.fc2.weight = loaded_map_w.fc2.weight
         self.encoderMx.map_net.conv1.weight.requires_grad=False
         self.encoderMx.map_net.conv2.weight.requires_grad=False
         self.encoderMx.map_net.conv3.weight.requires_grad=False
+
+        self.encoderMx.map_net.fc1.weight = loaded_map_w.fc1.weight
+        self.encoderMx.map_net.fc2.weight = loaded_map_w.fc2.weight
         self.encoderMx.map_net.fc1.weight.requires_grad=False
         self.encoderMx.map_net.fc2.weight.requires_grad=False
 
