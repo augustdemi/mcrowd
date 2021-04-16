@@ -832,8 +832,8 @@ class Solver(object):
 
             all_coll = np.concatenate(all_coll, axis=1)  # (20,70,12)
             print('all_coll: ', all_coll.shape)
-            coll_rate_min = all_coll.min(axis=0).mean()
-            coll_rate_avg = all_coll.mean(axis=0).mean()
+            coll_rate_min = all_coll.min(axis=0).sum()
+            coll_rate_avg = all_coll.mean(axis=0).sum()
             coll_rate_std = all_coll.std(axis=0).mean()
 
             # non-zero coll
