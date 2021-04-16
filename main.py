@@ -177,9 +177,14 @@ def main(args):
                 elif args.dataset_name == 'zara2':
                     threshold = 0.1
 
-                ped_collision = solver.evaluate_real_collision(test_path, threshold)
-                print('ped_collision: ', ped_collision)
 
+                coll_rate_min, non_zero_coll_min, \
+                coll_rate_avg, non_zero_coll_avg, \
+                coll_rate_std, non_zero_coll_std = solver.evaluate_collision(test_loader, 20, threshold)
+                print('-------------------- collision rate of ', args.dataset_name, '----------------------')
+                print('min: ', coll_rate_min)
+                print('avg: ', coll_rate_avg)
+                print('std: ', coll_rate_std)
 
         else:
             solver = Solver(args)
@@ -206,6 +211,13 @@ def main(args):
             args.batch_size=364
             _, test_loader = data_loader(args, test_path,shuffle=False)
 
+            coll_rate_min, non_zero_coll_min, \
+            coll_rate_avg, non_zero_coll_avg, \
+            coll_rate_std, non_zero_coll_std = solver.evaluate_collision(test_loader, 20, threshold)
+            print('-------------------- collision rate of ', args.dataset_name, '----------------------')
+            print('min: ', coll_rate_min)
+            print('avg: ', coll_rate_avg)
+            print('std: ', coll_rate_std)
 
             their_viol, min_viol, avg_viol, std_viol = solver.map_collision(test_loader)
             print('their_viol: ', their_viol)
@@ -217,8 +229,7 @@ def main(args):
             # solver.draw_traj(test_loader, 20)
             # solver.check_dist_stat(test_loader)
 
-            ped_collision = solver.evaluate_real_collision(test_path, threshold)
-            print('ped_collision: ', ped_collision)
+
 
 
             ade_min, fde_min, \
