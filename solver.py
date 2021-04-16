@@ -787,7 +787,7 @@ class Solver(object):
                 total_traj += fut_traj.size(1)
 
                 (encX_h_feat, logitX) \
-                    = self.encoderMx(obs_traj, seq_start_end)
+                    = self.encoderMx(obs_traj, seq_start_end, past_obst)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
                 coll_20samples = []  # (20, # seq, 12)
