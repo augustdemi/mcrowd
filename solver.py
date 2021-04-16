@@ -188,15 +188,17 @@ class Solver(object):
 
         # long_dtype, float_dtype = get_dtypes(args)
 
-        print("Initializing train dataset")
-        _, self.train_loader = data_loader(self.args, train_path)
-        print("Initializing val dataset")
-        _, self.val_loader = data_loader(self.args, val_path)
-        # self.val_loader = self.train_loader
+        if self.ckpt_load_iter != self.max_iter:
+            print("Initializing train dataset")
+            _, self.train_loader = data_loader(self.args, train_path)
+            print("Initializing val dataset")
+            _, self.val_loader = data_loader(self.args, val_path)
 
-        print(
-            'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
-        )
+            print(
+                'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
+            )
+        print('...done')
+
         print('...done')
 
 
