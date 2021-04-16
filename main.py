@@ -42,7 +42,7 @@ def create_parser():
     
     parser = argparse.ArgumentParser()
 
-    parser.add_argument( '--run_id', default=71, type=int,
+    parser.add_argument( '--run_id', default=42, type=int,
       help='run id (default=-1 to create a new id)' )
 
     parser.add_argument( '--device', default='cpu', type=str,
@@ -62,10 +62,10 @@ def create_parser():
 
 
     # saving directories and checkpoint/sample iterations
-    parser.add_argument( '--ckpt_load_iter', default=1500, type=int,
+    parser.add_argument( '--ckpt_load_iter', default=5500, type=int,
       help='iter# to load the previously saved model ' +
         '(default=0 to start from the scratch)' )
-    parser.add_argument( '--max_iter', default=1500, type=float,
+    parser.add_argument( '--max_iter', default=5500, type=float,
       help='maximum number of batch iterations' )
     parser.add_argument( '--ckpt_save_iter', default=100, type=int,
       help='checkpoint saved every # iters' )
@@ -165,6 +165,22 @@ def main(args):
                 print('fde min: ', fde_min)
                 print('fde avg: ', fde_avg)
                 print('fde std: ', fde_std)
+
+                if args.dataset_name == 'eth':
+                    threshold = 0.4
+                elif args.dataset_name == 'hotel':
+                    threshold = 0.3
+                elif args.dataset_name == 'univ':
+                    threshold = 0.05
+                elif args.dataset_name == 'zara1':
+                    threshold = 0.3
+                elif args.dataset_name == 'zara2':
+                    threshold = 0.1
+
+                ped_collision = solver.evaluate_real_collision(test_path, threshold)
+                print('ped_collision: ', ped_collision)
+
+
         else:
             solver = Solver(args)
 
@@ -173,10 +189,24 @@ def main(args):
             # _, dist_loader = data_loader(args, dist_path)
             # solver.check_dist_stat(dist_loader)
 
+            if args.dataset_name == 'eth':
+                threshold = 0.4
+            elif args.dataset_name == 'hotel':
+                threshold = 0.3
+            elif args.dataset_name == 'univ':
+                threshold = 0.05
+            elif args.dataset_name == 'zara1':
+                threshold = 0.3
+            elif args.dataset_name == 'zara2':
+                threshold = 0.1
+
+
             print('--------------------', args.dataset_name, '----------------------')
             test_path = os.path.join(args.dataset_dir, args.dataset_name, 'test')
             args.batch_size=364
             _, test_loader = data_loader(args, test_path,shuffle=False)
+
+
             their_viol, min_viol, avg_viol, std_viol = solver.map_collision(test_loader)
             print('their_viol: ', their_viol)
             print('min_viol: ', min_viol)
@@ -186,6 +216,9 @@ def main(args):
             # solver.plot_traj_var(test_loader)
             # solver.draw_traj(test_loader, 20)
             # solver.check_dist_stat(test_loader)
+
+            ped_collision = solver.evaluate_real_collision(test_path, threshold)
+            print('ped_collision: ', ped_collision)
 
 
             ade_min, fde_min, \
