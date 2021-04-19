@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import numpy as np
 from gmm2d import GMM2D
 from torch.distributions.normal import Normal
+import random
 
 ###############################################################################
 
@@ -124,25 +125,10 @@ class PoolHiddenNet(nn.Module):
 class AttentionHiddenNet(nn.Module):
     """Pooling module as proposed in our paper"""
     def __init__(
-        self, embedding_dim=64, h_dim=64, pool_dim=1024,
-        activation='relu', batch_norm=True, dropout=0.0
+        self, enc_h_dim=64
     ):
         super(AttentionHiddenNet, self).__init__()
-
-        self.mlp_dim = 1024
-        self.h_dim = h_dim
-        self.pool_dim = pool_dim
-        self.embedding_dim = embedding_dim
-
-        mlp_pre_dim = embedding_dim + h_dim
-        mlp_pre_pool_dims = [mlp_pre_dim, 512, pool_dim]
-
-        self.spatial_embedding = nn.Linear(2, embedding_dim)
-        self.mlp_pre_pool = make_mlp(
-            mlp_pre_pool_dims,
-            activation=activation,
-            batch_norm=batch_norm,
-            dropout=dropout)
+        self.h_dim = enc_h_dim
 
     def repeat(self, tensor, num_reps):
         """
@@ -157,7 +143,7 @@ class AttentionHiddenNet(nn.Module):
         tensor = tensor.view(-1, col_len)
         return tensor
 
-    def forward(self, h_states, seq_start_end, end_pos):
+    def forward(self, h_states, seq_start_end):
         """
         Inputs:
         - h_states: Tensor of shape (num_layers, batch, h_dim)
@@ -174,7 +160,7 @@ class AttentionHiddenNet(nn.Module):
             curr_hidden = h_states.view(-1, self.h_dim)[start:end] #num_ped, latent
             score=torch.matmul(curr_hidden, curr_hidden.transpose(1,0)) #num_ped, num_ped
             attn_dist = torch.softmax(score, dim=1) #(num_ped, num_ped)
-            curr_context_mat= []
+            curr_context_mat= [] # 현재 start-end 프레임 안의 num ped만큼의 hidden feat들이 서로간 이루는 attn_dist(score)값을 반영한 context vec를 모음.
             for i in range(num_ped):
                 curr_attn = attn_dist[i].repeat(curr_hidden.size(1), 1).transpose(1, 0)
                 context_vec = torch.sum(curr_attn * curr_hidden, dim=0)
@@ -186,8 +172,6 @@ class AttentionHiddenNet(nn.Module):
             #     curr_context_mat.append(context_vec)
             context_mat.append(torch.stack(curr_context_mat))
 
-
-
         context_mat = torch.cat(context_mat, dim=0)
         return context_mat
 
@@ -196,38 +180,29 @@ class AttentionHiddenNet(nn.Module):
 class Encoder(nn.Module):
     """Encoder:spatial emb -> lstm -> pooling -> fc for posterior / conditional prior"""
     def __init__(
-        self, zS_dim, enc_h_dim=64, mlp_dim=32, pool_dim=32,
-            batch_norm=False, num_layers=1, dropout_mlp=0.0, dropout_rnn=0.0,  activation='relu', pooling_type='pool'
+        self, zS_dim, enc_h_dim=64, mlp_dim=32, attention=False,
+            batch_norm=False, num_layers=1, dropout_mlp=0.0, dropout_rnn=0.0,  activation='relu'
     ):
         super(Encoder, self).__init__()
 
         self.zS_dim=zS_dim
         self.enc_h_dim = enc_h_dim
         self.num_layers = num_layers
-        self.pooling_type = pooling_type
         self.dropout_rnn=dropout_rnn
+        self.attention=attention
         n_state=6
 
         self.rnn_encoder = nn.LSTM(
             input_size=n_state, hidden_size=enc_h_dim
         )
 
-        # if pooling_type=='pool':
-        #     self.pool_net = PoolHiddenNet(
-        #         embedding_dim=self.embedding_dim,
-        #         h_dim=enc_h_dim,
-        #         pool_dim=pool_dim,
-        #         batch_norm=batch_norm
-        #     )
-        # elif pooling_type=='attn':
-        #     self.pool_net = AttentionHiddenNet(
-        #         embedding_dim=self.embedding_dim,
-        #         h_dim=enc_h_dim,
-        #         pool_dim=pool_dim,
-        #         batch_norm=batch_norm
-        #     )
+        self.attn_net = AttentionHiddenNet(
+            enc_h_dim=enc_h_dim,
+        )
 
-        input_dim = enc_h_dim + pool_dim
+        input_dim = enc_h_dim
+        if attention:
+            input_dim += enc_h_dim
 
         self.fc1 = make_mlp(
             [input_dim, mlp_dim],
@@ -254,15 +229,13 @@ class Encoder(nn.Module):
                             p=self.dropout_rnn,
                             training=train)  # [bs, max_time, enc_rnn_dim]
 
-        # pooling
-        if self.pooling_type:
-            end_pos = rel_traj[-1, :, :] # 656, 2
-            pool_h = self.pool_net(final_encoder_h, seq_start_end, end_pos) # 656, 32
+        # attention
+        if self.attention:
+            pool_h = self.attn_net(final_encoder_h, seq_start_end) # 656, 32
             # Construct input hidden states for decoder
             dist_fc_input = torch.cat([final_encoder_h.squeeze(0), pool_h], dim=1) # [656, 64]
         else:
             dist_fc_input = final_encoder_h.view(-1, self.enc_h_dim)
-
 
         # final distribution
         dist_fc_input = self.fc1(dist_fc_input)
@@ -274,16 +247,16 @@ class Encoder(nn.Module):
 class EncoderY(nn.Module):
     """Encoder:spatial emb -> lstm -> pooling -> fc for posterior / conditional prior"""
     def __init__(
-        self, zS_dim, enc_h_dim=64, mlp_dim=32, pool_dim=32,
-            batch_norm=False, num_layers=1,  dropout_mlp=0.0, dropout_rnn=0.0, activation='relu', pooling_type='pool', device='cpu'
+        self, zS_dim, enc_h_dim=64, mlp_dim=32, attention=False,
+            batch_norm=False, num_layers=1,  dropout_mlp=0.0, dropout_rnn=0.0, activation='relu', device='cpu'
     ):
         super(EncoderY, self).__init__()
 
         self.zS_dim=zS_dim
         self.enc_h_dim = enc_h_dim
         self.num_layers = num_layers
-        self.pooling_type = pooling_type
         self.device = device
+        self.attention=attention
         n_state=6
         n_pred_state=2
         self.dropout_rnn=dropout_rnn
@@ -292,22 +265,13 @@ class EncoderY(nn.Module):
             input_size=n_pred_state, hidden_size=enc_h_dim, num_layers=1, bidirectional=True
         )
 
-        if pooling_type=='pool':
-            self.pool_net = PoolHiddenNet(
-                embedding_dim=n_pred_state,
-                h_dim=enc_h_dim,
-                pool_dim=pool_dim,
-                batch_norm=batch_norm
-            )
-        elif pooling_type=='attn':
-            self.pool_net = AttentionHiddenNet(
-                embedding_dim=n_pred_state,
-                h_dim=enc_h_dim,
-                pool_dim=pool_dim,
-                batch_norm=batch_norm
-            )
+        self.attn_net = AttentionHiddenNet(
+            enc_h_dim=enc_h_dim,
+        )
 
         input_dim = enc_h_dim*4 + mlp_dim
+        if attention:
+            input_dim +=enc_h_dim
 
 
         # self.fc1 = make_mlp(
@@ -348,7 +312,16 @@ class EncoderY(nn.Module):
                             p=self.dropout_rnn,
                             training=train)  # [bs, max_time, enc_rnn_dim]
 
-        dist_fc_input = torch.cat([final_encoder_h, obs_enc_feat], dim=1)
+        # attention
+        if self.attention:
+            pool_h = self.attn_net(final_encoder_h, seq_start_end) # 656, 32
+            # Construct input hidden states for decoder
+            dist_fc_input = torch.cat([final_encoder_h.view(-1, 4*self.enc_h_dim), pool_h], dim=1) # [656, 64]
+        else:
+            dist_fc_input = final_encoder_h.view(-1, 4*self.enc_h_dim)
+
+
+        dist_fc_input = torch.cat([dist_fc_input, obs_enc_feat], dim=1)
 
 
         # final distribution
@@ -420,7 +393,7 @@ class Decoder(nn.Module):
             logVar = self.fc_std(decoder_h)
             std = torch.sqrt(torch.exp(logVar))
             if fut_state is not None:
-                a = fut_state[i,:,2:4]
+                a = fut_state[i, :, 2:4]
             else:
                 a = Normal(mu, std).rsample()
             mus.append(mu)

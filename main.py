@@ -62,7 +62,7 @@ def create_parser():
 
 
     # saving directories and checkpoint/sample iterations
-    parser.add_argument( '--ckpt_load_iter', default=4500, type=int,
+    parser.add_argument( '--ckpt_load_iter', default=0, type=int,
       help='iter# to load the previously saved model ' +
         '(default=0 to start from the scratch)' )
     parser.add_argument( '--max_iter', default=4500, type=float,
@@ -78,13 +78,13 @@ def create_parser():
 
     # visdom
     parser.add_argument( '--viz_on',
-      default=False, type=str2bool, help='enable visdom visualization' )
+      default=True, type=str2bool, help='enable visdom visualization' )
     parser.add_argument( '--viz_port',
       default=8002, type=int, help='visdom port number' )
     parser.add_argument( '--viz_ll_iter',
-      default=30, type=int, help='visdom line data logging iter' )
+      default=1, type=int, help='visdom line data logging iter' )
     parser.add_argument( '--viz_la_iter',
-      default=30, type=int, help='visdom line data applying iter' )
+      default=1, type=int, help='visdom line data applying iter' )
     #parser.add_argument( '--viz_ra_iter',
     #  default=10000, type=int, help='visdom recon image applying iter' )
     #parser.add_argument( '--viz_ta_iter',
@@ -98,9 +98,9 @@ def create_parser():
     parser.add_argument('--pred_len', default=12, type=int)
     parser.add_argument('--skip', default=1, type=int)
     # dataset
-    parser.add_argument( '--dataset_dir', default='../datasets', type=str,
+    parser.add_argument( '--dataset_dir', default='../datasets/syn_x', type=str,
       help='dataset directory' )
-    parser.add_argument( '--dataset_name', default='eth', type=str,
+    parser.add_argument( '--dataset_name', default='s1', type=str,
       help='dataset name' )
     parser.add_argument( '--num_workers', default=0, type=int,
       help='dataloader num_workers' )
@@ -126,7 +126,9 @@ def create_parser():
       help='pool/attn' )
     parser.add_argument( '--kl_weight', default=100.0, type=float,
       help='kl weight' )
-    parser.add_argument('--map_size', default=180, type=int)
+    parser.add_argument('--min_ped', default=1, type=int)
+    parser.add_argument('--dt', default=1.5, type=float)
+    parser.add_argument('--temp', default=1.99, type=float)
 
     parser.add_argument( '--desc', default='data', type=str,
       help='run description' )

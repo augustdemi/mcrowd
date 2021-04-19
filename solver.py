@@ -27,24 +27,18 @@ class Solver(object):
 
         self.args = args
 
-        # self.name = '%s_pred_len_%s_zS_%s_embedding_dim_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_pool_dim_%s_lr_%s_klw_%s' % \
-        #             (args.dataset_name, args.pred_len, args.zS_dim, 16, args.encoder_h_dim, args.decoder_h_dim, args.mlp_dim, args.pool_dim, args.lr_VAE, args.kl_weight)
 
-        self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_pool_dim_%s_lr_%s_klw_%s' % \
+        self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_attn_%s_lr_%s_klw_%s' % \
                     (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
-                     args.decoder_h_dim, args.mlp_dim, 0, args.lr_VAE, args.kl_weight)
-
-        # self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_attn_%s_lr_%s_klw_%s' % \
-        #             (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
-        #              args.decoder_h_dim, args.mlp_dim, args.attention, args.lr_VAE, args.kl_weight)
+                     args.decoder_h_dim, args.mlp_dim, args.attention, args.lr_VAE, args.kl_weight)
 
 
         # to be appended by run_id
 
         # self.use_cuda = args.cuda and torch.cuda.is_available()
         self.device = args.device
-        self.temp=1.99
-        self.dt=0.4
+        self.temp=args.temp
+        self.dt=args.dt
         self.kl_weight=args.kl_weight
 
         self.max_iter = int(args.max_iter)
@@ -188,7 +182,7 @@ class Solver(object):
         # prepare dataloader (iterable)
         print('Start loading data...')
         train_path = os.path.join(self.dataset_dir, self.dataset_name, 'train')
-        val_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
+        val_path = os.path.join(self.dataset_dir, self.dataset_name, 'val')
 
         # long_dtype, float_dtype = get_dtypes(args)
 
@@ -197,6 +191,7 @@ class Solver(object):
             _, self.train_loader = data_loader(self.args, train_path)
             print("Initializing val dataset")
             _, self.val_loader = data_loader(self.args, val_path)
+            # self.val_loader = self.train_loader
 
             print(
                 'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
@@ -233,8 +228,7 @@ class Solver(object):
             # ============================================
 
             # sample a mini-batch
-            (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, non_linear_ped,
-             loss_mask, seq_start_end, obs_frames, pred_frames) = next(iterator)
+            (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, seq_start_end, obs_frames, pred_frames) = next(iterator)
             batch = obs_traj_rel.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
 
@@ -293,7 +287,7 @@ class Solver(object):
 
 
             # (visdom) insert current line stats
-            if self.viz_on and (iteration % self.viz_ll_iter == 0):
+            if (self.viz_on and (iteration % self.viz_ll_iter == 0)) or (self.viz_on and (iteration == start_iter)):
                 ade_min, fde_min, \
                 ade_avg, fde_avg, \
                 ade_std, fde_std, \
@@ -398,8 +392,7 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
-                 fut_obst) = batch
+                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames) = batch
                 batch_size = obs_traj_vel.size(1)
                 total_traj += fut_traj.size(1)
 
@@ -489,8 +482,7 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
-                 fut_obst) = batch
+                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames) = batch
                 batch_size = fut_traj.size(1)
 
                 (encX_h_feat, logitX) \
@@ -533,8 +525,7 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
-                 fut_obst) = batch
+                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames) = batch
                 total_traj += fut_traj.size(1)
 
 
@@ -643,8 +634,7 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
-                 fut_obst) = batch
+                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames) = batch
                 total_traj += fut_traj.size(1)
 
                 (encX_h_feat, logitX) \
@@ -702,8 +692,7 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
-                 fut_obst) = batch
+                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames) = batch
 
                 total_traj += fut_traj.size(1)
 
@@ -759,8 +748,7 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, non_linear_ped,
-                 loss_mask, seq_start_end, obs_frames, pred_frames) = batch
+                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, seq_start_end, obs_frames, pred_frames) = batch
                 batch_size = obs_traj_rel.size(1)
                 total_traj += fut_traj.size(1)
 
