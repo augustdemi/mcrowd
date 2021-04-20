@@ -144,19 +144,15 @@ def main(args):
         print("Initializing test dataset")
         if args.dataset_name=='all':
             print('======================== [iter_%d] ========================' %  args.ckpt_load_iter)
-            for dataset_name in ['eth', 'hotel', 'univ', 'zara1', 'zara2']:
+            for dataset_name in ['s1', 's2', 's3', 's4', 's5', 's6']:
                 args.dataset_name =dataset_name
+                print('--------------------', args.dataset_name, '----------------------')
 
                 solver = Solver(args)
+
+                print('-------------------- test ----------------------')
                 test_path = os.path.join(args.dataset_dir, dataset_name, 'test')
                 _, test_loader = data_loader(args, test_path)
-                print('--------------------', args.dataset_name, '----------------------')
-                their_viol, min_viol, avg_viol, std_viol = solver.map_collision(test_loader)
-                print('//// map violation ////')
-                print('their_viol: ', their_viol)
-                print('min_viol: ', min_viol)
-                print('avg_viol: ', avg_viol)
-                print('std_viol: ', std_viol)
 
                 ade_min, fde_min, \
                 ade_avg, fde_avg, \
@@ -170,18 +166,7 @@ def main(args):
                 print('fde avg: ', fde_avg)
                 print('fde std: ', fde_std)
 
-                if args.dataset_name == 'eth':
-                    threshold = 0.4
-                elif args.dataset_name == 'hotel':
-                    threshold = 0.3
-                elif args.dataset_name == 'univ':
-                    threshold = 0.05
-                elif args.dataset_name == 'zara1':
-                    threshold = 0.3
-                elif args.dataset_name == 'zara2':
-                    threshold = 0.1
-
-
+                threshold = 0.1
                 coll_rate_min, non_zero_coll_min, \
                 coll_rate_avg, non_zero_coll_avg, \
                 coll_rate_std, non_zero_coll_std = solver.evaluate_collision(test_loader, 20, threshold)
@@ -189,6 +174,34 @@ def main(args):
                 print('min: ', coll_rate_min)
                 print('avg: ', coll_rate_avg)
                 print('std: ', coll_rate_std)
+
+
+
+                print('-------------------- val ----------------------')
+                test_path = os.path.join(args.dataset_dir, dataset_name, 'val')
+                _, test_loader = data_loader(args, test_path)
+
+                ade_min, fde_min, \
+                ade_avg, fde_avg, \
+                ade_std, fde_std = solver.evaluate_dist(test_loader, 20, loss=False)
+                print('//// ADE / FDE ////')
+
+                print('ade min: ', ade_min)
+                print('ade avg: ', ade_avg)
+                print('ade std: ', ade_std)
+                print('fde min: ', fde_min)
+                print('fde avg: ', fde_avg)
+                print('fde std: ', fde_std)
+
+                threshold = 0.1
+                coll_rate_min, non_zero_coll_min, \
+                coll_rate_avg, non_zero_coll_avg, \
+                coll_rate_std, non_zero_coll_std = solver.evaluate_collision(test_loader, 20, threshold)
+                print('//// agent collisions ////')
+                print('min: ', coll_rate_min)
+                print('avg: ', coll_rate_avg)
+                print('std: ', coll_rate_std)
+
 
         else:
             solver = Solver(args)
