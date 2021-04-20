@@ -42,7 +42,7 @@ def create_parser():
     
     parser = argparse.ArgumentParser()
 
-    parser.add_argument( '--run_id', default=72, type=int,
+    parser.add_argument( '--run_id', default=0, type=int,
       help='run id (default=-1 to create a new id)' )
 
     parser.add_argument( '--device', default='cpu', type=str,
@@ -62,10 +62,10 @@ def create_parser():
 
 
     # saving directories and checkpoint/sample iterations
-    parser.add_argument( '--ckpt_load_iter', default=0, type=int,
+    parser.add_argument( '--ckpt_load_iter', default=33500, type=int,
       help='iter# to load the previously saved model ' +
         '(default=0 to start from the scratch)' )
-    parser.add_argument( '--max_iter', default=4500, type=float,
+    parser.add_argument( '--max_iter', default=33500, type=float,
       help='maximum number of batch iterations' )
     parser.add_argument( '--ckpt_save_iter', default=100, type=int,
       help='checkpoint saved every # iters' )
@@ -78,7 +78,7 @@ def create_parser():
 
     # visdom
     parser.add_argument( '--viz_on',
-      default=True, type=str2bool, help='enable visdom visualization' )
+      default=False, type=str2bool, help='enable visdom visualization' )
     parser.add_argument( '--viz_port',
       default=8002, type=int, help='visdom port number' )
     parser.add_argument( '--viz_ll_iter',
@@ -100,7 +100,7 @@ def create_parser():
     # dataset
     parser.add_argument( '--dataset_dir', default='../datasets/syn_x', type=str,
       help='dataset directory' )
-    parser.add_argument( '--dataset_name', default='s1', type=str,
+    parser.add_argument( '--dataset_name', default='s2', type=str,
       help='dataset name' )
     parser.add_argument( '--num_workers', default=0, type=int,
       help='dataloader num_workers' )
@@ -122,7 +122,7 @@ def create_parser():
     parser.add_argument('--mlp_dim', default=32, type=int)
     parser.add_argument('--batch_norm', default=0, type=bool_flag)
 
-    parser.add_argument( '--attention', default=0, type=bool_flag,
+    parser.add_argument( '--attention', default=1, type=bool_flag,
       help='pool/attn' )
     parser.add_argument( '--kl_weight', default=100.0, type=float,
       help='kl weight' )
@@ -212,30 +212,17 @@ def main(args):
 
             print('--------------------', args.dataset_name, '----------------------')
             test_path = os.path.join(args.dataset_dir, args.dataset_name, 'test')
-            args.batch_size=364
             _, test_loader = data_loader(args, test_path,shuffle=False)
 
             # solver.plot_traj_var(test_loader)
 
             coll_rate_min, non_zero_coll_min, \
             coll_rate_avg, non_zero_coll_avg, \
-            coll_rate_std, non_zero_coll_std = solver.evaluate_collision(test_loader, 20, threshold)
-            print('-------------------- collision rate of ', args.dataset_name, '----------------------')
+            coll_rate_std, non_zero_coll_std = solver.evaluate_collision(test_loader, 20, 0.1)
+            print('-------------------- test ----------------------')
             print('min: ', coll_rate_min)
             print('avg: ', coll_rate_avg)
             print('std: ', coll_rate_std)
-
-            their_viol, min_viol, avg_viol, std_viol = solver.map_collision(test_loader)
-            print('their_viol: ', their_viol)
-            print('min_viol: ', min_viol)
-            print('avg_viol: ', avg_viol)
-            print('std_viol: ', std_viol)
-
-            # solver.plot_traj_var(test_loader)
-            # solver.draw_traj(test_loader, 20)
-            # solver.check_dist_stat(test_loader)
-
-
 
 
             ade_min, fde_min, \
@@ -248,7 +235,31 @@ def main(args):
             print('fde min: ', fde_min)
             print('fde avg: ', fde_avg)
             print('fde std: ', fde_std)
-            print('------------------------------------------')
+
+            print('--------------------- val ---------------------')
+            test_path = os.path.join(args.dataset_dir, args.dataset_name, 'val')
+            _, test_loader = data_loader(args, test_path,shuffle=False)
+
+            # solver.plot_traj_var(test_loader)
+
+            coll_rate_min, non_zero_coll_min, \
+            coll_rate_avg, non_zero_coll_avg, \
+            coll_rate_std, non_zero_coll_std = solver.evaluate_collision(test_loader, 20, 0.1)
+            print('min: ', coll_rate_min)
+            print('avg: ', coll_rate_avg)
+            print('std: ', coll_rate_std)
+
+
+            ade_min, fde_min, \
+            ade_avg, fde_avg, \
+            ade_std, fde_std = solver.evaluate_dist(test_loader, 20, loss=False)
+
+            print('ade min: ', ade_min)
+            print('ade avg: ', ade_avg)
+            print('ade std: ', ade_std)
+            print('fde min: ', fde_min)
+            print('fde avg: ', fde_avg)
+            print('fde std: ', fde_std)
 
 
     else:
