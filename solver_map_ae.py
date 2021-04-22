@@ -163,15 +163,16 @@ class Solver(object):
         # prepare dataloader (iterable)
         print('Start loading data...')
         train_path = os.path.join(self.dataset_dir, self.dataset_name, 'train')
-        val_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
+        val_path = os.path.join(self.dataset_dir, self.dataset_name, 'val')
 
         # long_dtype, float_dtype = get_dtypes(args)
 
         print("Initializing train dataset")
-        _, self.train_loader = data_loader(self.args, train_path, map_ae=True)
+        _, self.train_loader = data_loader(self.args, train_path)
         print("Initializing val dataset")
         # self.args.batch_size = 32
-        _, self.val_loader = data_loader(self.args, val_path, map_ae=True)
+        _, self.val_loader = data_loader(self.args, val_path)
+        # self.val_loader = self.train_loader
 
         print(
             'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
@@ -219,17 +220,19 @@ class Solver(object):
 
             # 첫번째 iteration 디코더 인풋 = (obs_traj_vel의 마지막 값, (hidden_state, cell_state))
             # where hidden_state = "인코더의 마지막 hidden_layer아웃풋과 그것으로 만든 max_pooled값을 concat해서 mlp 통과시켜만든 feature인 noise_input에다 noise까지 추가한값)"
-            recon_map = self.decoder(
+            recon_map, pred_vel = self.decoder(
                 obst_feat
             )
 
-            focal_loss = self.alpha * map * torch.log(recon_map + self.eps) * ((1-recon_map) ** self.gamma) \
-                         + (1-self.alpha) * (1 - map) * torch.log(1 - recon_map + self.eps) * (recon_map ** self.gamma)
+            # focal_loss = self.alpha * map * torch.log(recon_map + self.eps) * ((1-recon_map) ** self.gamma) \
+            #              + (1-self.alpha) * (1 - map) * torch.log(1 - recon_map + self.eps) * (recon_map ** self.gamma)
 
+            map_loss = - (torch.log(recon_map + self.eps) * map +
+              torch.log(1 - recon_map + self.eps) * (1 - map))
 
-            loss =  - focal_loss.sum().div(state.shape[0])
-            # loss = - (torch.log(recon_map + self.eps) * map +
-            #           torch.log(1 - recon_map + self.eps) * (1 - map)).sum().div(batch)
+            recon_vel = F.mse_loss(pred_vel, state[:,2:4], reduction='sum')
+
+            loss =  map_loss.sum().div(state.shape[0]) + recon_vel.div(state.shape[0])
 
             self.optim_vae.zero_grad()
             loss.backward()
@@ -286,16 +289,18 @@ class Solver(object):
 
                 obst_feat = self.encoder(state, map, train=True)
 
-                recon_map = self.decoder(
+                recon_map, pred_vel = self.decoder(
                     obst_feat
                 )
 
-                focal_loss = self.alpha * map * torch.log(recon_map + self.eps) * ((1 - recon_map) ** self.gamma) \
-                             + (1 - self.alpha) * (1 - map) * torch.log(1 - recon_map + self.eps) * (
-                recon_map ** self.gamma)
 
+                map_loss = - (torch.log(recon_map + self.eps) * map +
+                              torch.log(1 - recon_map + self.eps) * (1 - map))
 
-                loss = - focal_loss.sum().div(state.shape[0])
+                recon_vel = F.mse_loss(pred_vel, state[:, 2:4], reduction='sum')
+
+                loss += (map_loss.sum().div(state.shape[0]) + recon_vel.div(state.shape[0]))
+
         self.set_mode(train=True)
         return loss.div(b)
 
@@ -307,19 +312,18 @@ class Solver(object):
             # if 'eth' in self.name:
             if 'train' in data_loader.dataset.data_dir:
                 # aug train
-                fixed_idxs = [10,50,70,80,100,120,123,140, 220, 230]
+                fixed_idxs = [10,50,70,120,220, 400, 800, 1100, 1300, 1600, 1700, 2000]
                 dset = 'train'
                 data_loader = self.train_loader
             else:
                 # fixed_idxs = [20, 120, 33, 55, 140, 139, 25, 115, 24, 26, 27, 28, 31]
-                fixed_idxs = [1, 10, 40, 125, 135, 136, 117, 114, 116]
+                fixed_idxs = [5,6, 23, 24, 225, 256, 312, 433, 500, 600, 700]
                 # fixed_idxs = range(30,60)
                 # fixed_idxs = range(49)
                 dset='test'
                 data_loader = self.val_loader
 
-            data_loader.shuffle = False
-
+##########################
             data = []
             for i, idx in enumerate(fixed_idxs):
                 data.append(data_loader.dataset.__getitem__(idx))
@@ -338,7 +342,7 @@ class Solver(object):
 
             obst_feat = self.encoder(state, map)
 
-            recon_map = self.decoder(
+            recon_map, _ = self.decoder(
                 obst_feat
             )
             for i in range(map.shape[0]):

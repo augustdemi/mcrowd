@@ -4,7 +4,7 @@ import torch
 
 #-----------------------------------------------------------------------------#
 from data.ae_loader import data_loader
-from map_ae import Solver
+from solver_map_ae import Solver
 from utils import str2bool, bool_flag
 import os
 ###############################################################################
@@ -42,14 +42,14 @@ def create_parser():
     
     parser = argparse.ArgumentParser()
 
-    parser.add_argument( '--run_id', default=4, type=int,
+    parser.add_argument( '--run_id', default=23, type=int,
       help='run id (default=-1 to create a new id)' )
 
     parser.add_argument( '--device', default='cpu', type=str,
       help='cpu/cuda' )
     
     # training hyperparameters
-    parser.add_argument( '--batch_size', default=16, type=int,
+    parser.add_argument( '--batch_size', default=4, type=int,
       help='batch size' )
     parser.add_argument( '--lr_VAE', default=1e-3, type=float,
       help='learning rate of the VAE' )
@@ -62,10 +62,10 @@ def create_parser():
 
     
     # saving directories and checkpoint/sample iterations
-    parser.add_argument( '--ckpt_load_iter', default=10000, type=int,
+    parser.add_argument( '--ckpt_load_iter', default=0, type=int,
       help='iter# to load the previously saved model ' + 
         '(default=0 to start from the scratch)' )
-    parser.add_argument( '--max_iter', default=10000, type=float,
+    parser.add_argument( '--max_iter', default=9500, type=float,
       help='maximum number of batch iterations' )
     parser.add_argument( '--ckpt_save_iter', default=100, type=int,
       help='checkpoint saved every # iters' )
@@ -93,14 +93,14 @@ def create_parser():
 
     # Dataset options
     parser.add_argument('--delim', default='tab', type=str)
-    parser.add_argument('--loader_num_workers', default=4, type=int)
+    parser.add_argument('--loader_num_workers', default=0, type=int)
     parser.add_argument('--obs_len', default=8, type=int)
     parser.add_argument('--pred_len', default=12, type=int)
     parser.add_argument('--skip', default=1, type=int)
     # dataset
-    parser.add_argument( '--dataset_dir', default='../datasets', type=str,
+    parser.add_argument( '--dataset_dir', default='../datasets/syn_x/map', type=str,
       help='dataset directory' )
-    parser.add_argument( '--dataset_name', default='nmap', type=str,
+    parser.add_argument( '--dataset_name', default='trajectories', type=str,
       help='dataset name' )
     parser.add_argument( '--num_workers', default=0, type=int,
       help='dataloader num_workers' )
@@ -118,14 +118,14 @@ def create_parser():
     parser.add_argument('--num_layers', default=1, type=int)
     parser.add_argument('--dropout_mlp', default=0.1, type=float)
     parser.add_argument('--dropout_rnn', default=0.25, type=float)
-    parser.add_argument('--dropout_map', default=0.2, type=float)
+    parser.add_argument('--dropout_map', default=0.0, type=float)
     # Decoder
     parser.add_argument('--mlp_dim', default=32, type=int)
     parser.add_argument('--batch_norm', default=0, type=bool_flag)
 
     parser.add_argument( '--kl_weight', default=10.0, type=float,
       help='kl weight' )
-    parser.add_argument('--map_size', default=198, type=int)
+    parser.add_argument('--map_size', default=64, type=int)
     parser.add_argument( '--gamma', default=0.0, type=float,
       help='focal loss' )
     parser.add_argument( '--alpha', default=0.5, type=float,
@@ -143,8 +143,13 @@ def main(args):
 
         print("Initializing test dataset")
         solver = Solver(args)
-        test_path = os.path.join(args.dataset_dir, args.dataset_name, 'train')
-        _, test_loader = data_loader(args, test_path, shuffle=True, map_ae=True)
+        test_path = os.path.join(args.dataset_dir, args.dataset_name, 'test')
+        _, test_loader = data_loader(args, test_path, shuffle=False, map_ae=True)
+
+        # solver.load_map_weights('./ckpts/'
+        #                       'hotel_pred_len_12_zS_64_dr_mlp_0.1_dr_rnn_0.25_enc_h_dim_32_dec_h_dim_128_mlp_dim_32_attn_False_lr_0.001_klw_100.0_map_size_160_run_65/'
+        #                         'iter_10000_encoderMx.pt')
+
         solver.recon(test_loader)
 
 
