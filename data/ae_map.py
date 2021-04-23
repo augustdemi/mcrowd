@@ -95,11 +95,15 @@ def transform(image, aug):
 
 
 
-def crop(map, target_pos, inv_h_t, context_size=198):
+def crop(map, target_pos1, inv_h_t, context_size=198):
+    # map = imageio.imread(os.path.join('../datasets/syn_x/map/', 's2_map.png'))
+    # h = np.loadtxt(os.path.join('../datasets/syn_x/map/','s2_H.txt'))
+    # inv_h_t = np.linalg.pinv(np.transpose(h))
+
     expanded_obs_img = np.full((map.shape[0] + context_size, map.shape[1] + context_size), False, dtype=np.float32)
     expanded_obs_img[context_size//2:-context_size//2, context_size//2:-context_size//2] = map.astype(np.float32) # 99~-99
 
-    target_pos = np.expand_dims(target_pos, 0)
+    target_pos = np.expand_dims(target_pos1, 0)
     target_pixel = np.matmul(np.concatenate([target_pos, np.ones((len(target_pos), 1))], axis=1), inv_h_t)
     target_pixel /= np.expand_dims(target_pixel[:, 2], 1)
     target_pixel = target_pixel[:,:2]
@@ -112,10 +116,7 @@ def crop(map, target_pos, inv_h_t, context_size=198):
     # plt.imshow(expanded_obs_img)
     # plt.scatter(img_pts[0][1], img_pts[0][0], c='r', s=1)
 
-
-
     nearby_area = context_size//2
-
     cropped_img = np.stack([expanded_obs_img[img_pts[i, 0] - nearby_area : img_pts[i, 0] + nearby_area,
                                       img_pts[i, 1] - nearby_area : img_pts[i, 1] + nearby_area]
                       for i in range(target_pos.shape[0])], axis=0)
@@ -123,7 +124,8 @@ def crop(map, target_pos, inv_h_t, context_size=198):
     if (np.array(cropped_img.shape)[1:] < context_size).any():
         cropped_img = np.zeros((1, context_size, context_size)).astype('float32')
 
-    cropped_img[0, nearby_area, nearby_area] = 255
+    cropped_img = np.kron(cropped_img, np.ones((4,4)))
+    # cropped_img[0, nearby_area*4, nearby_area*4] = 255
     # plt.imshow(cropped_img[0])
     return cropped_img
 
@@ -171,7 +173,7 @@ class TrajectoryDataset(Dataset):
         obs_frame_num = []
         fut_frame_num = []
         map_file_names=[]
-        deli = '/'
+        deli = '\\'
         for path in all_files:
             print('data path:', path)
 
