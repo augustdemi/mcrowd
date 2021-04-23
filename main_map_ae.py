@@ -42,7 +42,7 @@ def create_parser():
     
     parser = argparse.ArgumentParser()
 
-    parser.add_argument( '--run_id', default=23, type=int,
+    parser.add_argument( '--run_id', default=0, type=int,
       help='run id (default=-1 to create a new id)' )
 
     parser.add_argument( '--device', default='cpu', type=str,
@@ -65,7 +65,7 @@ def create_parser():
     parser.add_argument( '--ckpt_load_iter', default=0, type=int,
       help='iter# to load the previously saved model ' + 
         '(default=0 to start from the scratch)' )
-    parser.add_argument( '--max_iter', default=9500, type=float,
+    parser.add_argument( '--max_iter', default=1000, type=float,
       help='maximum number of batch iterations' )
     parser.add_argument( '--ckpt_save_iter', default=100, type=int,
       help='checkpoint saved every # iters' )
@@ -144,7 +144,7 @@ def main(args):
         print("Initializing test dataset")
         solver = Solver(args)
         test_path = os.path.join(args.dataset_dir, args.dataset_name, 'test')
-        _, test_loader = data_loader(args, test_path, shuffle=False, map_ae=True)
+        _, test_loader = data_loader(args, test_path, shuffle=False)
 
         # solver.load_map_weights('./ckpts/'
         #                       'hotel_pred_len_12_zS_64_dr_mlp_0.1_dr_rnn_0.25_enc_h_dim_32_dec_h_dim_128_mlp_dim_32_attn_False_lr_0.001_klw_100.0_map_size_160_run_65/'
