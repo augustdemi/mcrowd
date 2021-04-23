@@ -162,7 +162,7 @@ class Solver(object):
 
         # prepare dataloader (iterable)
         print('Start loading data...')
-        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'train2')
+        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'train')
         val_path = os.path.join(self.dataset_dir, self.dataset_name, 'val')
 
         # long_dtype, float_dtype = get_dtypes(args)
@@ -220,7 +220,7 @@ class Solver(object):
 
             # 첫번째 iteration 디코더 인풋 = (obs_traj_vel의 마지막 값, (hidden_state, cell_state))
             # where hidden_state = "인코더의 마지막 hidden_layer아웃풋과 그것으로 만든 max_pooled값을 concat해서 mlp 통과시켜만든 feature인 noise_input에다 noise까지 추가한값)"
-            recon_map = self.decoder(
+            recon_map, pred_vel = self.decoder(
                 obst_feat
             )
 
@@ -230,8 +230,9 @@ class Solver(object):
             map_loss = - (torch.log(recon_map + self.eps) * map +
               torch.log(1 - recon_map + self.eps) * (1 - map))
 
+            recon_vel = F.mse_loss(pred_vel, state[:,2:4], reduction='sum')
 
-            loss =  map_loss.sum().div(state.shape[0])
+            loss =  map_loss.sum().div(state.shape[0]) + recon_vel.div(state.shape[0])
 
             self.optim_vae.zero_grad()
             loss.backward()
@@ -288,7 +289,7 @@ class Solver(object):
 
                 obst_feat = self.encoder(state, map, train=True)
 
-                recon_map = self.decoder(
+                recon_map, pred_vel = self.decoder(
                     obst_feat
                 )
 
@@ -296,8 +297,9 @@ class Solver(object):
                 map_loss = - (torch.log(recon_map + self.eps) * map +
                               torch.log(1 - recon_map + self.eps) * (1 - map))
 
+                recon_vel = F.mse_loss(pred_vel, state[:, 2:4], reduction='sum')
 
-                loss += map_loss.sum().div(state.shape[0])
+                loss += (map_loss.sum().div(state.shape[0]) + recon_vel.div(state.shape[0]))
 
         self.set_mode(train=True)
         return loss.div(b)
