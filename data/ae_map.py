@@ -121,7 +121,7 @@ def crop(map, target_pos, inv_h_t, context_size=198):
                       for i in range(target_pos.shape[0])], axis=0)
 
     if (np.array(cropped_img.shape)[1:] > nearby_area).any():
-        cropped_img = np.zeros((1, context_size, context_size))
+        cropped_img = np.zeros((1, context_size, context_size)).astype('float32')
 
     cropped_img[0, nearby_area, nearby_area] = 255
     # plt.imshow(cropped_img[0])
@@ -171,7 +171,7 @@ class TrajectoryDataset(Dataset):
         obs_frame_num = []
         fut_frame_num = []
         map_file_names=[]
-        deli = '/'
+        deli = '\\'
         for path in all_files:
             print('data path:', path)
 
