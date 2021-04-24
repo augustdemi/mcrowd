@@ -161,23 +161,28 @@ class Solver(object):
         )
 
         # prepare dataloader (iterable)
-        print('Start loading data...')
-        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'train2')
-        val_path = os.path.join(self.dataset_dir, self.dataset_name, 'val')
+        if args.ckpt_load_iter == args.max_iter:
+            val_path = os.path.join(self.dataset_dir, self.dataset_name, 'val')
+            _, self.val_loader = data_loader(self.args, val_path)
 
-        # long_dtype, float_dtype = get_dtypes(args)
+        else:
+            print('Start loading data...')
+            train_path = os.path.join(self.dataset_dir, self.dataset_name, 'train2')
+            val_path = os.path.join(self.dataset_dir, self.dataset_name, 'val')
 
-        print("Initializing train dataset")
-        _, self.train_loader = data_loader(self.args, train_path)
-        print("Initializing val dataset")
-        # self.args.batch_size = 32
-        _, self.val_loader = data_loader(self.args, val_path)
-        # self.val_loader = self.train_loader
+            # long_dtype, float_dtype = get_dtypes(args)
 
-        print(
-            'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
-        )
-        print('...done')
+            print("Initializing train dataset")
+            _, self.train_loader = data_loader(self.args, train_path)
+            print("Initializing val dataset")
+            # self.args.batch_size = 32
+            _, self.val_loader = data_loader(self.args, val_path)
+            # self.val_loader = self.train_loader
+
+            print(
+                'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
+            )
+            print('...done')
 
 
     ####
@@ -306,22 +311,15 @@ class Solver(object):
 
     ####
 
-    def recon(self, data_loader):
+    def recon(self):
         self.set_mode(train=False)
         with torch.no_grad():
             # if 'eth' in self.name:
-            if 'train' in data_loader.dataset.data_dir:
-                # aug train
-                fixed_idxs = [10,50,70,120,220, 400, 800, 1100, 1300, 1600, 1700, 2000]
-                dset = 'train'
-                data_loader = self.train_loader
-            else:
-                # fixed_idxs = [20, 120, 33, 55, 140, 139, 25, 115, 24, 26, 27, 28, 31]
-                fixed_idxs = [5,6, 23, 24, 225, 256, 312, 433, 500, 600, 700]
-                # fixed_idxs = range(30,60)
-                # fixed_idxs = range(49)
-                dset='test'
-                data_loader = self.val_loader
+            fixed_idxs = [115,16, 53, 224]
+            # fixed_idxs = range(30,60)
+            # fixed_idxs = range(49)
+            dset='test'
+            data_loader = self.val_loader
 
 ##########################
             data = []
