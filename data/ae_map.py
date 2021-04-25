@@ -100,6 +100,7 @@ def crop(map, target_pos1, inv_h_t, context_size=198):
     # h = np.loadtxt(os.path.join('../datasets/syn_x/map/','s2_H.txt'))
     # inv_h_t = np.linalg.pinv(np.transpose(h))
 
+    nearby_area = context_size//2
     expanded_obs_img = np.full((map.shape[0] + context_size, map.shape[1] + context_size), False, dtype=np.float32)
     expanded_obs_img[context_size//2:-context_size//2, context_size//2:-context_size//2] = map.astype(np.float32) # 99~-99
 
@@ -111,21 +112,33 @@ def crop(map, target_pos1, inv_h_t, context_size=198):
     # plt.imshow(map)
     # plt.scatter(target_pixel[0][1], target_pixel[0][0], c='r', s=1)
 
+    # img_pts = np.array([[289,106]]) # s5-160
+    # img_pts = np.array([[272,63]]) # s5-64
+    # img_pts = np.array([[263,38]]) # s5-64
+    # img_pts = np.array([[246,38]]) # s5-16
+    # img_pts = np.array([[279,62]]) #s2-64
+    # img_pts = np.array([[265,44]]) #s2-32
+    # img_pts = np.array([[264,38]]) #s2-16
+    # img_pts = np.array([[273,62]]) #s3-64
+    # img_pts = np.array([[257,40]]) #s3-16
+
     img_pts = context_size//2 + np.round(target_pixel).astype(int)
 
     # plt.imshow(expanded_obs_img)
     # plt.scatter(img_pts[0][1], img_pts[0][0], c='r', s=1)
 
-    nearby_area = context_size//2
+
     cropped_img = np.stack([expanded_obs_img[img_pts[i, 0] - nearby_area : img_pts[i, 0] + nearby_area,
                                       img_pts[i, 1] - nearby_area : img_pts[i, 1] + nearby_area]
-                      for i in range(target_pos.shape[0])], axis=0)
+                      for i in range(img_pts.shape[0])], axis=0)
 
     if (np.array(cropped_img.shape)[1:] < context_size).any():
         cropped_img = np.zeros((1, context_size, context_size)).astype('float32')
 
+
     cropped_img = np.kron(cropped_img, np.ones((4,4))).astype('float32')
-    # cropped_img[0, nearby_area*4, nearby_area*4] = 255
+    cropped_img[0, nearby_area*4, nearby_area*4] = 255
+
     # plt.imshow(cropped_img[0])
     return cropped_img
 
