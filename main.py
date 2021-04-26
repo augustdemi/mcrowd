@@ -49,7 +49,7 @@ def create_parser():
       help='cpu/cuda' )
 
     # training hyperparameters
-    parser.add_argument( '--batch_size', default=64, type=int,
+    parser.add_argument( '--batch_size', default=16, type=int,
       help='batch size' )
     parser.add_argument( '--lr_VAE', default=1e-3, type=float,
       help='learning rate of the VAE' )
@@ -62,10 +62,10 @@ def create_parser():
 
 
     # saving directories and checkpoint/sample iterations
-    parser.add_argument( '--ckpt_load_iter', default=33500, type=int,
+    parser.add_argument( '--ckpt_load_iter', default=0, type=int,
       help='iter# to load the previously saved model ' +
         '(default=0 to start from the scratch)' )
-    parser.add_argument( '--max_iter', default=33500, type=float,
+    parser.add_argument( '--max_iter', default=40000, type=float,
       help='maximum number of batch iterations' )
     parser.add_argument( '--ckpt_save_iter', default=100, type=int,
       help='checkpoint saved every # iters' )
@@ -100,7 +100,7 @@ def create_parser():
     # dataset
     parser.add_argument( '--dataset_dir', default='../datasets/syn_x', type=str,
       help='dataset directory' )
-    parser.add_argument( '--dataset_name', default='s2', type=str,
+    parser.add_argument( '--dataset_name', default='s1', type=str,
       help='dataset name' )
     parser.add_argument( '--num_workers', default=0, type=int,
       help='dataloader num_workers' )
@@ -129,6 +129,7 @@ def create_parser():
     parser.add_argument('--min_ped', default=1, type=int)
     parser.add_argument('--dt', default=1.5, type=float)
     parser.add_argument('--temp', default=1.99, type=float)
+    parser.add_argument('--map_size', default=16, type=int)
 
     parser.add_argument( '--desc', default='data', type=str,
       help='run description' )
@@ -224,10 +225,10 @@ def main(args):
 
 
             print('--------------------', args.dataset_name, '----------------------')
-            test_path = os.path.join(args.dataset_dir, args.dataset_name, 'test')
+            test_path = os.path.join(args.dataset_dir, args.dataset_name, 'test2')
             _, test_loader = data_loader(args, test_path,shuffle=False)
 
-            # solver.plot_traj_var(test_loader)
+            solver.plot_traj_var(test_loader)
 
             coll_rate_min, non_zero_coll_min, \
             coll_rate_avg, non_zero_coll_avg, \
