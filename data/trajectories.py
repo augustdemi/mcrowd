@@ -304,9 +304,10 @@ class TrajectoryDataset(Dataset):
         map_file_name = self.map_file_name[index]
         if map_file_name == 's4':
             map = np.zeros((500,500))
+            h = np.eye(3,3)
         else:
             map = imageio.imread(os.path.join(self.map_dir, map_file_name + '_map.png'))
-        h = np.loadtxt(os.path.join(self.map_dir, map_file_name + '_H.txt'))
+            h = np.loadtxt(os.path.join(self.map_dir, map_file_name + '_H.txt'))
 
 
         inv_h_t = np.linalg.pinv(np.transpose(h))
