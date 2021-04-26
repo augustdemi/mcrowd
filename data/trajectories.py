@@ -302,7 +302,10 @@ class TrajectoryDataset(Dataset):
         current_fut_traj = self.pred_traj[start:end, :].detach().clone()
 
         map_file_name = self.map_file_name[index]
-        map = imageio.imread(os.path.join(self.map_dir, map_file_name + '_map.png'))
+        if map_file_name == 's4':
+            map = np.zeros((500,500))
+        else:
+            map = imageio.imread(os.path.join(self.map_dir, map_file_name + '_map.png'))
         h = np.loadtxt(os.path.join(self.map_dir, map_file_name + '_H.txt'))
 
 
