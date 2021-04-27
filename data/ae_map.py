@@ -132,15 +132,20 @@ def crop(map, target_pos1, inv_h_t, context_size=198):
                                       img_pts[i, 1] - nearby_area : img_pts[i, 1] + nearby_area]
                       for i in range(img_pts.shape[0])], axis=0)
 
+    angle = 0
     if (np.array(cropped_img.shape)[1:] < context_size).any():
         cropped_img = np.zeros((1, context_size, context_size)).astype('float32')
-
+    elif np.random.rand() > 0.5:
+        im = Image.fromarray(cropped_img[0])
+        angle = random.choice([-90, 90, 180])
+        im = TF.rotate(im, angle, fill=(0,))
+        cropped_img = np.expand_dims(np.asarray(im),0)
 
     cropped_img = np.kron(cropped_img, np.ones((4,4))).astype('float32')
     cropped_img[0, nearby_area*4, nearby_area*4] = 255
 
     # plt.imshow(cropped_img[0])
-    return cropped_img
+    return cropped_img, angle
 
 
 
@@ -171,7 +176,7 @@ class TrajectoryDataset(Dataset):
         self.seq_len = self.obs_len + self.pred_len
         self.delim = delim
         self.device = device
-        self.map_dir =  '../datasets/syn_x/map/'
+        self.map_dir =  '../datasets/syn_x_cropped/map/'
         n_pred_state=2
         n_state=6
 
@@ -294,12 +299,12 @@ class TrajectoryDataset(Dataset):
             seq_map = []
             for t in range(self.obs_len):
                 cp_map = map.copy()
-                cp_map = crop(cp_map, current_obs_traj[i,:2,t], inv_h_t, self.context_size) /255
+                cp_map, angle = crop(cp_map, current_obs_traj[i,:2,t], inv_h_t, self.context_size) /255
                 # cp_map, angle = transform(cp_map, aug=aug)
-                # if angle > 0:
-                #     angle = np.pi*angle/180
-                #     m = np.array([[np.cos(angle), -np.sin(angle)],[np.sin(angle), np.cos(angle)]])
-                #     current_obs_traj[i, 2:4, t] = torch.matmul(torch.from_numpy(m).type(torch.FloatTensor) , current_obs_traj[i, 2:4, t])
+                if angle > 0:
+                    angle = np.pi*angle/180
+                    m = np.array([[np.cos(angle), -np.sin(angle)],[np.sin(angle), np.cos(angle)]])
+                    current_obs_traj[i, 2:4, t] = torch.matmul(torch.from_numpy(m).type(torch.FloatTensor) , current_obs_traj[i, 2:4, t])
                 seq_map.append(cp_map)
             past_map_obst.append(np.stack(seq_map))
         past_map_obst = np.stack(past_map_obst) # (batch(start-end), 8, 1, map_size,map_size)
@@ -310,12 +315,12 @@ class TrajectoryDataset(Dataset):
             seq_map = []
             for t in range(self.pred_len):
                 cp_map = map.copy()
-                cp_map = crop(cp_map, current_fut_traj[i, :2, t], inv_h_t, self.context_size) /255
+                cp_map, angle = crop(cp_map, current_fut_traj[i, :2, t], inv_h_t, self.context_size) /255
                 # cp_map, angle = transform(cp_map, aug=aug)
-                # if angle > 0:
-                #     angle = np.pi*angle/180
-                #     m = np.array([[np.cos(angle), -np.sin(angle)],[np.sin(angle), np.cos(angle)]])
-                #     current_fut_traj[i, 2:4, t] = torch.matmul(torch.from_numpy(m).type(torch.FloatTensor) , current_fut_traj[i, 2:4, t])
+                if angle > 0:
+                    angle = np.pi*angle/180
+                    m = np.array([[np.cos(angle), -np.sin(angle)],[np.sin(angle), np.cos(angle)]])
+                    current_fut_traj[i, 2:4, t] = torch.matmul(torch.from_numpy(m).type(torch.FloatTensor) , current_fut_traj[i, 2:4, t])
                 seq_map.append(cp_map)
             fut_map_obst.append(np.stack(seq_map))
         fut_map_obst = np.stack(fut_map_obst)  # (batch(start-end), 12, 1, 128,128)
