@@ -299,7 +299,8 @@ class TrajectoryDataset(Dataset):
             seq_map = []
             for t in range(self.obs_len):
                 cp_map = map.copy()
-                cp_map, angle = crop(cp_map, current_obs_traj[i,:2,t], inv_h_t, self.context_size) /255
+                cp_map, angle = crop(cp_map, current_obs_traj[i,:2,t], inv_h_t, self.context_size)
+                cp_map /=255
                 # cp_map, angle = transform(cp_map, aug=aug)
                 if angle > 0:
                     angle = np.pi*angle/180
@@ -315,7 +316,8 @@ class TrajectoryDataset(Dataset):
             seq_map = []
             for t in range(self.pred_len):
                 cp_map = map.copy()
-                cp_map, angle = crop(cp_map, current_fut_traj[i, :2, t], inv_h_t, self.context_size) /255
+                cp_map, angle = crop(cp_map, current_fut_traj[i, :2, t], inv_h_t, self.context_size)
+                cp_map /= 255
                 # cp_map, angle = transform(cp_map, aug=aug)
                 if angle > 0:
                     angle = np.pi*angle/180
