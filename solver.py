@@ -31,9 +31,9 @@ class Solver(object):
         else:
             args.attention = False
 
-        self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_attn_%s_lr_%s_klw_%s_maps_%s' % \
+        self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_attn_%s_lr_%s_klw_%s' % \
                     (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
-                     args.decoder_h_dim, args.mlp_dim, args.attention, args.lr_VAE, args.kl_weight, args.map_size)
+                     args.decoder_h_dim, args.mlp_dim, args.attention, args.lr_VAE, args.kl_weight)
 
 
         # to be appended by run_id
@@ -162,10 +162,6 @@ class Solver(object):
                 dropout_mlp=args.dropout_mlp,
                 dropout_rnn=args.dropout_rnn,
                 batch_norm=args.batch_norm).to(self.device)
-            #### load map ####
-            map_path = './ckpts/syn_x_cropped_map_size_16_drop_out0.0_run_10/iter_7400_encoder.pt'
-            self.load_map_weights(map_path)
-            print('>>>>>>>>>>>> map loaded: ', map_path)
 
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
@@ -235,14 +231,14 @@ class Solver(object):
             # ============================================
 
             # sample a mini-batch
-            (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst)  = next(iterator)
-            batch = obs_traj_vel.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
+            (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, seq_start_end, obs_frames, pred_frames) = next(iterator)
+            batch = obs_traj_rel.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
 
             (encX_h_feat, logitX) \
-                = self.encoderMx(obs_traj, seq_start_end, past_obst, train=True)
+                = self.encoderMx(obs_traj, seq_start_end, train=True)
             (encY_h_feat, logitY) \
-                = self.encoderMy(obs_traj[-1], fut_traj_vel, seq_start_end, encX_h_feat, train=True)
+                = self.encoderMy(obs_traj[-1], fut_traj_rel, seq_start_end, encX_h_feat, train=True)
 
             p_dist = discrete(logits=logitX)
             q_dist = discrete(logits=logitY)
@@ -273,7 +269,7 @@ class Solver(object):
             # log_p_yt_xz=torch.clamp(fut_rel_pos_dist.log_prob(torch.reshape(fut_traj_rel, [batch, self.pred_len, 2])), max=6)
             # print(">>>max:", log_p_yt_xz.max(), log_p_yt_xz.min(), log_p_yt_xz.mean())
             # loglikelihood = log_p_yt_xz.sum().div(batch)
-            loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_vel).sum().div(batch)
+            loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_rel).sum().div(batch)
 
             loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
             loss_kl = torch.clamp(loss_kl, min=0.07)
@@ -399,13 +395,12 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
-                 fut_obst) = batch
-                batch_size = obs_traj_vel.size(1)  # =sum(seq_start_end[:,1] - seq_start_end[:,0])
+                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames) = batch
+                batch_size = obs_traj_vel.size(1)
                 total_traj += fut_traj.size(1)
 
                 (encX_h_feat, logitX) \
-                    = self.encoderMx(obs_traj, seq_start_end, past_obst)
+                    = self.encoderMx(obs_traj, seq_start_end)
                 p_dist = discrete(logits=logitX)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
@@ -1011,25 +1006,6 @@ class Solver(object):
         torch.save(self.encoderMy, encoderMy_path)
         torch.save(self.decoderMy, decoderMy_path)
     ####
-
-    def load_map_weights(self, map_path):
-        if self.device == 'cuda':
-            loaded_map_w = torch.load(map_path)
-        else:
-            loaded_map_w = torch.load(map_path, map_location='cpu')
-        self.encoderMx.map_net.conv1.weight = loaded_map_w.conv1.weight
-        self.encoderMx.map_net.conv2.weight = loaded_map_w.conv2.weight
-        self.encoderMx.map_net.conv3.weight = loaded_map_w.conv3.weight
-        self.encoderMx.map_net.conv1.weight.requires_grad=False
-        self.encoderMx.map_net.conv2.weight.requires_grad=False
-        self.encoderMx.map_net.conv3.weight.requires_grad=False
-
-        self.encoderMx.map_net.fc1.weight = loaded_map_w.fc1.weight
-        self.encoderMx.map_net.fc2.weight = loaded_map_w.fc2.weight
-        self.encoderMx.map_net.fc1.weight.requires_grad=False
-        self.encoderMx.map_net.fc2.weight.requires_grad=False
-
-
     def load_checkpoint(self):
 
         encoderMx_path = os.path.join(
