@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 def seq_collate(data):
     (obs_seq_list, pred_seq_list, obs_seq_rel_list, pred_seq_rel_list,
-     obs_frames, fut_frames) = zip(*data)
+     obs_frames, fut_frames, past_obst, fut_obst) = zip(*data)
 
     _len = [len(seq) for seq in obs_seq_list]
     cum_start_idx = [0] + np.cumsum(_len).tolist()
@@ -36,12 +36,16 @@ def seq_collate(data):
     obs_frames = np.concatenate(obs_frames, 0)
     fut_frames = np.concatenate(fut_frames, 0)
 
+    past_obst = torch.cat(past_obst, 0).permute((1, 0, 2, 3, 4))
+    fut_obst = torch.cat(fut_obst, 0).permute((1, 0, 2, 3, 4))
+
 
     out = [
-        obs_traj, pred_traj, obs_traj_rel, pred_traj_rel, seq_start_end, obs_frames, fut_frames
+        obs_traj, pred_traj, obs_traj_rel, pred_traj_rel, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst
     ]
 
     return tuple(out)
+
 
 
 def read_file(_path, delim='\t'):
@@ -85,44 +89,54 @@ def transform(image, resize):
     ])(im)
     return image
 
-def crop(map, target_pos, inv_h_t, context_size=198):
+
+
+def crop(map, target_pos1, inv_h_t, context_size=198):
+    # map = imageio.imread(os.path.join('../datasets/syn_x/map/', 's2_map.png'))
+    # h = np.loadtxt(os.path.join('../datasets/syn_x/map/','s2_H.txt'))
+    # inv_h_t = np.linalg.pinv(np.transpose(h))
+
+    nearby_area = context_size//2
     expanded_obs_img = np.full((map.shape[0] + context_size, map.shape[1] + context_size), False, dtype=np.float32)
     expanded_obs_img[context_size//2:-context_size//2, context_size//2:-context_size//2] = map.astype(np.float32) # 99~-99
 
-    target_pos = np.expand_dims(target_pos, 0)
+    target_pos = np.expand_dims(target_pos1, 0)
     target_pixel = np.matmul(np.concatenate([target_pos, np.ones((len(target_pos), 1))], axis=1), inv_h_t)
     target_pixel /= np.expand_dims(target_pixel[:, 2], 1)
     target_pixel = target_pixel[:,:2]
+
     # plt.imshow(map)
     # plt.scatter(target_pixel[0][1], target_pixel[0][0], c='r', s=1)
+
+    # img_pts = np.array([[289,106]]) # s5-160
+    # img_pts = np.array([[272,63]]) # s5-64
+    # img_pts = np.array([[263,38]]) # s5-64
+    # img_pts = np.array([[246,38]]) # s5-16
+    # img_pts = np.array([[279,62]]) #s2-64
+    # img_pts = np.array([[265,44]]) #s2-32
+    # img_pts = np.array([[264,38]]) #s2-16
+    # img_pts = np.array([[273,62]]) #s3-64
+    # img_pts = np.array([[257,40]]) #s3-16
+
     img_pts = context_size//2 + np.round(target_pixel).astype(int)
+
     # plt.imshow(expanded_obs_img)
     # plt.scatter(img_pts[0][1], img_pts[0][0], c='r', s=1)
 
-    nearby_area = context_size//2 - 10
-    if img_pts[0][0] < nearby_area:
-        img_pts[0][0] = nearby_area
-        print(target_pos[0])
-    elif img_pts[0][0] > expanded_obs_img.shape[0] - nearby_area:
-        img_pts[0][0] = expanded_obs_img.shape[0] - nearby_area
-        print(target_pos[0])
-
-    if img_pts[0][1] < nearby_area :
-        img_pts[0][1] = nearby_area
-        print(target_pos[0])
-    elif img_pts[0][1] > expanded_obs_img.shape[1] - nearby_area:
-        img_pts[0][1] = expanded_obs_img.shape[1] - nearby_area
-        print(target_pos[0])
 
     cropped_img = np.stack([expanded_obs_img[img_pts[i, 0] - nearby_area : img_pts[i, 0] + nearby_area,
                                       img_pts[i, 1] - nearby_area : img_pts[i, 1] + nearby_area]
-                      for i in range(target_pos.shape[0])], axis=0)
+                      for i in range(img_pts.shape[0])], axis=0)
+
+    if (np.array(cropped_img.shape)[1:] < context_size).any():
+        cropped_img = np.zeros((1, context_size, context_size)).astype('float32')
 
 
-    cropped_img[0, nearby_area, nearby_area] = 255
+    cropped_img = np.kron(cropped_img, np.ones((4,4))).astype('float32')
+    cropped_img[0, nearby_area*4, nearby_area*4] = 255
+
     # plt.imshow(cropped_img[0])
     return cropped_img
-
 
 
 class TrajectoryDataset(Dataset):
@@ -152,9 +166,12 @@ class TrajectoryDataset(Dataset):
         self.seq_len = self.obs_len + self.pred_len
         self.delim = delim
         self.device = device
+        self.map_dir = '../datasets/syn_x_cropped/map/'
+
         n_pred_state=2
         n_state=6
 
+        self.context_size=16
 
         all_files = os.listdir(self.data_dir)
         all_files = [os.path.join(self.data_dir, _path) for _path in all_files]
@@ -164,10 +181,26 @@ class TrajectoryDataset(Dataset):
 
         obs_frame_num = []
         fut_frame_num = []
-
+        map_file_names = []
+        deli = '/'
         for path in all_files:
             print('data path:', path)
 
+            map_file_name = path.split(deli)[-1]
+            if 'bottleneck-evacuation_' in map_file_name:
+                map_file_name = 's1'
+            elif 'bottleneck-evacuation-2_' in map_file_name:
+                map_file_name = 's2'
+            elif 'squeeze_' in map_file_name:
+                map_file_name = 's3'
+            elif 'circles' in map_file_name:
+                map_file_name = 's4'
+            elif 'hallway-two-way_' in map_file_name:
+                map_file_name = 's5'
+            elif 'hallway-four-way_' in map_file_name:
+                map_file_name = 's6'
+
+            print('map path: ', map_file_name)
 
             data = read_file(path, delim)
             frames = np.unique(data[:, 0]).tolist()
@@ -219,6 +252,7 @@ class TrajectoryDataset(Dataset):
                     seq_list_rel.append(curr_seq_rel[:num_peds_considered])
                     obs_frame_num.append(np.ones((num_peds_considered, self.obs_len)) * frames[idx:idx + self.obs_len])
                     fut_frame_num.append(np.ones((num_peds_considered, self.pred_len)) * frames[idx + self.obs_len:idx + self.seq_len])
+                    map_file_names.append(map_file_name)
 
             #     ped_ids = np.array(ped_ids)
             #     # if 'test' in path and len(ped_ids) > 0:
@@ -253,6 +287,7 @@ class TrajectoryDataset(Dataset):
             (start, end)
             for start, end in zip(cum_start_idx, cum_start_idx[1:])
         ] # [(0, 2),  (2, 4),  (4, 7),  (7, 10), ... (32682, 32684),  (32684, 32686)]
+        self.map_file_name = map_file_names
 
 
 
@@ -263,10 +298,46 @@ class TrajectoryDataset(Dataset):
     def __getitem__(self, index):
         start, end = self.seq_start_end[index]
 
+        current_obs_traj = self.obs_traj[start:end, :].detach().clone()
+        current_fut_traj = self.pred_traj[start:end, :].detach().clone()
+
+        map_file_name = self.map_file_name[index]
+        if map_file_name == 's4':
+            map = np.zeros((500,500))
+            h = np.eye(3,3)
+        else:
+            map = imageio.imread(os.path.join(self.map_dir, map_file_name + '_map.png'))
+            h = np.loadtxt(os.path.join(self.map_dir, map_file_name + '_H.txt'))
+
+
+        inv_h_t = np.linalg.pinv(np.transpose(h))
+        past_map_obst = []
+        for i in range(end-start):  # len(past_obst) = batch
+            seq_map = []
+            for t in range(self.obs_len):
+                cp_map = map.copy()
+                cp_map = crop(cp_map, current_obs_traj[i,:2,t], inv_h_t, self.context_size) /255
+                seq_map.append(cp_map)
+            past_map_obst.append(np.stack(seq_map))
+        past_map_obst = np.stack(past_map_obst) # (batch(start-end), 8, 1, map_size,map_size)
+        past_map_obst = torch.from_numpy(past_map_obst)
+
+        fut_map_obst = []
+        for i in range(end-start):
+            seq_map = []
+            for t in range(self.pred_len):
+                cp_map = map.copy()
+                cp_map = crop(cp_map, current_fut_traj[i, :2, t], inv_h_t, self.context_size) /255
+                seq_map.append(cp_map)
+            fut_map_obst.append(np.stack(seq_map))
+        fut_map_obst = np.stack(fut_map_obst)  # (batch(start-end), 12, 1, 128,128)
+        fut_map_obst = torch.from_numpy(fut_map_obst)
+
 
         out = [
             self.obs_traj[start:end, :].to(self.device) , self.pred_traj[start:end, :].to(self.device),
             self.obs_traj_rel[start:end, :].to(self.device), self.pred_traj_rel[start:end, :].to(self.device),
-            self.obs_frame_num[start:end], self.fut_frame_num[start:end]
+            self.obs_frame_num[start:end], self.fut_frame_num[start:end],
+            past_map_obst.to(self.device), fut_map_obst.to(self.device)
         ]
         return out
