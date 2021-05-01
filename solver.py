@@ -437,7 +437,8 @@ class Solver(object):
                     fut_rel_pos_dist = self.decoderMy(
                         obs_traj_st[-1],
                         encX_h_feat,
-                        relaxed_p_dist.rsample()
+                        relaxed_p_dist.rsample(),
+                        seq_start_end
                     )
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
 
