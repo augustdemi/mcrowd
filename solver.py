@@ -161,7 +161,8 @@ class Solver(object):
                 device=args.device,
                 dropout_mlp=args.dropout_mlp,
                 dropout_rnn=args.dropout_rnn,
-                batch_norm=args.batch_norm).to(self.device)
+                batch_norm=args.batch_norm,
+                attention=args.attention).to(self.device)
 
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
@@ -185,7 +186,7 @@ class Solver(object):
         # prepare dataloader (iterable)
         print('Start loading data...')
         train_path = os.path.join(self.dataset_dir, self.dataset_name, 'train')
-        val_path = os.path.join(self.dataset_dir, self.dataset_name, 'val')
+        val_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
 
         # long_dtype, float_dtype = get_dtypes(args)
 
@@ -231,14 +232,14 @@ class Solver(object):
             # ============================================
 
             # sample a mini-batch
-            (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, seq_start_end, obs_frames, pred_frames) = next(iterator)
-            batch = obs_traj_rel.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
+            (_, _, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, pred_frames) = next(iterator)
+            batch = obs_traj_st.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
 
             (encX_h_feat, logitX) \
-                = self.encoderMx(obs_traj, seq_start_end, train=True)
+                = self.encoderMx(obs_traj_st, seq_start_end, train=True)
             (encY_h_feat, logitY) \
-                = self.encoderMy(obs_traj[-1], fut_traj_rel, seq_start_end, encX_h_feat, train=True)
+                = self.encoderMy(obs_traj_st[-1], fut_traj_vel_st, seq_start_end, encX_h_feat, train=True)
 
             p_dist = discrete(logits=logitX)
             q_dist = discrete(logits=logitY)
@@ -248,10 +249,11 @@ class Solver(object):
             # 첫번째 iteration 디코더 인풋 = (obs_traj_rel의 마지막 값, (hidden_state, cell_state))
             # where hidden_state = "인코더의 마지막 hidden_layer아웃풋과 그것으로 만든 max_pooled값을 concat해서 mlp 통과시켜만든 feature인 noise_input에다 noise까지 추가한값)"
             fut_rel_pos_dist = self.decoderMy(
-                obs_traj[-1],
+                obs_traj_st[-1],
                 encX_h_feat,
                 relaxed_q_dist.rsample(),
-                fut_traj
+                seq_start_end,
+                fut_traj_vel_st
             )
 
 
@@ -269,7 +271,7 @@ class Solver(object):
             # log_p_yt_xz=torch.clamp(fut_rel_pos_dist.log_prob(torch.reshape(fut_traj_rel, [batch, self.pred_len, 2])), max=6)
             # print(">>>max:", log_p_yt_xz.max(), log_p_yt_xz.min(), log_p_yt_xz.mean())
             # loglikelihood = log_p_yt_xz.sum().div(batch)
-            loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_rel).sum().div(batch)
+            loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_vel_st).sum().div(batch)
 
             loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
             loss_kl = torch.clamp(loss_kl, min=0.07)
@@ -385,7 +387,6 @@ class Solver(object):
 
     def evaluate_dist(self, data_loader, num_samples, loss=False):
         self.set_mode(train=False)
-        total_traj = 0
 
         loss_recon = loss_kl = vae_loss = 0
 
@@ -395,24 +396,24 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames) = batch
-                batch_size = obs_traj_vel.size(1)
-                total_traj += fut_traj.size(1)
+                (_, _, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, pred_frames) = batch
+                batch_size = obs_traj_st.size(1)
 
                 (encX_h_feat, logitX) \
-                    = self.encoderMx(obs_traj, seq_start_end)
+                    = self.encoderMx(obs_traj_st, seq_start_end)
                 p_dist = discrete(logits=logitX)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
                 if loss:
                     (encY_h_feat, logitY) \
-                        = self.encoderMy(obs_traj[-1], fut_traj_vel, seq_start_end, encX_h_feat)
+                        = self.encoderMy(obs_traj_st[-1], fut_traj_vel_st, seq_start_end, encX_h_feat)
 
                     q_dist = discrete(logits=logitY)
                     fut_rel_pos_dist = self.decoderMy(
-                        obs_traj[-1],
+                        obs_traj_st[-1],
                         encX_h_feat,
-                        relaxed_p_dist.rsample()
+                        relaxed_p_dist.rsample(),
+                        seq_start_end
                     )
                     # fut_rel_pos_dist = self.decoderMy(
                     #     obs_traj[-1],
@@ -422,7 +423,7 @@ class Solver(object):
                     # )
 
                     ################## total loss for vae ####################
-                    loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_vel).sum().div(batch_size)
+                    loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_vel_st).sum().div(batch_size)
 
                     kld = kl_divergence(q_dist, p_dist).sum().div(batch_size)
                     kld = torch.clamp(kld, min=0.07)
@@ -434,20 +435,20 @@ class Solver(object):
                 ade, fde = [], []
                 for _ in range(num_samples):
                     fut_rel_pos_dist = self.decoderMy(
-                        obs_traj[-1],
+                        obs_traj_st[-1],
                         encX_h_feat,
                         relaxed_p_dist.rsample()
                     )
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
 
-                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
+                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj_st[-1][:, :2], dt=self.dt)
 
 
                     ade.append(displacement_error(
-                        pred_fut_traj, fut_traj[:,:,:2], mode='raw'
+                        pred_fut_traj, fut_traj_vel_st[:,:,:2], mode='raw'
                     ))
                     fde.append(final_displacement_error(
-                        pred_fut_traj[-1], fut_traj[-1,:,:2], mode='raw'
+                        pred_fut_traj[-1], fut_traj_vel_st[-1,:,:2], mode='raw'
                     ))
                 all_ade.append(torch.stack(ade))
                 all_fde.append(torch.stack(fde))
@@ -761,23 +762,89 @@ class Solver(object):
                 # np.where(s[:,0]==63)
 
                 def init():
-                    ax.plot(np.linspace(5.5, 95), np.linspace(-42, -42), c='black')
-                    ax.plot(np.linspace(4.5, 97.5), np.linspace(-44, -44), c='black')
-                    ax.plot(np.linspace(4.5, 97.5), np.linspace(44, 44), c='black')
-                    ax.plot(np.linspace(5.5, 95), np.linspace(42, 42), c='black')
+                    # ax.plot(np.linspace(-11, 20), np.linspace(2.0999999046325684, 2.0999999046325684), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(-11, 20), np.linspace(-2.0999999046325684, -2.0999999046325684), c='black',
+                    #         linewidth=0.5)
+                    # ax.plot(np.linspace(-11, 20), np.linspace(100, 100), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(-11, 20), np.linspace(-100, -100), c='black', linewidth=0.5)
+                    # # exit
+                    # ax.plot(np.linspace(-11, -11), np.linspace(2.0999999046325684, 100), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(20, 20), np.linspace(2.0999999046325684, 100), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(-11, -11), np.linspace(-2.0999999046325684, -100), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(20, 20), np.linspace(-2.0999999046325684, -100), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(-27, 36), np.linspace(0, 1), c='white',
+                    #         linewidth=0.5)
 
-                    ax.plot(np.linspace(4.5, 5.5), np.linspace(1.2, 1.2), c='black')
-                    ax.plot(np.linspace(4.5, 5.5), np.linspace(-1.2, -1.2), c='black')
 
-                    ax.plot(np.linspace(5.5, 5.5), np.linspace(1.2, 42), c='black')
-                    ax.plot(np.linspace(4.5, 4.5), np.linspace(1.2, 44), c='black')
-                    ax.plot(np.linspace(5.5, 5.5), np.linspace(-1.2, -42), c='black')
-                    ax.plot(np.linspace(4.5, 4.5), np.linspace(-1.2, -44), c='black')
+                    #s2
+                    # ax.plot(np.linspace(5.5, 95), np.linspace(-42, -42), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(4.5, 97.5), np.linspace(-44, -44), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(4.5, 97.5), np.linspace(44, 44), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(5.5, 95), np.linspace(42, 42), c='black', linewidth=0.5)
+                    # # exit
+                    # ax.plot(np.linspace(4.5, 5.5), np.linspace(0.20000000298023224, 0.20000000298023224), c='black',
+                    #         linewidth=0.5)
+                    # ax.plot(np.linspace(4.5, 5.5), np.linspace(-1.2000000476837158, -1.2000000476837158), c='black',
+                    #         linewidth=0.5)
+                    # # bottom
+                    # ax.plot(np.linspace(5.5, 5.5), np.linspace(0.20000000298023224, 42), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(4.5, 4.5), np.linspace(0.20000000298023224, 44), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(5.5, 5.5), np.linspace(-1.2000000476837158, -42), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(4.5, 4.5), np.linspace(-1.2000000476837158, -44), c='black', linewidth=0.5)
+                    # # right wall
+                    # ax.plot(np.linspace(95, 95), np.linspace(-42, 42), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(97.5, 97.5), np.linspace(-44, 44), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(-13, 5), np.linspace(0, 1), c='white',
+                    #         linewidth=0.5)
 
-                    ax.plot(np.linspace(95, 95), np.linspace(-42, 42), c='black')
-                    ax.plot(np.linspace(97.5, 97.5), np.linspace(-44, 44), c='black')
-                    plt.scatter(-50, 0, c='w', s=1)
+                    #s6
+                    # ax.plot(np.linspace(-100, -8.010000228881836), np.linspace(8.010000228881836, 8.010000228881836),
+                    #         c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(-100, -8.010000228881836), np.linspace(100, 100), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(-100, -100), np.linspace(8.010000228881836, 100), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(-8.010000228881836, -8.010000228881836), np.linspace(8.010000228881836, 100),
+                    #         c='black', linewidth=0.5)
+                    #
+                    # ax.plot(np.linspace(8.010000228881836, 100), np.linspace(8.010000228881836, 8.010000228881836),
+                    #         c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(8.010000228881836, 100), np.linspace(100, 100), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(100, 100), np.linspace(8.010000228881836, 100), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(8.010000228881836, 8.010000228881836), np.linspace(8.010000228881836, 100),
+                    #         c='black', linewidth=0.5)
+                    #
+                    # ax.plot(np.linspace(-100, -8.010000228881836), np.linspace(-8.010000228881836, -8.010000228881836),
+                    #         c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(-100, -8.010000228881836), np.linspace(-100, -100), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(-100, -100), np.linspace(-100, -8), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(-8.010000228881836, -8.010000228881836), np.linspace(-100, -8), c='black',
+                    #         linewidth=0.5)
+                    #
+                    # ax.plot(np.linspace(8.010000228881836, 100), np.linspace(-8, -8), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(8.010000228881836, 100), np.linspace(-100, -100), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(100, 100), np.linspace(-100, -8), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(8.010000228881836, 8.010000228881836), np.linspace(-100, -8), c='black',
+                    #         linewidth=0.5)
+
+                    # s5
+                    ax.plot(np.linspace(-100, 100), np.linspace(8.010000228881836, 8.010000228881836), c='black',
+                            linewidth=0.5)
+                    ax.plot(np.linspace(-100, 100), np.linspace(-8, -8), c='black', linewidth=0.5)
+                    ax.plot(np.linspace(-100, 100), np.linspace(100, 100), c='black', linewidth=0.5)
+                    ax.plot(np.linspace(-100, 100), np.linspace(-100, -100), c='black', linewidth=0.5)
+                    # exit
+                    ax.plot(np.linspace(-100, -100), np.linspace(8.010000228881836, 100), c='black', linewidth=0.5)
+                    ax.plot(np.linspace(100, 100), np.linspace(8.010000228881836, 100), c='black', linewidth=0.5)
+                    ax.plot(np.linspace(-100, -100), np.linspace(-8, -100), c='black', linewidth=0.5)
+                    ax.plot(np.linspace(100, 100), np.linspace(-8, -100), c='black', linewidth=0.5)
+                    ax.plot(np.linspace(-116, 116), np.linspace(-116, 116), c='white',
+                            linewidth=0.5)
+
+
+                    # ax.plot(np.linspace(-15, 15), np.linspace(-15, 15), c='white',
+                    #         linewidth=0.5)
                     ax.axis('off')
+
+
                 def update_dot(num_t):
                     print(num_t)
                     for i in range(n_agent):

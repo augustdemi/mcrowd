@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def seq_collate(data):
-    (obs_seq_list, pred_seq_list, obs_seq_rel_list, pred_seq_rel_list,
+    (obs_seq_list, fut_seq_list, obs_seq_rel_list, fut_seq_rel_list,
      obs_frames, fut_frames) = zip(*data)
 
     _len = [len(seq) for seq in obs_seq_list]
@@ -28,17 +28,21 @@ def seq_collate(data):
     # Data format: batch, input_size, seq_len
     # LSTM input format: seq_len, batch, input_size
     obs_traj = torch.cat(obs_seq_list, dim=0).permute(2, 0, 1)
-    pred_traj = torch.cat(pred_seq_list, dim=0).permute(2, 0, 1)
-    obs_traj_rel = torch.cat(obs_seq_rel_list, dim=0).permute(2, 0, 1)
-    pred_traj_rel = torch.cat(pred_seq_rel_list, dim=0).permute(2, 0, 1)
+    fut_traj = torch.cat(fut_seq_list, dim=0).permute(2, 0, 1)
+    obs_traj_vel = torch.cat(obs_seq_rel_list, dim=0).permute(2, 0, 1)
+    fut_traj_vel = torch.cat(fut_seq_rel_list, dim=0).permute(2, 0, 1)
     seq_start_end = torch.LongTensor(seq_start_end)
 
     obs_frames = np.concatenate(obs_frames, 0)
     fut_frames = np.concatenate(fut_frames, 0)
 
+    mean = np.zeros_like(obs_traj[0]).astype(np.float32)
+    mean[:,:2] = obs_traj[-1,:,:2]
+    std = np.array([3, 3, 2, 2, 1, 1]).astype(np.float32)
+    
 
     out = [
-        obs_traj, pred_traj, obs_traj_rel, pred_traj_rel, seq_start_end, obs_frames, fut_frames
+        obs_traj, fut_traj, (obs_traj-mean)/std, fut_traj_vel/2, seq_start_end, obs_frames, fut_frames
     ]
 
     return tuple(out)
@@ -136,7 +140,7 @@ class TrajectoryDataset(Dataset):
         - data_dir: Directory containing dataset files in the format
         <frame_id> <ped_id> <x> <y>
         - obs_len: Number of time-steps in input trajectories
-        - pred_len: Number of time-steps in output trajectories
+        - fut_len: Number of time-steps in output trajectories
         - skip: Number of frames to skip while making the dataset
         - threshold: Minimum error to be considered for non linear traj
         when using a linear predictor
@@ -147,12 +151,12 @@ class TrajectoryDataset(Dataset):
 
         self.data_dir = data_dir
         self.obs_len = obs_len
-        self.pred_len = pred_len
+        self.fut_len = pred_len
         self.skip = skip
-        self.seq_len = self.obs_len + self.pred_len
+        self.seq_len = self.obs_len + self.fut_len
         self.delim = delim
         self.device = device
-        n_pred_state=2
+        n_fut_state=2
         n_state=6
 
 
@@ -170,6 +174,11 @@ class TrajectoryDataset(Dataset):
 
 
             data = read_file(path, delim)
+            self.x_mean = data[:,2].mean()
+            self.y_mean = data[:,3].mean()
+            data[:,2] = data[:,2] - self.x_mean
+            data[:,3] = data[:,3] - self.y_mean
+
             frames = np.unique(data[:, 0]).tolist()
 
 
@@ -185,7 +194,7 @@ class TrajectoryDataset(Dataset):
                     frame_data[idx:idx + self.seq_len], axis=0) # frame을 seq_len만큼씩 잘라서 볼것 = curr_seq_data. 각 frame이 가진 데이터(agent)수는 다를수 잇음. 하지만 각 데이터의 길이는 4(frame #, agent id, pos_x, pos_y)
                 peds_in_curr_seq = np.unique(curr_seq_data[:, 1]) # unique agent id
 
-                curr_seq_rel = np.zeros((len(peds_in_curr_seq), n_pred_state, self.seq_len))
+                curr_seq_rel = np.zeros((len(peds_in_curr_seq), n_fut_state, self.seq_len))
                 curr_seq = np.zeros((len(peds_in_curr_seq), n_state, self.seq_len))
                 num_peds_considered = 0
                 ped_ids = []
@@ -218,7 +227,7 @@ class TrajectoryDataset(Dataset):
                     seq_list.append(curr_seq[:num_peds_considered])
                     seq_list_rel.append(curr_seq_rel[:num_peds_considered])
                     obs_frame_num.append(np.ones((num_peds_considered, self.obs_len)) * frames[idx:idx + self.obs_len])
-                    fut_frame_num.append(np.ones((num_peds_considered, self.pred_len)) * frames[idx + self.obs_len:idx + self.seq_len])
+                    fut_frame_num.append(np.ones((num_peds_considered, self.fut_len)) * frames[idx + self.obs_len:idx + self.seq_len])
 
             #     ped_ids = np.array(ped_ids)
             #     # if 'test' in path and len(ped_ids) > 0:
@@ -241,11 +250,11 @@ class TrajectoryDataset(Dataset):
         # Convert numpy -> Torch Tensor
         self.obs_traj = torch.from_numpy(
             seq_list[:, :, :self.obs_len]).type(torch.float)
-        self.pred_traj = torch.from_numpy(
+        self.fut_traj = torch.from_numpy(
             seq_list[:, :, self.obs_len:]).type(torch.float)
         self.obs_traj_rel = torch.from_numpy(
             seq_list_rel[:, :, :self.obs_len]).type(torch.float)
-        self.pred_traj_rel = torch.from_numpy(
+        self.fut_traj_rel = torch.from_numpy(
             seq_list_rel[:, :, self.obs_len:]).type(torch.float)
         # frame seq순, 그리고 agent id순으로 쌓아온 데이터에 대한 index를 부여하기 위해 cumsum으로 index생성 ==> 한 슬라이드(16 seq. of frames)에서 고려된 agent의 data를 start, end로 끊어내서 index로 골래내기 위해
         cum_start_idx = [0] + np.cumsum(num_peds_in_seq).tolist() # num_peds_in_seq = 각 slide(16개 frames)별로 고려된 agent수.따라서 len(num_peds_in_seq) = slide 수 = 2692 = self.num_seq
@@ -265,8 +274,8 @@ class TrajectoryDataset(Dataset):
 
 
         out = [
-            self.obs_traj[start:end, :].to(self.device) , self.pred_traj[start:end, :].to(self.device),
-            self.obs_traj_rel[start:end, :].to(self.device), self.pred_traj_rel[start:end, :].to(self.device),
+            self.obs_traj[start:end, :].to(self.device) , self.fut_traj[start:end, :].to(self.device),
+            self.obs_traj_rel[start:end, :].to(self.device), self.fut_traj_rel[start:end, :].to(self.device),
             self.obs_frame_num[start:end], self.fut_frame_num[start:end]
         ]
         return out
