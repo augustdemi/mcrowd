@@ -36,7 +36,7 @@ def seq_collate(data):
     obs_frames = np.concatenate(obs_frames, 0)
     fut_frames = np.concatenate(fut_frames, 0)
 
-    mean = np.zeros_like(obs_traj[0]).astype(np.float32)
+    mean = np.zeros_like(obs_traj[0].detach().cpu()).astype(np.float32)
     mean[:,:2] = obs_traj[-1,:,:2]
     std = np.array([3, 3, 2, 2, 1, 1]).astype(np.float32)
     
