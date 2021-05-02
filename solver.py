@@ -416,11 +416,12 @@ class Solver(object):
 
                     q_dist = discrete(logits=logitY)
                     fut_rel_pos_dist = self.decoderMy(
-                        fut_traj_vel_st[-1],
+                        obs_traj_st[-1],
                         encX_h_feat,
                         relaxed_p_dist.rsample(),
                         seq_start_end, fut_obst
                     )
+
                     # fut_rel_pos_dist = self.decoderMy(
                     #     obs_traj[-1],
                     #     encX_h_feat,
