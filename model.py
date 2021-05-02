@@ -392,11 +392,11 @@ class Decoder(nn.Module):
         stds = []
         for i in range(self.seq_len):
             decoder_h= self.rnn_decoder(torch.cat([zx, a], dim=1), decoder_h) #493, 128
-            if self.attention:
-                pool_h = self.attn_net(decoder_h, seq_start_end)  # 656, 32
+            # if self.attention:
+            #     pool_h = self.attn_net(decoder_h, seq_start_end)  # 656, 32
                 # Construct input hidden states for decoder
-                decoder_h = torch.cat([decoder_h, pool_h], dim=1)  # [656, 64]
-                decoder_h = self.fc_attn(decoder_h)
+                # decoder_h = torch.cat([decoder_h, pool_h], dim=1)  # [656, 64]
+                # decoder_h = self.fc_attn(decoder_h)
 
             mu= self.fc_mu(decoder_h)
             logVar = self.fc_std(decoder_h)
