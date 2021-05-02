@@ -194,11 +194,11 @@ class TrajectoryDataset(Dataset):
             print('data path:', path)
 
             map_file_name = path.split(deli)[-1]
-            if 'bottleneck-evacuation_' in map_file_name:
-                map_file_name = 's1'
-            elif 'bottleneck-evacuation-2_' in map_file_name:
+            if 'bottleneck-evacuation-2' in map_file_name:
                 map_file_name = 's2'
-            elif 'squeeze_' in map_file_name:
+            elif 'bottleneck-evacuation' in map_file_name:
+                map_file_name = 's1'
+            elif 'squeeze' in map_file_name:
                 map_file_name = 's3'
             elif 'circles' in map_file_name:
                 map_file_name = 's4'
