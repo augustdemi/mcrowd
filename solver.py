@@ -592,6 +592,97 @@ class Solver(object):
                coll_rate_std, non_zero_coll_std
 
 
+    def evaluate_total(self, data_loader, num_samples, threshold=0.1):
+        self.set_mode(train=False)
+
+        all_coll = []
+        all_ade =[]
+        all_fde =[]
+        with torch.no_grad():
+            b=0
+            for batch in data_loader:
+                b+=1
+                (obs_traj, fut_traj, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, pred_frames) = batch
+
+                (encX_h_feat, logitX) \
+                    = self.encoderMx(obs_traj_st, seq_start_end)
+                relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
+
+                ade, fde = [], []
+                coll_20samples = []
+                for _ in range(num_samples):
+                    fut_rel_pos_dist = self.decoderMy(
+                        obs_traj_st[-1],
+                        encX_h_feat,
+                        relaxed_p_dist.rsample(),
+                        seq_start_end
+                    )
+                    pred_fut_traj_rel = fut_rel_pos_dist.rsample()
+
+                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
+
+                    ################ ADE / FDE #######################
+                    ade.append(displacement_error(
+                        pred_fut_traj, fut_traj[:,:,:2], mode='raw'
+                    ))
+                    fde.append(final_displacement_error(
+                        pred_fut_traj[-1], fut_traj[-1,:,:2], mode='raw'
+                    ))
+
+                    ################ collision ####################
+                    seq_coll = []  # 64
+                    for idx, (start, end) in enumerate(seq_start_end):
+
+                        start = start.item()
+                        end = end.item()
+                        num_ped = end - start
+                        if num_ped == 1:
+                            continue
+                        one_frame_slide = pred_fut_traj[:, start:end, :]  # (pred_len, num_ped, 2)
+
+                        frame_coll = []  # num_ped
+                        for i in range(self.pred_len):
+                            curr_frame = one_frame_slide[i]  # frame of time=i #(num_ped,2)
+                            curr1 = curr_frame.repeat(num_ped, 1)
+                            curr2 = self.repeat(curr_frame, num_ped)
+                            dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
+                            dist = dist.reshape(num_ped, num_ped)  # all distance between all num_ped*num_ped
+                            diff_agent_idx = np.triu_indices(num_ped,
+                                                             k=1)  # only distinct distances of num_ped C 2(upper triange except for diag)
+                            diff_agent_dist = dist[diff_agent_idx]
+                            curr_coll_rate = (diff_agent_dist < threshold).sum()
+
+                            frame_coll.append(curr_coll_rate)
+                        seq_coll.append(frame_coll)
+                    coll_20samples.append(seq_coll)
+
+                all_ade.append(torch.stack(ade))
+                all_fde.append(torch.stack(fde))
+                all_coll.append(np.array(coll_20samples))
+
+            all_coll=np.concatenate(all_coll, axis=1) #(20,70,12)
+            print('all_coll: ', all_coll.shape)
+            coll_min=all_coll.min(axis=0).sum()
+            coll_avg=all_coll.mean(axis=0).sum()
+            coll_std=all_coll.std(axis=0).mean()
+
+            all_ade=torch.cat(all_ade, dim=1).cpu().numpy()
+            all_fde=torch.cat(all_fde, dim=1).cpu().numpy()
+
+            ade_min = np.min(all_ade, axis=0).mean()/self.pred_len
+            fde_min = np.min(all_fde, axis=0).mean()
+            ade_avg = np.mean(all_ade, axis=0).mean()/self.pred_len
+            fde_avg = np.mean(all_fde, axis=0).mean()
+            ade_std = np.std(all_ade, axis=0).mean()/self.pred_len
+            fde_std = np.std(all_fde, axis=0).mean()
+
+
+        self.set_mode(train=True)
+        return ade_min, fde_min, \
+               ade_avg, fde_avg, \
+               ade_std, fde_std, \
+               coll_min, coll_avg, coll_std
+
 
 
     def compute_obs_violations(self, predicted_trajs, obs_map):

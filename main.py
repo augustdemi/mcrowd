@@ -42,14 +42,14 @@ def create_parser():
     
     parser = argparse.ArgumentParser()
 
-    parser.add_argument( '--run_id', default=0, type=int,
+    parser.add_argument( '--run_id', default=2, type=int,
       help='run id (default=-1 to create a new id)' )
 
     parser.add_argument( '--device', default='cpu', type=str,
       help='cpu/cuda' )
 
     # training hyperparameters
-    parser.add_argument( '--batch_size', default=16, type=int,
+    parser.add_argument( '--batch_size', default=3, type=int,
       help='batch size' )
     parser.add_argument( '--lr_VAE', default=1e-3, type=float,
       help='learning rate of the VAE' )
@@ -65,7 +65,7 @@ def create_parser():
     parser.add_argument( '--ckpt_load_iter', default=0, type=int,
       help='iter# to load the previously saved model ' +
         '(default=0 to start from the scratch)' )
-    parser.add_argument( '--max_iter', default=40000, type=float,
+    parser.add_argument( '--max_iter', default=10, type=float,
       help='maximum number of batch iterations' )
     parser.add_argument( '--ckpt_save_iter', default=100, type=int,
       help='checkpoint saved every # iters' )
@@ -98,9 +98,9 @@ def create_parser():
     parser.add_argument('--pred_len', default=12, type=int)
     parser.add_argument('--skip', default=1, type=int)
     # dataset
-    parser.add_argument( '--dataset_dir', default='../datasets/syn_x', type=str,
+    parser.add_argument( '--dataset_dir', default='../datasets/syn_x_cropped', type=str,
       help='dataset directory' )
-    parser.add_argument( '--dataset_name', default='s1', type=str,
+    parser.add_argument( '--dataset_name', default='s5', type=str,
       help='dataset name' )
     parser.add_argument( '--num_workers', default=0, type=int,
       help='dataloader num_workers' )
@@ -155,53 +155,22 @@ def main(args):
                 test_path = os.path.join(args.dataset_dir, dataset_name, 'test')
                 _, test_loader = data_loader(args, test_path)
 
+                threshold = 0.1
+
                 ade_min, fde_min, \
                 ade_avg, fde_avg, \
-                ade_std, fde_std = solver.evaluate_dist(test_loader, 20, loss=False)
+                ade_std, fde_std, \
+                coll_min, coll_avg, coll_std = solver.evaluate_total(test_loader, 20, threshold)
                 print('//// ADE / FDE ////')
-
                 print('ade min: ', ade_min)
                 print('ade avg: ', ade_avg)
                 print('ade std: ', ade_std)
                 print('fde min: ', fde_min)
                 print('fde avg: ', fde_avg)
                 print('fde std: ', fde_std)
-
-                threshold = 0.1
-                coll_rate_min, non_zero_coll_min, \
-                coll_rate_avg, non_zero_coll_avg, \
-                coll_rate_std, non_zero_coll_std = solver.evaluate_collision(test_loader, 20, threshold)
-                print('//// agent collisions ////')
-                print('min: ', coll_rate_min)
-                print('avg: ', coll_rate_avg)
-                print('std: ', coll_rate_std)
-
-
-
-                print('-------------------- val ----------------------')
-                test_path = os.path.join(args.dataset_dir, dataset_name, 'val')
-                _, test_loader = data_loader(args, test_path)
-
-                ade_min, fde_min, \
-                ade_avg, fde_avg, \
-                ade_std, fde_std = solver.evaluate_dist(test_loader, 20, loss=False)
-                print('//// ADE / FDE ////')
-
-                print('ade min: ', ade_min)
-                print('ade avg: ', ade_avg)
-                print('ade std: ', ade_std)
-                print('fde min: ', fde_min)
-                print('fde avg: ', fde_avg)
-                print('fde std: ', fde_std)
-
-                threshold = 0.1
-                coll_rate_min, non_zero_coll_min, \
-                coll_rate_avg, non_zero_coll_avg, \
-                coll_rate_std, non_zero_coll_std = solver.evaluate_collision(test_loader, 20, threshold)
-                print('//// agent collisions ////')
-                print('min: ', coll_rate_min)
-                print('avg: ', coll_rate_avg)
-                print('std: ', coll_rate_std)
+                print('coll min: ', coll_min)
+                print('coll avg: ', coll_avg)
+                print('coll std: ', coll_std)
 
 
         else:
