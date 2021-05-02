@@ -6,7 +6,6 @@ import numpy as np
 from gmm2d import GMM2D
 from torch.distributions.normal import Normal
 import random
-from data.trajectories import crop
 
 ###############################################################################
 
@@ -177,32 +176,11 @@ class AttentionHiddenNet(nn.Module):
         return context_mat
 
 
-class CNNMapEncoder(nn.Module):
-    def __init__(self, fc_hidden_dim, output_dim):
-        super(CNNMapEncoder, self).__init__()
-        self.conv1 = nn.Conv2d(1, 4, 4, stride=1, bias=False)
-        self.pool = nn.MaxPool2d(2, 2)
-        self.conv2 = nn.Conv2d(4, 4, 3, stride=1, bias=False)
-        self.conv3 = nn.Conv2d(4, 4, 3, stride=1, bias=False)
-        self.fc1 = nn.Linear(4 * 6 * 6 + 2, fc_hidden_dim, bias=False)
-        self.fc2 = nn.Linear(fc_hidden_dim, output_dim, bias=False)
-
-    def forward(self, x, v):
-        x = self.pool(F.relu(self.conv1(x)))  # 64->30
-        x = self.pool(F.relu(self.conv2(x)))  # 30 ->14
-        x = self.pool(F.relu(self.conv3(x)))  # 14 ->6
-        x = x.view(-1, 4 * 6 * 6)
-        x = torch.cat((x, v), -1)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
-
-
 
 class Encoder(nn.Module):
     """Encoder:spatial emb -> lstm -> pooling -> fc for posterior / conditional prior"""
     def __init__(
-        self, zS_dim, enc_h_dim=64, mlp_dim=32, attention=False, map_size=64,
+        self, zS_dim, enc_h_dim=64, mlp_dim=32, attention=False,
             batch_norm=False, num_layers=1, dropout_mlp=0.0, dropout_rnn=0.0,  activation='relu'
     ):
         super(Encoder, self).__init__()
@@ -212,10 +190,7 @@ class Encoder(nn.Module):
         self.num_layers = num_layers
         self.dropout_rnn=dropout_rnn
         self.attention=attention
-        self.map_size=map_size
-
         n_state=6
-        map_out_dim = 8
 
         self.rnn_encoder = nn.LSTM(
             input_size=n_state, hidden_size=enc_h_dim
@@ -229,13 +204,6 @@ class Encoder(nn.Module):
         if attention:
             input_dim += enc_h_dim
 
-        self.map_net = CNNMapEncoder(
-            fc_hidden_dim=mlp_dim,
-            output_dim=map_out_dim
-        )
-        input_dim += map_out_dim
-
-
         self.fc1 = make_mlp(
             [input_dim, mlp_dim],
             activation=activation,
@@ -245,7 +213,7 @@ class Encoder(nn.Module):
         self.fc2 = nn.Linear(mlp_dim, zS_dim)
 
 
-    def forward(self, obs_state, seq_start_end, past_obstacle, train=False):
+    def forward(self, rel_traj, seq_start_end, train=False):
         """
         Inputs:
         - obs_traj: Tensor of shape (obs_len, batch, 2)
@@ -255,7 +223,7 @@ class Encoder(nn.Module):
         # Encode observed Trajectory
         # batch = rel_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
-        _, (final_encoder_h, _) = self.rnn_encoder(obs_state) # [8, 656, 16], 두개의 [1, 656, 32]
+        _, (final_encoder_h, _) = self.rnn_encoder(rel_traj) # [8, 656, 16], 두개의 [1, 656, 32]
 
         final_encoder_h = F.dropout(final_encoder_h,
                             p=self.dropout_rnn,
@@ -268,15 +236,6 @@ class Encoder(nn.Module):
             dist_fc_input = torch.cat([final_encoder_h.squeeze(0), pool_h], dim=1) # [656, 64]
         else:
             dist_fc_input = final_encoder_h.view(-1, self.enc_h_dim)
-
-
-        # map encoding
-        if self.map_size > 0:
-            obst_feat = self.map_net(past_obstacle[-1], obs_state[-1,:,2:4]) # obstacle map + velocity
-            obst_feat = F.dropout(obst_feat,
-                                     p=0.5,
-                                     training=train)
-            dist_fc_input = torch.cat([dist_fc_input, obst_feat], dim=1)
 
         # final distribution
         dist_fc_input = self.fc1(dist_fc_input)
@@ -328,7 +287,7 @@ class EncoderY(nn.Module):
 
 
 
-    def forward(self, last_obs_traj, fut_rel_traj, seq_start_end, obs_enc_feat, fut_obst, train=False):
+    def forward(self, last_obs_traj, fut_rel_traj, seq_start_end, obs_enc_feat, train=False):
         """
         Inputs:
         - last_obs_rel_traj: Tensor of shape (bs, 6)
@@ -401,6 +360,8 @@ class Decoder(nn.Module):
         )
 
 
+
+
         if attention:
             self.attn_net = AttentionHiddenNet(
                 enc_h_dim=dec_h_dim,
@@ -410,7 +371,7 @@ class Decoder(nn.Module):
         self.fc_mu = nn.Linear(dec_h_dim, n_pred_state)
         self.fc_std = nn.Linear(dec_h_dim, n_pred_state)
 
-    def forward(self, last_state, enc_h_feat, z, seq_start_end, fut_obst, fut_state=None):
+    def forward(self, last_state, enc_h_feat, z, seq_start_end, fut_state=None):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
@@ -421,10 +382,6 @@ class Decoder(nn.Module):
         Output:
         - pred_traj: tensor of shape (self.seq_len, batch, 2)
         """
-        # if fut_state:
-        #     train=True
-        # else:
-        #     train=False
 
         # x_feat+z(=zx) initial state생성(FC)
         zx = torch.cat([enc_h_feat, z], dim=1) # 493, 89(64+25)
@@ -440,20 +397,6 @@ class Decoder(nn.Module):
                 # Construct input hidden states for decoder
                 decoder_h = torch.cat([decoder_h, pool_h], dim=1)  # [656, 64]
                 decoder_h = self.fc_attn(decoder_h)
-            # if self.map_size:
-            #     if train:
-            #         fut_cropped_map = fut_obst[i]
-            #     else:
-            #
-            #         fut_cropped_map =  crop(map, target_pos1, inv_h_t, mean_pos, context_size=198)
-            #     obst_feat = self.map_net(fut_cropped_map, fut_state[i])  # obstacle map + velocity
-            #     obst_feat = F.dropout(obst_feat,
-            #                           p=0.5,
-            #                           training=train)
-            #     decoder_h = torch.cat([decoder_h, obst_feat], dim=1)  # [656, 64]
-
-            # if self.attention or self.map_size:
-            #     decoder_h = self.fc_attn(decoder_h)
 
             mu= self.fc_mu(decoder_h)
             logVar = self.fc_std(decoder_h)
@@ -469,3 +412,4 @@ class Decoder(nn.Module):
         stds = torch.stack(stds, dim=0)
         rel_pos_dist =  Normal(mus, stds)
         return rel_pos_dist
+
