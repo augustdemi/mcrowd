@@ -412,7 +412,7 @@ class Solver(object):
 
                 if loss:
                     (encY_h_feat, logitY) \
-                        = self.encoderMy(obs_traj_st[-1], fut_traj_vel_st, seq_start_end, encX_h_feat)
+                        = self.encoderMy(obs_traj_st[-1], fut_traj_vel_st, seq_start_end, encX_h_feat, fut_obst)
 
                     q_dist = discrete(logits=logitY)
                     fut_rel_pos_dist = self.decoderMy(
