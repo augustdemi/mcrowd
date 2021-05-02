@@ -35,8 +35,8 @@ def seq_collate(data):
 
     obs_frames = np.concatenate(obs_frames, 0)
     fut_frames = np.concatenate(fut_frames, 0)
-    mean_pos = np.concatenate(mean_pos, 0)
-    map_file_name = np.concatenate(map_file_name, 0)
+    # mean_pos = np.concatenate(mean_pos, 0)
+    # map_file_name = np.concatenate(map_file_name, 0)
 
     past_obst = torch.cat(past_obst, 0).permute((1, 0, 2, 3, 4))
     fut_obst = torch.cat(fut_obst, 0).permute((1, 0, 2, 3, 4))
@@ -46,7 +46,7 @@ def seq_collate(data):
     std = torch.tensor([3, 3, 2, 2, 1, 1]).type(torch.FloatTensor).to(obs_traj.device)
 
     out = [
-        obs_traj, fut_traj, (obs_traj - mean) / std, fut_traj_vel / 2, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst, mean_pos, map_file_name
+        obs_traj, fut_traj, (obs_traj - mean) / std, fut_traj_vel / 2, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst
     ]
 
     return tuple(out)

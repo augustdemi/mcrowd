@@ -271,7 +271,7 @@ class Encoder(nn.Module):
 
 
         # map encoding
-        if self.map_size:
+        if self.map_size > 0:
             obst_feat = self.map_net(past_obstacle[-1], obs_state[-1,:,2:4]) # obstacle map + velocity
             obst_feat = F.dropout(obst_feat,
                                      p=0.5,

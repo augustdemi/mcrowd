@@ -165,8 +165,7 @@ class Solver(object):
                 attention=args.attention).to(self.device)
             #### load map ####
             map_path = './ckpts/syn_x_cropped_map_size_16_drop_out0.0_run_10/iter_7400_encoder.pt'
-            # self.load_map_weights(map_path)
-            print('>>>>>>>>>>>> map loaded: ', map_path)
+            self.load_map_weights(map_path)
 
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
@@ -189,8 +188,8 @@ class Solver(object):
 
         # prepare dataloader (iterable)
         print('Start loading data...')
-        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'test2')
-        val_path = os.path.join(self.dataset_dir, self.dataset_name, 'test2')
+        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'train')
+        val_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
 
         # long_dtype, float_dtype = get_dtypes(args)
 
@@ -236,7 +235,7 @@ class Solver(object):
             # ============================================
 
             # sample a mini-batch
-            (_, fut_traj, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst, mean_pos, map_file_name) = next(iterator)
+            (_, fut_traj, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst) = next(iterator)
 
             batch = obs_traj_st.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
@@ -402,7 +401,7 @@ class Solver(object):
             for batch in data_loader:
                 b+=1
                 (obs_traj, fut_traj, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst,
-                 mean_pos, map_file_name) = batch
+                ) = batch
 
                 batch_size = obs_traj_st.size(1)  # =sum(seq_start_end[:,1] - seq_start_end[:,0])
 
@@ -1032,7 +1031,7 @@ class Solver(object):
         self.encoderMx.map_net.fc2.weight = loaded_map_w.fc2.weight
         self.encoderMx.map_net.fc1.weight.requires_grad=False
         self.encoderMx.map_net.fc2.weight.requires_grad=False
-
+        print('>>>>>>>>>>>> map loaded: ', map_path)
 
     def load_checkpoint(self):
 
