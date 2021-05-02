@@ -42,7 +42,7 @@ def seq_collate(data):
 
 
     out = [
-        obs_traj, fut_traj, (obs_traj-mean)/std, fut_traj_vel/2, seq_start_end, obs_frames, fut_frames
+        obs_traj, fut_traj, obs_traj, fut_traj_vel, seq_start_end, obs_frames, fut_frames
     ]
 
     return tuple(out)
