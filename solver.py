@@ -253,7 +253,7 @@ class Solver(object):
                 encX_h_feat,
                 relaxed_q_dist.rsample(),
                 seq_start_end,
-                fut_traj_vel_st
+                fut_traj[:, :, 2:4]
             )
 
 

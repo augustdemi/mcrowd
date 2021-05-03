@@ -256,6 +256,7 @@ class EncoderY(nn.Module):
         self.enc_h_dim = enc_h_dim
         self.num_layers = num_layers
         self.device = device
+        attention=False
         self.attention=attention
         n_state=6
         n_pred_state=2
