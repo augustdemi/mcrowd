@@ -854,19 +854,27 @@ class Solver(object):
                 # np.where(s[:,0]==63)
 
                 def init():
-                    # ax.plot(np.linspace(-11, 20), np.linspace(2.0999999046325684, 2.0999999046325684), c='black', linewidth=0.5)
-                    # ax.plot(np.linspace(-11, 20), np.linspace(-2.0999999046325684, -2.0999999046325684), c='black',
-                    #         linewidth=0.5)
-                    # ax.plot(np.linspace(-11, 20), np.linspace(100, 100), c='black', linewidth=0.5)
-                    # ax.plot(np.linspace(-11, 20), np.linspace(-100, -100), c='black', linewidth=0.5)
-                    # # exit
-                    # ax.plot(np.linspace(-11, -11), np.linspace(2.0999999046325684, 100), c='black', linewidth=0.5)
-                    # ax.plot(np.linspace(20, 20), np.linspace(2.0999999046325684, 100), c='black', linewidth=0.5)
-                    # ax.plot(np.linspace(-11, -11), np.linspace(-2.0999999046325684, -100), c='black', linewidth=0.5)
-                    # ax.plot(np.linspace(20, 20), np.linspace(-2.0999999046325684, -100), c='black', linewidth=0.5)
-                    # ax.plot(np.linspace(-27, 36), np.linspace(0, 1), c='white',
-                    #         linewidth=0.5)
+                    #s1
 
+                    ax.plot(np.linspace(5.5, 95), np.linspace(-42, -42), c='black', linewidth=0.5)
+                    ax.plot(np.linspace(4.5, 97.5), np.linspace(-44, -44), c='black', linewidth=0.5)
+                    ax.plot(np.linspace(4.5, 97.5), np.linspace(44, 44), c='black', linewidth=0.5)
+                    ax.plot(np.linspace(5.5, 95), np.linspace(42, 42), c='black', linewidth=0.5)
+                    # exit
+                    ax.plot(np.linspace(4.5, 5.5), np.linspace(1.2000000476837158, 1.2000000476837158), c='black',
+                            linewidth=0.5)
+                    ax.plot(np.linspace(4.5, 5.5), np.linspace(-1.2000000476837158, -1.2000000476837158), c='black',
+                            linewidth=0.5)
+                    # bottom
+                    ax.plot(np.linspace(5.5, 5.5), np.linspace(1.2000000476837158, 42), c='black', linewidth=0.5)
+                    ax.plot(np.linspace(4.5, 4.5), np.linspace(1.2000000476837158, 44), c='black', linewidth=0.5)
+                    ax.plot(np.linspace(5.5, 5.5), np.linspace(-1.2000000476837158, -42), c='black', linewidth=0.5)
+                    ax.plot(np.linspace(4.5, 4.5), np.linspace(-1.2000000476837158, -44), c='black', linewidth=0.5)
+                    # right wall
+                    ax.plot(np.linspace(95, 95), np.linspace(-42, 42), c='black', linewidth=0.5)
+                    ax.plot(np.linspace(97.5, 97.5), np.linspace(-44, 44), c='black', linewidth=0.5)
+                    ax.plot(np.linspace(-13, 5), np.linspace(0, 1), c='white',
+                            linewidth=0.5)
 
                     #s2
                     # ax.plot(np.linspace(5.5, 95), np.linspace(-42, -42), c='black', linewidth=0.5)
@@ -888,6 +896,40 @@ class Solver(object):
                     # ax.plot(np.linspace(97.5, 97.5), np.linspace(-44, 44), c='black', linewidth=0.5)
                     # ax.plot(np.linspace(-13, 5), np.linspace(0, 1), c='white',
                     #         linewidth=0.5)
+
+                    #s3
+                    # ax.plot(np.linspace(-11, 20), np.linspace(2.0999999046325684, 2.0999999046325684), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(-11, 20), np.linspace(-2.0999999046325684, -2.0999999046325684), c='black',
+                    #         linewidth=0.5)
+                    # ax.plot(np.linspace(-11, 20), np.linspace(100, 100), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(-11, 20), np.linspace(-100, -100), c='black', linewidth=0.5)
+                    # # exit
+                    # ax.plot(np.linspace(-11, -11), np.linspace(2.0999999046325684, 100), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(20, 20), np.linspace(2.0999999046325684, 100), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(-11, -11), np.linspace(-2.0999999046325684, -100), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(20, 20), np.linspace(-2.0999999046325684, -100), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(-27, 36), np.linspace(0, 1), c='white',
+                    #         linewidth=0.5)
+
+
+                    #s4
+                    # ax.plot(np.linspace(-15, 15), np.linspace(-15, 15), c='white',
+                    #         linewidth=0.5)
+
+                    # s5
+                    # ax.plot(np.linspace(-100, 100), np.linspace(8.010000228881836, 8.010000228881836), c='black',
+                    #         linewidth=0.5)
+                    # ax.plot(np.linspace(-100, 100), np.linspace(-8, -8), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(-100, 100), np.linspace(100, 100), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(-100, 100), np.linspace(-100, -100), c='black', linewidth=0.5)
+                    # # exit
+                    # ax.plot(np.linspace(-100, -100), np.linspace(8.010000228881836, 100), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(100, 100), np.linspace(8.010000228881836, 100), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(-100, -100), np.linspace(-8, -100), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(100, 100), np.linspace(-8, -100), c='black', linewidth=0.5)
+                    # ax.plot(np.linspace(-116, 116), np.linspace(-116, 116), c='white',
+                    #         linewidth=0.5)
+
 
                     #s6
                     # ax.plot(np.linspace(-100, -8.010000228881836), np.linspace(8.010000228881836, 8.010000228881836),
@@ -917,23 +959,7 @@ class Solver(object):
                     # ax.plot(np.linspace(8.010000228881836, 8.010000228881836), np.linspace(-100, -8), c='black',
                     #         linewidth=0.5)
 
-                    # s5
-                    ax.plot(np.linspace(-100, 100), np.linspace(8.010000228881836, 8.010000228881836), c='black',
-                            linewidth=0.5)
-                    ax.plot(np.linspace(-100, 100), np.linspace(-8, -8), c='black', linewidth=0.5)
-                    ax.plot(np.linspace(-100, 100), np.linspace(100, 100), c='black', linewidth=0.5)
-                    ax.plot(np.linspace(-100, 100), np.linspace(-100, -100), c='black', linewidth=0.5)
-                    # exit
-                    ax.plot(np.linspace(-100, -100), np.linspace(8.010000228881836, 100), c='black', linewidth=0.5)
-                    ax.plot(np.linspace(100, 100), np.linspace(8.010000228881836, 100), c='black', linewidth=0.5)
-                    ax.plot(np.linspace(-100, -100), np.linspace(-8, -100), c='black', linewidth=0.5)
-                    ax.plot(np.linspace(100, 100), np.linspace(-8, -100), c='black', linewidth=0.5)
-                    ax.plot(np.linspace(-116, 116), np.linspace(-116, 116), c='white',
-                            linewidth=0.5)
 
-
-                    # ax.plot(np.linspace(-15, 15), np.linspace(-15, 15), c='white',
-                    #         linewidth=0.5)
                     ax.axis('off')
 
 
@@ -956,7 +982,8 @@ class Solver(object):
                         fut_rel_pos_dist = self.decoderMy(
                             obs_traj[-1],
                             encX_h_feat,
-                            relaxed_p_dist.rsample()
+                            relaxed_p_dist.rsample(),
+                            seq_start_end
                         )
                         pred_fut_traj_rel = fut_rel_pos_dist.rsample()
                         pred_fut_traj = integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
@@ -974,10 +1001,8 @@ class Solver(object):
                             gt_data.append(np.concatenate([obs_real, gt_real], 0)) # (20, 3)
                             pred_data.append(np.concatenate([obs_real, pred_real], 0))
 
-                        gt_data = np.stack(gt_data)
-                        pred_data = np.stack(pred_data)
-
-
+                        gt_data = np.stack(gt_data) + np.array([data_loader.dataset.x_mean, data_loader.dataset.y_mean])
+                        pred_data = np.stack(pred_data)  + np.array([data_loader.dataset.x_mean, data_loader.dataset.y_mean])
                         multi_sample_pred.append(pred_data)
 
 
