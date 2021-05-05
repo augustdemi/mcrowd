@@ -30,10 +30,14 @@ class Solver(object):
             args.attention = True
         else:
             args.attention = False
+        if args.trainable==1 or args.trainable:
+            args.trainable = True
+        else:
+            args.attention = False
 
-        self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_attn_%s_lr_%s_klw_%s_maps_%s' % \
+        self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_attn_%s_lr_%s_klw_%s_maps_%s_trainable_%s' % \
                     (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
-                     args.decoder_h_dim, args.mlp_dim, args.attention, args.lr_VAE, args.kl_weight, args.map_size)
+                     args.decoder_h_dim, args.mlp_dim, args.attention, args.lr_VAE, args.kl_weight, args.map_size, args.map_trainable)
 
 
         # to be appended by run_id
@@ -43,6 +47,7 @@ class Solver(object):
         self.temp=args.temp
         self.dt=args.dt
         self.kl_weight=args.kl_weight
+        self.map_trainable = args.map_trainable
 
         self.max_iter = int(args.max_iter)
 
@@ -164,7 +169,7 @@ class Solver(object):
                 batch_norm=args.batch_norm,
                 attention=args.attention).to(self.device)
             #### load map ####
-            map_path = './ckpts/syn_x_cropped_map_size_16_drop_out0.0_run_10/iter_7400_encoder.pt'
+            map_path = './ckpts/syn_x_cropped_map_size_198_drop_out0.0_run_12/iter_5000_encoder.pt'
             self.load_map_weights(map_path)
 
         else:  # load a previously saved model
@@ -188,8 +193,8 @@ class Solver(object):
 
         # prepare dataloader (iterable)
         print('Start loading data...')
-        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'val2')
-        val_path = os.path.join(self.dataset_dir, self.dataset_name, 'val2')
+        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'train')
+        val_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
 
         # long_dtype, float_dtype = get_dtypes(args)
 
@@ -1028,14 +1033,14 @@ class Solver(object):
         self.encoderMx.map_net.conv1.weight = loaded_map_w.conv1.weight
         self.encoderMx.map_net.conv2.weight = loaded_map_w.conv2.weight
         self.encoderMx.map_net.conv3.weight = loaded_map_w.conv3.weight
-        # self.encoderMx.map_net.conv1.weight.requires_grad=False
-        # self.encoderMx.map_net.conv2.weight.requires_grad=False
-        # self.encoderMx.map_net.conv3.weight.requires_grad=False
+        self.encoderMx.map_net.conv1.weight.requires_grad=self.map_trainable
+        self.encoderMx.map_net.conv2.weight.requires_grad=self.map_trainable
+        self.encoderMx.map_net.conv3.weight.requires_grad=self.map_trainable
 
         self.encoderMx.map_net.fc1.weight = loaded_map_w.fc1.weight
         self.encoderMx.map_net.fc2.weight = loaded_map_w.fc2.weight
-        # self.encoderMx.map_net.fc1.weight.requires_grad=False
-        # self.encoderMx.map_net.fc2.weight.requires_grad=False
+        self.encoderMx.map_net.fc1.weight.requires_grad=self.map_trainable
+        self.encoderMx.map_net.fc2.weight.requires_grad=self.map_trainable
         print('>>>>>>>>>>>> map loaded: ', map_path)
 
     def load_checkpoint(self):

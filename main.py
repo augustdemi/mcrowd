@@ -42,14 +42,14 @@ def create_parser():
     
     parser = argparse.ArgumentParser()
 
-    parser.add_argument( '--run_id', default=2, type=int,
+    parser.add_argument( '--run_id', default=11, type=int,
       help='run id (default=-1 to create a new id)' )
 
     parser.add_argument( '--device', default='cpu', type=str,
       help='cpu/cuda' )
 
     # training hyperparameters
-    parser.add_argument( '--batch_size', default=3, type=int,
+    parser.add_argument( '--batch_size', default=4, type=int,
       help='batch size' )
     parser.add_argument( '--lr_VAE', default=1e-3, type=float,
       help='learning rate of the VAE' )
@@ -65,11 +65,11 @@ def create_parser():
     parser.add_argument( '--ckpt_load_iter', default=0, type=int,
       help='iter# to load the previously saved model ' +
         '(default=0 to start from the scratch)' )
-    parser.add_argument( '--max_iter', default=10, type=float,
+    parser.add_argument( '--max_iter', default=4500, type=float,
       help='maximum number of batch iterations' )
-    parser.add_argument( '--ckpt_save_iter', default=100, type=int,
+    parser.add_argument( '--ckpt_save_iter', default=10000, type=int,
       help='checkpoint saved every # iters' )
-    parser.add_argument( '--output_save_iter', default=10000, type=int,
+    parser.add_argument( '--output_save_iter', default=50000, type=int,
       help='output saved every # iters' )
     parser.add_argument( '--print_iter', default=10, type=int,
       help='print losses iter' )
@@ -100,7 +100,7 @@ def create_parser():
     # dataset
     parser.add_argument( '--dataset_dir', default='../datasets/syn_x_cropped', type=str,
       help='dataset directory' )
-    parser.add_argument( '--dataset_name', default='s5', type=str,
+    parser.add_argument( '--dataset_name', default='s1', type=str,
       help='dataset name' )
     parser.add_argument( '--num_workers', default=0, type=int,
       help='dataloader num_workers' )
@@ -124,6 +124,8 @@ def create_parser():
 
     parser.add_argument( '--attention', default=1, type=bool_flag,
       help='pool/attn' )
+    parser.add_argument( '--map_trainable', default=0, type=bool_flag,
+      help='trainable map enc' )
     parser.add_argument( '--kl_weight', default=100.0, type=float,
       help='kl weight' )
     parser.add_argument('--min_ped', default=1, type=int)
@@ -194,7 +196,7 @@ def main(args):
 
 
             print('--------------------', args.dataset_name, '----------------------')
-            test_path = os.path.join(args.dataset_dir, args.dataset_name, 'test2')
+            test_path = os.path.join(args.dataset_dir, args.dataset_name, 'test')
             _, test_loader = data_loader(args, test_path,shuffle=False)
 
             solver.plot_traj_var(test_loader)
