@@ -167,7 +167,7 @@ class Solver(object):
 
         else:
             print('Start loading data...')
-            train_path = os.path.join(self.dataset_dir, self.dataset_name, 'train2')
+            train_path = os.path.join(self.dataset_dir, self.dataset_name, 'val')
             val_path = os.path.join(self.dataset_dir, self.dataset_name, 'val')
 
             # long_dtype, float_dtype = get_dtypes(args)
@@ -315,7 +315,7 @@ class Solver(object):
         self.set_mode(train=False)
         with torch.no_grad():
             # if 'eth' in self.name:
-            fixed_idxs = [115,16, 53, 224]
+            fixed_idxs = [50, 64, 200]
             # fixed_idxs = range(30,60)
             # fixed_idxs = range(49)
             dset='test'

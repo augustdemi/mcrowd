@@ -100,6 +100,7 @@ def crop(map, target_pos1, inv_h_t, context_size=198):
     # h = np.loadtxt(os.path.join('../datasets/syn_x/map/','s2_H.txt'))
     # inv_h_t = np.linalg.pinv(np.transpose(h))
 
+    target_pos1 = target_pos1
     nearby_area = context_size//2
     expanded_obs_img = np.full((map.shape[0] + context_size, map.shape[1] + context_size), False, dtype=np.float32)
     expanded_obs_img[context_size//2:-context_size//2, context_size//2:-context_size//2] = map.astype(np.float32) # 99~-99
@@ -110,42 +111,50 @@ def crop(map, target_pos1, inv_h_t, context_size=198):
     target_pixel = target_pixel[:,:2]
 
     # plt.imshow(map)
+    # b = current_fut_traj[0, :2] + torch.tensor(mean_pos).unsqueeze(1)
+    # for i in range(12):
+    #     target_pos1 = b[:,i]
+    #     target_pos = np.expand_dims(target_pos1, 0)
+    #     target_pixel = np.matmul(np.concatenate([target_pos, np.ones((len(target_pos), 1))], axis=1), inv_h_t)
+    #     target_pixel /= np.expand_dims(target_pixel[:, 2], 1)
+    #     target_pixel = target_pixel[:, :2]
+    #     plt.scatter(target_pixel[0][1], target_pixel[0][0], c='y', s=1)
+    #
+    #     img_pts = context_size // 2 + np.round(target_pixel).astype(int)
+    #     expanded_obs_img[img_pts[0, 0]][img_pts[0, 1]] = 255
+
+    # plt.imshow(map)
     # plt.scatter(target_pixel[0][1], target_pixel[0][0], c='r', s=1)
 
     # img_pts = np.array([[289,106]]) # s5-160
     # img_pts = np.array([[272,63]]) # s5-64
     # img_pts = np.array([[263,38]]) # s5-64
     # img_pts = np.array([[246,38]]) # s5-16
+    # img_pts = np.array([[325,124]]) #s2-160
     # img_pts = np.array([[279,62]]) #s2-64
     # img_pts = np.array([[265,44]]) #s2-32
     # img_pts = np.array([[264,38]]) #s2-16
     # img_pts = np.array([[273,62]]) #s3-64
     # img_pts = np.array([[257,40]]) #s3-16
 
-    img_pts = context_size//2 + np.round(target_pixel).astype(int)
+    img_pts = context_size//2 + np.round(target_pixel).astype(int).squeeze(0)
 
     # plt.imshow(expanded_obs_img)
-    # plt.scatter(img_pts[0][1], img_pts[0][0], c='r', s=1)
+    # plt.scatter(img_pts[1], img_pts[0], c='r', s=1)
 
+    cropped_img = expanded_obs_img[max(img_pts[0] - nearby_area,0) : min(img_pts[0] + nearby_area, expanded_obs_img.shape[0]),
+                                      max(img_pts[1] - nearby_area ,0): min(img_pts[1] + nearby_area, expanded_obs_img.shape[1])]
 
-    cropped_img = np.stack([expanded_obs_img[img_pts[i, 0] - nearby_area : img_pts[i, 0] + nearby_area,
-                                      img_pts[i, 1] - nearby_area : img_pts[i, 1] + nearby_area]
-                      for i in range(img_pts.shape[0])], axis=0)
+    if (np.array(cropped_img.shape) < context_size).any():
+        cropped_img2 = np.zeros((context_size, context_size))
+        cropped_img2[:cropped_img.shape[0],:cropped_img.shape[1]] = cropped_img
+        cropped_img = cropped_img2
 
-    angle = 0
-    if (np.array(cropped_img.shape)[1:] < context_size).any():
-        cropped_img = np.zeros((1, context_size, context_size)).astype('float32')
-    elif np.random.rand() > 0.5:
-        im = Image.fromarray(cropped_img[0])
-        angle = random.choice([-90, 90, 180])
-        im = TF.rotate(im, angle, fill=(0,))
-        cropped_img = np.expand_dims(np.asarray(im),0)
-
-    cropped_img = np.kron(cropped_img, np.ones((4,4))).astype('float32')
-    cropped_img[0, nearby_area*4, nearby_area*4] = 255
-
+    cropped_img[nearby_area, nearby_area] = 255
+    cropped_img = np.expand_dims(cropped_img,0).astype(np.float32)
     # plt.imshow(cropped_img[0])
-    return cropped_img, angle
+    return cropped_img/255
+
 
 
 
@@ -191,7 +200,7 @@ class TrajectoryDataset(Dataset):
         obs_frame_num = []
         fut_frame_num = []
         map_file_names=[]
-        deli = '/'
+        deli = '\\'
         for path in all_files:
             print('data path:', path)
 
@@ -299,13 +308,12 @@ class TrajectoryDataset(Dataset):
             seq_map = []
             for t in range(self.obs_len):
                 cp_map = map.copy()
-                cp_map, angle = crop(cp_map, current_obs_traj[i,:2,t], inv_h_t, self.context_size)
-                cp_map /=255
+                cp_map = crop(cp_map, current_obs_traj[i,:2,t], inv_h_t, self.context_size)
                 # cp_map, angle = transform(cp_map, aug=aug)
-                if angle > 0:
-                    angle = np.pi*angle/180
-                    m = np.array([[np.cos(angle), -np.sin(angle)],[np.sin(angle), np.cos(angle)]])
-                    current_obs_traj[i, 2:4, t] = torch.matmul(torch.from_numpy(m).type(torch.FloatTensor) , current_obs_traj[i, 2:4, t])
+                # if angle > 0:
+                #     angle = np.pi*angle/180
+                #     m = np.array([[np.cos(angle), -np.sin(angle)],[np.sin(angle), np.cos(angle)]])
+                #     current_obs_traj[i, 2:4, t] = torch.matmul(torch.from_numpy(m).type(torch.FloatTensor) , current_obs_traj[i, 2:4, t])
                 seq_map.append(cp_map)
             past_map_obst.append(np.stack(seq_map))
         past_map_obst = np.stack(past_map_obst) # (batch(start-end), 8, 1, map_size,map_size)
@@ -316,13 +324,12 @@ class TrajectoryDataset(Dataset):
             seq_map = []
             for t in range(self.pred_len):
                 cp_map = map.copy()
-                cp_map, angle = crop(cp_map, current_fut_traj[i, :2, t], inv_h_t, self.context_size)
-                cp_map /= 255
+                cp_map = crop(cp_map, current_fut_traj[i, :2, t], inv_h_t, self.context_size)
                 # cp_map, angle = transform(cp_map, aug=aug)
-                if angle > 0:
-                    angle = np.pi*angle/180
-                    m = np.array([[np.cos(angle), -np.sin(angle)],[np.sin(angle), np.cos(angle)]])
-                    current_fut_traj[i, 2:4, t] = torch.matmul(torch.from_numpy(m).type(torch.FloatTensor) , current_fut_traj[i, 2:4, t])
+                # if angle > 0:
+                #     angle = np.pi*angle/180
+                #     m = np.array([[np.cos(angle), -np.sin(angle)],[np.sin(angle), np.cos(angle)]])
+                #     current_fut_traj[i, 2:4, t] = torch.matmul(torch.from_numpy(m).type(torch.FloatTensor) , current_fut_traj[i, 2:4, t])
                 seq_map.append(cp_map)
             fut_map_obst.append(np.stack(seq_map))
         fut_map_obst = np.stack(fut_map_obst)  # (batch(start-end), 12, 1, 128,128)
