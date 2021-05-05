@@ -30,10 +30,10 @@ class Solver(object):
             args.attention = True
         else:
             args.attention = False
-        if args.trainable==1 or args.trainable:
-            args.trainable = True
+        if args.map_trainable==1 or args.map_trainable:
+            args.map_trainable = True
         else:
-            args.attention = False
+            args.map_trainable = False
 
         self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_attn_%s_lr_%s_klw_%s_maps_%s_trainable_%s' % \
                     (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
