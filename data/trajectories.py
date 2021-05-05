@@ -190,7 +190,7 @@ class TrajectoryDataset(Dataset):
         n_pred_state=2
         n_state=6
 
-        self.context_size=16
+        self.context_size=198
 
         all_files = os.listdir(self.data_dir)
         all_files = [os.path.join(self.data_dir, _path) for _path in all_files]
