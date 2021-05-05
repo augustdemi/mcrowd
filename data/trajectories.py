@@ -152,6 +152,7 @@ def crop(map, target_pos1, inv_h_t, mean_pos, context_size=198):
         cropped_img = cropped_img2
 
     cropped_img[nearby_area, nearby_area] = 255
+    cropped_img = np.expand_dims(cropped_img,0).astype(np.float32)
 
     # plt.imshow(cropped_img[0])
     return cropped_img/255
