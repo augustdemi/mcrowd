@@ -185,8 +185,8 @@ class Solver(object):
 
         # prepare dataloader (iterable)
         print('Start loading data...')
-        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'val2')
-        val_path = os.path.join(self.dataset_dir, self.dataset_name, 'val2')
+        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'train')
+        val_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
 
         # long_dtype, float_dtype = get_dtypes(args)
 
@@ -414,7 +414,8 @@ class Solver(object):
                         obs_traj_st[-1],
                         encX_h_feat,
                         relaxed_p_dist.rsample(),
-                        seq_start_end
+                        seq_start_end,
+                        goal=fut_traj[-1, :, 0:2]
                     )
                     # fut_rel_pos_dist = self.decoderMy(
                     #     obs_traj[-1],
@@ -439,7 +440,8 @@ class Solver(object):
                         obs_traj_st[-1],
                         encX_h_feat,
                         relaxed_p_dist.rsample(),
-                        seq_start_end
+                        seq_start_end,
+                        goal=fut_traj[-1, :, 0:2]
                     )
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
 
