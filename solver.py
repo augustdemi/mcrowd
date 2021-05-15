@@ -618,7 +618,8 @@ class Solver(object):
                         obs_traj_st[-1],
                         encX_h_feat,
                         relaxed_p_dist.rsample(),
-                        seq_start_end
+                        seq_start_end,
+                        goal=fut_traj[-1, :, 0:2]
                     )
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
 
