@@ -294,6 +294,6 @@ class TrajectoryDataset(Dataset):
         out = [
             self.obs_traj[start:end, :].to(self.device) , self.fut_traj[start:end, :].to(self.device),
             self.obs_traj_rel[start:end, :].to(self.device), self.fut_traj_rel[start:end, :].to(self.device),
-            self.obs_frame_num[start:end], self.fut_frame_num[start:end], self.goal_list[start:end]
+            self.obs_frame_num[start:end], self.fut_frame_num[start:end], self.goal_list[start:end].to(self.device)
         ]
         return out
