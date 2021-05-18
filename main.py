@@ -161,11 +161,12 @@ def main(args):
                 test_path = os.path.join(args.dataset_dir, dataset_name, 'test')
                 _, test_loader = data_loader(args, test_path)
 
-                viol_case, min_viol, avg_viol, std_viol = solver.map_collision(test_loader)
-                print('viol_case: ', viol_case)
-                print('min_viol: ', min_viol)
-                print('avg_viol: ', avg_viol)
-                print('std_viol: ', std_viol)
+                if dataset_name != 's4':
+                    viol_case, min_viol, avg_viol, std_viol = solver.map_collision(test_loader)
+                    print('viol_case: ', viol_case)
+                    print('min_viol: ', min_viol)
+                    print('avg_viol: ', avg_viol)
+                    print('std_viol: ', std_viol)
 
                 threshold = 0.1
 
@@ -205,10 +206,36 @@ def main(args):
                 threshold = 0.1
 
 
+
             print('--------------------', args.dataset_name, '----------------------')
-            test_path = os.path.join(args.dataset_dir, args.dataset_name, 'test2')
+            test_path = os.path.join(args.dataset_dir, args.dataset_name, 'test')
             _, test_loader = data_loader(args, test_path,shuffle=False)
 
+            if args.dataset_name != 's4':
+                viol_case, min_viol, avg_viol, std_viol = solver.map_collision(test_loader)
+                print('viol_case: ', viol_case)
+                print('min_viol: ', min_viol)
+                print('avg_viol: ', avg_viol)
+                print('std_viol: ', std_viol)
+
+            threshold = 0.1
+
+            ade_min, fde_min, \
+            ade_avg, fde_avg, \
+            ade_std, fde_std, \
+            coll_min, coll_avg, coll_std = solver.evaluate_total(test_loader, 20, threshold)
+            print('//// ADE / FDE ////')
+            print('ade min: ', ade_min)
+            print('ade avg: ', ade_avg)
+            print('ade std: ', ade_std)
+            print('fde min: ', fde_min)
+            print('fde avg: ', fde_avg)
+            print('fde std: ', fde_std)
+            print('coll min: ', coll_min)
+            print('coll avg: ', coll_avg)
+            print('coll std: ', coll_std)
+
+            '''
             # viol_case, min_viol, avg_viol, std_viol = solver.map_collision(test_loader)
             # print('viol_case: ', viol_case)
             # print('min_viol: ', min_viol)
@@ -261,7 +288,7 @@ def main(args):
             print('fde min: ', fde_min)
             print('fde avg: ', fde_avg)
             print('fde std: ', fde_std)
-
+            '''
 
     else:
         solver = Solver(args)
