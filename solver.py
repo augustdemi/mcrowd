@@ -232,7 +232,7 @@ class Solver(object):
             # ============================================
 
             # sample a mini-batch
-            (obs_traj, fut_traj, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, pred_frames, goals_st) = next(iterator)
+            (_, fut_traj, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, pred_frames) = next(iterator)
             batch = obs_traj_st.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
 
@@ -245,10 +245,6 @@ class Solver(object):
             q_dist = discrete(logits=logitY)
             relaxed_q_dist = concrete(logits=logitY, temperature=self.temp)
 
-            mean = torch.zeros_like(obs_traj[0]).type(torch.FloatTensor).to(obs_traj.device)
-            mean[:, :2] = obs_traj[-1, :, :2]
-            std = torch.tensor([3, 3, 2, 2, 1, 1]).type(torch.FloatTensor).to(obs_traj.device)
-            fut_traj_st = (fut_traj - mean) / std
 
             # 첫번째 iteration 디코더 인풋 = (obs_traj_rel의 마지막 값, (hidden_state, cell_state))
             # where hidden_state = "인코더의 마지막 hidden_layer아웃풋과 그것으로 만든 max_pooled값을 concat해서 mlp 통과시켜만든 feature인 noise_input에다 noise까지 추가한값)"
@@ -257,8 +253,7 @@ class Solver(object):
                 encX_h_feat,
                 relaxed_q_dist.rsample(),
                 seq_start_end,
-                fut_traj[:, :, 2:4], # predict하는건 future traj라서 std되지 않은 값 주는게 맞음
-                goal=(fut_traj_st[-1, :, :2], goals_st)
+                fut_traj[:, :, 2:4]
             )
 
 
@@ -401,18 +396,13 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, pred_frames, goals_st) = batch
+                (obs_traj, fut_traj, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, pred_frames) = batch
                 batch_size = obs_traj_st.size(1)
 
                 (encX_h_feat, logitX) \
                     = self.encoderMx(obs_traj_st, seq_start_end)
                 p_dist = discrete(logits=logitX)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
-
-                mean = torch.zeros_like(obs_traj[0]).type(torch.FloatTensor).to(obs_traj.device)
-                mean[:, :2] = obs_traj[-1, :, :2]
-                std = torch.tensor([3, 3, 2, 2, 1, 1]).type(torch.FloatTensor).to(obs_traj.device)
-                fut_traj_st = (fut_traj - mean) / std
 
                 if loss:
                     (encY_h_feat, logitY) \
@@ -423,8 +413,7 @@ class Solver(object):
                         obs_traj_st[-1],
                         encX_h_feat,
                         relaxed_p_dist.rsample(),
-                        seq_start_end,
-                        goal=(fut_traj_st[-1, :, :2], goals_st)
+                        seq_start_end
                     )
                     # fut_rel_pos_dist = self.decoderMy(
                     #     obs_traj[-1],
@@ -449,8 +438,7 @@ class Solver(object):
                         obs_traj_st[-1],
                         encX_h_feat,
                         relaxed_p_dist.rsample(),
-                        seq_start_end,
-                        goal=(fut_traj_st[-1, :, :2], goals_st)
+                        seq_start_end
                     )
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
 
@@ -614,16 +602,11 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, pred_frames, goals_st) = batch
+                (obs_traj, fut_traj, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, pred_frames) = batch
 
                 (encX_h_feat, logitX) \
                     = self.encoderMx(obs_traj_st, seq_start_end)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
-
-                mean = torch.zeros_like(obs_traj[0]).type(torch.FloatTensor).to(obs_traj.device)
-                mean[:, :2] = obs_traj[-1, :, :2]
-                std = torch.tensor([3, 3, 2, 2, 1, 1]).type(torch.FloatTensor).to(obs_traj.device)
-                fut_traj_st = (fut_traj - mean) / std
 
                 ade, fde = [], []
                 coll_20samples = []
@@ -632,8 +615,7 @@ class Solver(object):
                         obs_traj_st[-1],
                         encX_h_feat,
                         relaxed_p_dist.rsample(),
-                        seq_start_end,
-                        goal=(fut_traj_st[-1, :, :2], goals_st)
+                        seq_start_end
                     )
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
 
@@ -726,7 +708,7 @@ class Solver(object):
         # for i in range(12):
         #     plt.scatter(predicted_trajs[i,0], predicted_trajs[i,1], s=1)
 
-        traj_obs_values = interp_obs_map(predicted_trajs[:, 0], predicted_trajs[:, 1], grid=False)
+        traj_obs_values = interp_obs_map(predicted_trajs[:, 1], predicted_trajs[:, 0], grid=False)
         traj_obs_values = traj_obs_values.reshape((old_shape[0], old_shape[1]))
         num_viol_trajs = np.sum(traj_obs_values.max(axis=1) > 0,
                                 dtype=float)  # 20개 case 각각에 대해 12 future time중 한번이라도(12개중 max) 충돌이 있었나 확인
@@ -747,7 +729,7 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, fut_frames, goals_st) = batch
+                (obs_traj, fut_traj, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, fut_frames) = batch
                 total_traj += fut_traj.size(1)
 
                 mean = torch.zeros_like(obs_traj[0]).type(torch.FloatTensor).to(obs_traj.device)
@@ -768,8 +750,7 @@ class Solver(object):
                             obs_traj_st[-1],
                             encX_h_feat,
                             relaxed_p_dist.rsample(),
-                            seq_start_end,
-                            goal=(fut_traj_st[-1, :, :2], goals_st))
+                            seq_start_end)
 
                         pred_fut_traj_rel = fut_rel_pos_dist.rsample()
                         pred_fut_traj = integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
@@ -798,6 +779,7 @@ class Solver(object):
 
 
 
+
     def evaluate_real_collision(self, data_loader, threshold):
         self.set_mode(train=False)
         total_traj = 0
@@ -807,7 +789,7 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, goals_st) = batch
+                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames) = batch
 
                 total_traj += fut_traj.size(1)
 
@@ -896,11 +878,7 @@ class Solver(object):
 
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, fut_frames, goals_st) = batch
-                mean = torch.zeros_like(obs_traj[0]).type(torch.FloatTensor).to(obs_traj.device)
-                mean[:, :2] = obs_traj[-1, :, :2]
-                std = torch.tensor([3, 3, 2, 2, 1, 1]).type(torch.FloatTensor).to(obs_traj.device)
-                fut_traj_st = (fut_traj - mean) / std
+                (obs_traj, fut_traj, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, fut_frames) = batch
 
                 (encX_h_feat, logitX) \
                     = self.encoderMx(obs_traj_st, seq_start_end)
@@ -1053,9 +1031,8 @@ class Solver(object):
                             obs_traj_st[-1],
                             encX_h_feat,
                             relaxed_p_dist.rsample(),
-                            seq_start_end,
-                            # goal=fut_traj_st[-1, :, :2])
-                            goal=(fut_traj_st[-1, :, :2], goals_st))
+                            seq_start_end
+                        )
 
                         pred_fut_traj_rel = fut_rel_pos_dist.rsample()
                         pred_fut_traj = integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
@@ -1120,15 +1097,17 @@ class Solver(object):
                     def update_dot(num_t):
                         print(num_t)
                         for i in range(n_agent):
+                            # for i in range(len(colors)):
                             ln_gt[i].set_data(gt_data[i, :num_t, 0], gt_data[i, :num_t, 1])
                             for j in range(1):
                                 all_ln_pred[i][j].set_data(multi_sample_pred[j][i, :num_t, 0],
                                                            multi_sample_pred[j][i, :num_t, 1])
 
                     for i in range(n_agent):
+                        # for i in range(len(colors)):
                         ln_gt.append(ax.plot([], [], colors[i] + '--')[0])
                         ln_pred = []
-                        for _ in range(6,7):
+                        for _ in range(18,19):
                             ln_pred.append(ax.plot([], [], colors[i], alpha=0.8, linewidth=1)[0])
                         all_ln_pred.append(ln_pred)
 

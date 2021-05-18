@@ -62,10 +62,10 @@ def create_parser():
 
 
     # saving directories and checkpoint/sample iterations
-    parser.add_argument( '--ckpt_load_iter', default=20000, type=int,
+    parser.add_argument( '--ckpt_load_iter', default=4000, type=int,
       help='iter# to load the previously saved model ' +
         '(default=0 to start from the scratch)' )
-    parser.add_argument( '--max_iter', default=20000, type=float,
+    parser.add_argument( '--max_iter', default=4000, type=float,
       help='maximum number of batch iterations' )
     parser.add_argument( '--ckpt_save_iter', default=11150000, type=int,
       help='checkpoint saved every # iters' )
@@ -209,11 +209,11 @@ def main(args):
             test_path = os.path.join(args.dataset_dir, args.dataset_name, 'test2')
             _, test_loader = data_loader(args, test_path,shuffle=False)
 
-            viol_case, min_viol, avg_viol, std_viol = solver.map_collision(test_loader)
-            print('viol_case: ', viol_case)
-            print('min_viol: ', min_viol)
-            print('avg_viol: ', avg_viol)
-            print('std_viol: ', std_viol)
+            # viol_case, min_viol, avg_viol, std_viol = solver.map_collision(test_loader)
+            # print('viol_case: ', viol_case)
+            # print('min_viol: ', min_viol)
+            # print('avg_viol: ', avg_viol)
+            # print('std_viol: ', std_viol)
 
             solver.plot_traj_var(test_loader)
 
