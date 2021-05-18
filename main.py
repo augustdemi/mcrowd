@@ -42,14 +42,14 @@ def create_parser():
     
     parser = argparse.ArgumentParser()
 
-    parser.add_argument( '--run_id', default=11, type=int,
+    parser.add_argument( '--run_id', default=18, type=int,
       help='run id (default=-1 to create a new id)' )
 
     parser.add_argument( '--device', default='cpu', type=str,
       help='cpu/cuda' )
 
     # training hyperparameters
-    parser.add_argument( '--batch_size', default=4, type=int,
+    parser.add_argument( '--batch_size', default=3, type=int,
       help='batch size' )
     parser.add_argument( '--lr_VAE', default=1e-3, type=float,
       help='learning rate of the VAE' )
@@ -62,14 +62,14 @@ def create_parser():
 
 
     # saving directories and checkpoint/sample iterations
-    parser.add_argument( '--ckpt_load_iter', default=0, type=int,
+    parser.add_argument( '--ckpt_load_iter', default=20000, type=int,
       help='iter# to load the previously saved model ' +
         '(default=0 to start from the scratch)' )
-    parser.add_argument( '--max_iter', default=4500, type=float,
+    parser.add_argument( '--max_iter', default=20000, type=float,
       help='maximum number of batch iterations' )
-    parser.add_argument( '--ckpt_save_iter', default=10000, type=int,
+    parser.add_argument( '--ckpt_save_iter', default=11150000, type=int,
       help='checkpoint saved every # iters' )
-    parser.add_argument( '--output_save_iter', default=50000, type=int,
+    parser.add_argument( '--output_save_iter', default=11150000, type=int,
       help='output saved every # iters' )
     parser.add_argument( '--print_iter', default=10, type=int,
       help='print losses iter' )
@@ -100,8 +100,7 @@ def create_parser():
     # dataset
     parser.add_argument( '--dataset_dir', default='../datasets/syn_x_cropped', type=str,
       help='dataset directory' )
-    parser.add_argument( '--dataset_name', default='s1', type=str,
-      help='dataset name' )
+
     parser.add_argument( '--num_workers', default=0, type=int,
       help='dataloader num_workers' )
 
@@ -122,16 +121,21 @@ def create_parser():
     parser.add_argument('--mlp_dim', default=32, type=int)
     parser.add_argument('--batch_norm', default=0, type=bool_flag)
 
-    parser.add_argument( '--attention', default=1, type=bool_flag,
-      help='pool/attn' )
-    parser.add_argument( '--map_trainable', default=0, type=bool_flag,
-      help='trainable map enc' )
+
     parser.add_argument( '--kl_weight', default=100.0, type=float,
       help='kl weight' )
     parser.add_argument('--min_ped', default=1, type=int)
     parser.add_argument('--dt', default=1.5, type=float)
     parser.add_argument('--temp', default=1.99, type=float)
-    parser.add_argument('--map_size', default=16, type=int)
+
+
+    parser.add_argument( '--dataset_name', default='s2', type=str,
+      help='dataset name' )
+    parser.add_argument( '--attention', default=0, type=bool_flag,
+      help='pool/attn' )
+    parser.add_argument( '--map_trainable', default=1, type=bool_flag,
+      help='trainable map enc' )
+    parser.add_argument('--map_size', default=198, type=int)
 
     parser.add_argument( '--desc', default='data', type=str,
       help='run description' )
@@ -156,6 +160,12 @@ def main(args):
                 print('-------------------- test ----------------------')
                 test_path = os.path.join(args.dataset_dir, dataset_name, 'test')
                 _, test_loader = data_loader(args, test_path)
+
+                viol_case, min_viol, avg_viol, std_viol = solver.map_collision(test_loader)
+                print('viol_case: ', viol_case)
+                print('min_viol: ', min_viol)
+                print('avg_viol: ', avg_viol)
+                print('std_viol: ', std_viol)
 
                 threshold = 0.1
 
@@ -196,8 +206,14 @@ def main(args):
 
 
             print('--------------------', args.dataset_name, '----------------------')
-            test_path = os.path.join(args.dataset_dir, args.dataset_name, 'test')
+            test_path = os.path.join(args.dataset_dir, args.dataset_name, 'test2')
             _, test_loader = data_loader(args, test_path,shuffle=False)
+
+            viol_case, min_viol, avg_viol, std_viol = solver.map_collision(test_loader)
+            print('viol_case: ', viol_case)
+            print('min_viol: ', min_viol)
+            print('avg_viol: ', avg_viol)
+            print('std_viol: ', std_viol)
 
             solver.plot_traj_var(test_loader)
 
