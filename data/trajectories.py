@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 def seq_collate(data):
     (obs_seq_list, fut_seq_list, obs_seq_rel_list, fut_seq_rel_list,
-     obs_frames, fut_frames, goal_list) = zip(*data)
+     obs_frames, fut_frames) = zip(*data)
 
     _len = [len(seq) for seq in obs_seq_list]
     cum_start_idx = [0] + np.cumsum(_len).tolist()
@@ -35,7 +35,6 @@ def seq_collate(data):
 
     obs_frames = np.concatenate(obs_frames, 0)
     fut_frames = np.concatenate(fut_frames, 0)
-    goal_list = torch.cat(goal_list, dim=0)
 
     mean = torch.zeros_like(obs_traj[0]).type(torch.FloatTensor).to(obs_traj.device)
     mean[:,:2] = obs_traj[-1,:,:2]
@@ -47,7 +46,7 @@ def seq_collate(data):
     # ]
 
     out = [
-        obs_traj, fut_traj, (obs_traj - mean) / std, fut_traj_vel / 2, seq_start_end, obs_frames, fut_frames, goal_list - mean[:,:2] / std[:2]
+        obs_traj, fut_traj, (obs_traj - mean) / std, fut_traj_vel / 2, seq_start_end, obs_frames, fut_frames
     ]
 
 
@@ -171,7 +170,6 @@ class TrajectoryDataset(Dataset):
         num_peds_in_seq = []
         seq_list = []
         seq_list_rel = []
-        goal_list=[]
 
         obs_frame_num = []
         fut_frame_num = []
@@ -186,14 +184,9 @@ class TrajectoryDataset(Dataset):
             data[:,2] = data[:,2] - self.x_mean
             data[:,3] = data[:,3] - self.y_mean
 
-
-
-
-            goals = {}
-            for agent in np.unique(data[:,1]):
-                goals.update({agent: data[data[:, 1] == agent, -2:][-1]})
-
             frames = np.unique(data[:, 0]).tolist()
+
+
             # print('uniq frames: ', len(frames))
             frame_data = [] # all data per frame
             for frame in frames:
@@ -208,7 +201,6 @@ class TrajectoryDataset(Dataset):
 
                 curr_seq_rel = np.zeros((len(peds_in_curr_seq), n_fut_state, self.seq_len))
                 curr_seq = np.zeros((len(peds_in_curr_seq), n_state, self.seq_len))
-                curr_goal = np.zeros((len(peds_in_curr_seq), 2))
                 num_peds_considered = 0
                 ped_ids = []
                 for _, ped_id in enumerate(peds_in_curr_seq): # current frame sliding에 들어온 각 agent에 대해
@@ -231,7 +223,6 @@ class TrajectoryDataset(Dataset):
                     _idx = num_peds_considered
                     curr_seq[_idx, :, pad_front:pad_end] = np.stack([x, y, vx, vy, ax, ay])
                     curr_seq_rel[_idx, :, pad_front:pad_end] = np.stack([vx, vy])
-                    curr_goal[_idx, :] = goals[ped_id]
                     num_peds_considered += 1
 
 
@@ -242,8 +233,6 @@ class TrajectoryDataset(Dataset):
                     seq_list_rel.append(curr_seq_rel[:num_peds_considered])
                     obs_frame_num.append(np.ones((num_peds_considered, self.obs_len)) * frames[idx:idx + self.obs_len])
                     fut_frame_num.append(np.ones((num_peds_considered, self.fut_len)) * frames[idx + self.obs_len:idx + self.seq_len])
-                    goal_list.append(curr_goal[:num_peds_considered])
-
 
             #     ped_ids = np.array(ped_ids)
             #     # if 'test' in path and len(ped_ids) > 0:
@@ -259,7 +248,6 @@ class TrajectoryDataset(Dataset):
         self.num_seq = len(seq_list) # = slide (seq. of 16 frames) 수 = 2692
         seq_list = np.concatenate(seq_list, axis=0) # (32686, 2, 16)
         seq_list_rel = np.concatenate(seq_list_rel, axis=0)
-        goal_list = np.concatenate(goal_list, axis=0)
         self.obs_frame_num = np.concatenate(obs_frame_num, axis=0)
         self.fut_frame_num = np.concatenate(fut_frame_num, axis=0)
 
@@ -273,7 +261,6 @@ class TrajectoryDataset(Dataset):
             seq_list_rel[:, :, :self.obs_len]).type(torch.float)
         self.fut_traj_rel = torch.from_numpy(
             seq_list_rel[:, :, self.obs_len:]).type(torch.float)
-        self.goal_list = torch.from_numpy(goal_list).type(torch.float)
         # frame seq순, 그리고 agent id순으로 쌓아온 데이터에 대한 index를 부여하기 위해 cumsum으로 index생성 ==> 한 슬라이드(16 seq. of frames)에서 고려된 agent의 data를 start, end로 끊어내서 index로 골래내기 위해
         cum_start_idx = [0] + np.cumsum(num_peds_in_seq).tolist() # num_peds_in_seq = 각 slide(16개 frames)별로 고려된 agent수.따라서 len(num_peds_in_seq) = slide 수 = 2692 = self.num_seq
         self.seq_start_end = [
@@ -294,6 +281,6 @@ class TrajectoryDataset(Dataset):
         out = [
             self.obs_traj[start:end, :].to(self.device) , self.fut_traj[start:end, :].to(self.device),
             self.obs_traj_rel[start:end, :].to(self.device), self.fut_traj_rel[start:end, :].to(self.device),
-            self.obs_frame_num[start:end], self.fut_frame_num[start:end], self.goal_list[start:end].to(self.device)
+            self.obs_frame_num[start:end], self.fut_frame_num[start:end]
         ]
         return out
