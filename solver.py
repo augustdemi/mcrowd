@@ -258,7 +258,7 @@ class Solver(object):
                 relaxed_q_dist.rsample(),
                 seq_start_end,
                 fut_traj[:, :, 2:4], # predict하는건 future traj라서 std되지 않은 값 주는게 맞음
-                goal=goals_st
+                goal=(fut_traj_st[-1, :, :2], goals_st)
             )
 
 
@@ -424,7 +424,7 @@ class Solver(object):
                         encX_h_feat,
                         relaxed_p_dist.rsample(),
                         seq_start_end,
-                        goal=goals_st
+                        goal=(fut_traj_st[-1, :, :2], goals_st)
                     )
                     # fut_rel_pos_dist = self.decoderMy(
                     #     obs_traj[-1],
@@ -450,7 +450,7 @@ class Solver(object):
                         encX_h_feat,
                         relaxed_p_dist.rsample(),
                         seq_start_end,
-                        goal=goals_st
+                        goal=(fut_traj_st[-1, :, :2], goals_st)
                     )
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
 
@@ -633,7 +633,7 @@ class Solver(object):
                         encX_h_feat,
                         relaxed_p_dist.rsample(),
                         seq_start_end,
-                        goal=goals_st
+                        goal=(fut_traj_st[-1, :, :2], goals_st)
                     )
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
 
@@ -726,13 +726,12 @@ class Solver(object):
         # for i in range(12):
         #     plt.scatter(predicted_trajs[i,0], predicted_trajs[i,1], s=1)
 
-        traj_obs_values = interp_obs_map(predicted_trajs[:, 1], predicted_trajs[:, 0], grid=False)
+        traj_obs_values = interp_obs_map(predicted_trajs[:, 0], predicted_trajs[:, 1], grid=False)
         traj_obs_values = traj_obs_values.reshape((old_shape[0], old_shape[1]))
         num_viol_trajs = np.sum(traj_obs_values.max(axis=1) > 0,
                                 dtype=float)  # 20개 case 각각에 대해 12 future time중 한번이라도(12개중 max) 충돌이 있었나 확인
 
         return num_viol_trajs, traj_obs_values.sum(axis=1)
-
 
     def map_collision(self, data_loader, num_samples=20):
         obs_map = imageio.imread(os.path.join('../datasets/syn_x_cropped/map', self.dataset_name + '_map.png'))
@@ -770,7 +769,7 @@ class Solver(object):
                             encX_h_feat,
                             relaxed_p_dist.rsample(),
                             seq_start_end,
-                            goal=goals_st)
+                            goal=(fut_traj_st[-1, :, :2], goals_st))
 
                         pred_fut_traj_rel = fut_rel_pos_dist.rsample()
                         pred_fut_traj = integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
@@ -795,6 +794,7 @@ class Solver(object):
                         avg_viol.append(np.mean(viol20))
                         std_viol.append(np.std(viol20))
         return total_viol / total_traj, np.mean(np.array(min_viol)), np.mean(np.array(avg_viol)), np.mean(np.array(std_viol))
+
 
 
 
@@ -897,6 +897,10 @@ class Solver(object):
             for batch in data_loader:
                 b+=1
                 (obs_traj, fut_traj, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, fut_frames, goals_st) = batch
+                mean = torch.zeros_like(obs_traj[0]).type(torch.FloatTensor).to(obs_traj.device)
+                mean[:, :2] = obs_traj[-1, :, :2]
+                std = torch.tensor([3, 3, 2, 2, 1, 1]).type(torch.FloatTensor).to(obs_traj.device)
+                fut_traj_st = (fut_traj - mean) / std
 
                 (encX_h_feat, logitX) \
                     = self.encoderMx(obs_traj_st, seq_start_end)
@@ -1050,8 +1054,8 @@ class Solver(object):
                             encX_h_feat,
                             relaxed_p_dist.rsample(),
                             seq_start_end,
-                            goal=goals_st
-                        )
+                            # goal=fut_traj_st[-1, :, :2])
+                            goal=(fut_traj_st[-1, :, :2], goals_st))
 
                         pred_fut_traj_rel = fut_rel_pos_dist.rsample()
                         pred_fut_traj = integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
@@ -1116,19 +1120,17 @@ class Solver(object):
                     def update_dot(num_t):
                         print(num_t)
                         for i in range(n_agent):
-                            # for i in range(len(colors)):
                             ln_gt[i].set_data(gt_data[i, :num_t, 0], gt_data[i, :num_t, 1])
-                            # for j in range(1):
-                            #     all_ln_pred[i][j].set_data(multi_sample_pred[j][i, :num_t, 0],
-                            #                                multi_sample_pred[j][i, :num_t, 1])
+                            for j in range(1):
+                                all_ln_pred[i][j].set_data(multi_sample_pred[j][i, :num_t, 0],
+                                                           multi_sample_pred[j][i, :num_t, 1])
 
                     for i in range(n_agent):
-                        # for i in range(len(colors)):
                         ln_gt.append(ax.plot([], [], colors[i] + '--')[0])
                         ln_pred = []
-                        # for _ in range(18,19):
-                        #     ln_pred.append(ax.plot([], [], colors[i], alpha=0.8, linewidth=1)[0])
-                        # all_ln_pred.append(ln_pred)
+                        for _ in range(6,7):
+                            ln_pred.append(ax.plot([], [], colors[i], alpha=0.8, linewidth=1)[0])
+                        all_ln_pred.append(ln_pred)
 
                     ani = FuncAnimation(fig, update_dot, frames=n_frame, interval=1, init_func=init())
 
