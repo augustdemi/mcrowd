@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import numpy as np
 from gmm2d import GMM2D
 from torch.distributions.normal import Normal
+from utils_sgan import integrate_samples
 import random
 
 ###############################################################################
@@ -373,7 +374,7 @@ class Decoder(nn.Module):
         self.fc_mu = nn.Linear(dec_h_dim, n_pred_state)
         self.fc_std = nn.Linear(dec_h_dim, n_pred_state)
 
-    def forward(self, last_state, enc_h_feat, z, seq_start_end, fut_vel=None, goal=None):
+    def forward(self, last_state, enc_h_feat, z, seq_start_end, fut_vel=None, goal=(None, None)):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
@@ -389,10 +390,12 @@ class Decoder(nn.Module):
         zx = torch.cat([enc_h_feat, z], dim=1) # 493, 89(64+25)
         decoder_h=self.fc_zx(zx) # 493, 128
         a = self.fc_last_x(last_state)
-        b = self.fc_goal(goal)
+        b = goal[0].clone()
+        # b = self.fc_goal(waypoint)
 
         mus = []
         stds = []
+        pred_vel = []
         for i in range(self.seq_len):
             decoder_h= self.rnn_decoder(torch.cat([zx, a, b], dim=1), decoder_h) #493, 128
             # if self.attention:
@@ -408,6 +411,11 @@ class Decoder(nn.Module):
                 a = fut_vel[i]
             else:
                 a = Normal(mu, std).rsample()
+            pred_vel.append(a)
+            pred_fut_traj_st = integrate_samples(torch.stack(pred_vel), last_state[:, :2], dt=1.5)
+            change_idx = (torch.norm((pred_fut_traj_st[-1] - b), 2, dim=1) < 0.1) # compare between predicted st_pos, and st_waypoint
+            b[change_idx] = goal[1][change_idx].clone() # assign st_goal
+
             mus.append(mu)
             stds.append(std)
 
@@ -415,4 +423,3 @@ class Decoder(nn.Module):
         stds = torch.stack(stds, dim=0)
         rel_pos_dist =  Normal(mus, stds)
         return rel_pos_dist
-
