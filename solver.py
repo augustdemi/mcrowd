@@ -258,7 +258,7 @@ class Solver(object):
                 relaxed_q_dist.rsample(),
                 seq_start_end,
                 fut_traj[:, :, 2:4], # predict하는건 future traj라서 std되지 않은 값 주는게 맞음
-                goal=goals_st
+                goal=(fut_traj_st[-1, :, :2], goals_st)
             )
 
 
@@ -424,7 +424,7 @@ class Solver(object):
                         encX_h_feat,
                         relaxed_p_dist.rsample(),
                         seq_start_end,
-                        goal=goals_st
+                        goal=(fut_traj_st[-1, :, :2], goals_st)
                     )
                     # fut_rel_pos_dist = self.decoderMy(
                     #     obs_traj[-1],
@@ -450,7 +450,7 @@ class Solver(object):
                         encX_h_feat,
                         relaxed_p_dist.rsample(),
                         seq_start_end,
-                        goal=goals_st
+                        goal=(fut_traj_st[-1, :, :2], goals_st)
                     )
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
 
@@ -633,7 +633,7 @@ class Solver(object):
                         encX_h_feat,
                         relaxed_p_dist.rsample(),
                         seq_start_end,
-                        goal=goals_st
+                        goal=(fut_traj_st[-1, :, :2], goals_st)
                     )
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
 
@@ -896,6 +896,10 @@ class Solver(object):
             for batch in data_loader:
                 b+=1
                 (obs_traj, fut_traj, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, fut_frames, goals_st) = batch
+                mean = torch.zeros_like(obs_traj[0]).type(torch.FloatTensor).to(obs_traj.device)
+                mean[:, :2] = obs_traj[-1, :, :2]
+                std = torch.tensor([3, 3, 2, 2, 1, 1]).type(torch.FloatTensor).to(obs_traj.device)
+                fut_traj_st = (fut_traj - mean) / std
 
                 (encX_h_feat, logitX) \
                     = self.encoderMx(obs_traj_st, seq_start_end)
@@ -1049,7 +1053,7 @@ class Solver(object):
                             encX_h_feat,
                             relaxed_p_dist.rsample(),
                             seq_start_end,
-                            goal=goals_st
+                            goal=(fut_traj_st[-1, :, :2], goals_st)
                         )
 
                         pred_fut_traj_rel = fut_rel_pos_dist.rsample()

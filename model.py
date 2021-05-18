@@ -373,7 +373,7 @@ class Decoder(nn.Module):
         self.fc_mu = nn.Linear(dec_h_dim, n_pred_state)
         self.fc_std = nn.Linear(dec_h_dim, n_pred_state)
 
-    def forward(self, last_state, enc_h_feat, z, seq_start_end, fut_vel=None, goal=None):
+    def forward(self, last_state, enc_h_feat, z, seq_start_end, fut_vel=None, goal=(None, None)):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
@@ -389,7 +389,7 @@ class Decoder(nn.Module):
         zx = torch.cat([enc_h_feat, z], dim=1) # 493, 89(64+25)
         decoder_h=self.fc_zx(zx) # 493, 128
         a = self.fc_last_x(last_state)
-        b = self.fc_goal(goal)
+        b = self.fc_goal(goal[0])
 
         mus = []
         stds = []
@@ -408,6 +408,8 @@ class Decoder(nn.Module):
                 a = fut_vel[i]
             else:
                 a = Normal(mu, std).rsample()
+            if torch.norm((a-goal[0]), 2) < 0.1:
+                b = self.fc_goal(goal[1])
             mus.append(mu)
             stds.append(std)
 
