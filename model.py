@@ -6,7 +6,7 @@ import numpy as np
 from gmm2d import GMM2D
 from torch.distributions.normal import Normal
 import random
-
+from utils_sgan import relative_to_abs, integrate_samples
 ###############################################################################
 
 def kaiming_init(m):
@@ -389,10 +389,12 @@ class Decoder(nn.Module):
         zx = torch.cat([enc_h_feat, z], dim=1) # 493, 89(64+25)
         decoder_h=self.fc_zx(zx) # 493, 128
         a = self.fc_last_x(last_state)
-        b = self.fc_goal(goal[0])
+        b = goal[0].clone()
+        # b = self.fc_goal(waypoint)
 
         mus = []
         stds = []
+        pred_vel = []
         for i in range(self.seq_len):
             decoder_h= self.rnn_decoder(torch.cat([zx, a, b], dim=1), decoder_h) #493, 128
             # if self.attention:
@@ -408,8 +410,11 @@ class Decoder(nn.Module):
                 a = fut_vel[i]
             else:
                 a = Normal(mu, std).rsample()
-            if torch.norm((a-goal[0]), 2) < 0.1:
-                b = self.fc_goal(goal[1])
+            pred_vel.append(a)
+            pred_fut_traj_st = integrate_samples(torch.stack(pred_vel), last_state[:, :2], dt=1.5)
+            change_idx = (torch.norm((pred_fut_traj_st[-1] - b), 2, dim=1) < 0.1) # compare between predicted st_pos, and st_waypoint
+            b[change_idx] = goal[1][change_idx].clone() # assign st_goal
+
             mus.append(mu)
             stds.append(std)
 
