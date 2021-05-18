@@ -232,7 +232,7 @@ class Solver(object):
             # ============================================
 
             # sample a mini-batch
-            (_, fut_traj, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, pred_frames) = next(iterator)
+            (obs_traj, fut_traj, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, pred_frames) = next(iterator)
             batch = obs_traj_st.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
 
@@ -245,6 +245,10 @@ class Solver(object):
             q_dist = discrete(logits=logitY)
             relaxed_q_dist = concrete(logits=logitY, temperature=self.temp)
 
+            mean = torch.zeros_like(obs_traj[0]).type(torch.FloatTensor).to(obs_traj.device)
+            mean[:, :2] = obs_traj[-1, :, :2]
+            std = torch.tensor([3, 3, 2, 2, 1, 1]).type(torch.FloatTensor).to(obs_traj.device)
+            fut_traj_st = (fut_traj - mean) / std
 
             # 첫번째 iteration 디코더 인풋 = (obs_traj_rel의 마지막 값, (hidden_state, cell_state))
             # where hidden_state = "인코더의 마지막 hidden_layer아웃풋과 그것으로 만든 max_pooled값을 concat해서 mlp 통과시켜만든 feature인 noise_input에다 noise까지 추가한값)"
@@ -253,7 +257,8 @@ class Solver(object):
                 encX_h_feat,
                 relaxed_q_dist.rsample(),
                 seq_start_end,
-                fut_traj[:, :, 2:4]
+                fut_traj[:, :, 2:4], # predict하는건 future traj라서 std되지 않은 값 주는게 맞음
+                goal=fut_traj_st[-1, :, 0:2]
             )
 
 
@@ -404,6 +409,11 @@ class Solver(object):
                 p_dist = discrete(logits=logitX)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
+                mean = torch.zeros_like(obs_traj[0]).type(torch.FloatTensor).to(obs_traj.device)
+                mean[:, :2] = obs_traj[-1, :, :2]
+                std = torch.tensor([3, 3, 2, 2, 1, 1]).type(torch.FloatTensor).to(obs_traj.device)
+                fut_traj_st = (fut_traj - mean) / std
+
                 if loss:
                     (encY_h_feat, logitY) \
                         = self.encoderMy(obs_traj_st[-1], fut_traj_vel_st, seq_start_end, encX_h_feat)
@@ -413,7 +423,8 @@ class Solver(object):
                         obs_traj_st[-1],
                         encX_h_feat,
                         relaxed_p_dist.rsample(),
-                        seq_start_end
+                        seq_start_end,
+                        goal=fut_traj_st[-1, :, 0:2]
                     )
                     # fut_rel_pos_dist = self.decoderMy(
                     #     obs_traj[-1],
@@ -438,7 +449,8 @@ class Solver(object):
                         obs_traj_st[-1],
                         encX_h_feat,
                         relaxed_p_dist.rsample(),
-                        seq_start_end
+                        seq_start_end,
+                        goal=fut_traj_st[-1, :, 0:2]
                     )
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
 
@@ -608,6 +620,11 @@ class Solver(object):
                     = self.encoderMx(obs_traj_st, seq_start_end)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
+                mean = torch.zeros_like(obs_traj[0]).type(torch.FloatTensor).to(obs_traj.device)
+                mean[:, :2] = obs_traj[-1, :, :2]
+                std = torch.tensor([3, 3, 2, 2, 1, 1]).type(torch.FloatTensor).to(obs_traj.device)
+                fut_traj_st = (fut_traj - mean) / std
+
                 ade, fde = [], []
                 coll_20samples = []
                 for _ in range(num_samples):
@@ -615,7 +632,8 @@ class Solver(object):
                         obs_traj_st[-1],
                         encX_h_feat,
                         relaxed_p_dist.rsample(),
-                        seq_start_end
+                        seq_start_end,
+                        goal=fut_traj_st[-1, :, 0:2]
                     )
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
 
@@ -715,6 +733,7 @@ class Solver(object):
 
         return num_viol_trajs, traj_obs_values.sum(axis=1)
 
+
     def map_collision(self, data_loader, num_samples=20):
         obs_map = imageio.imread(os.path.join('../datasets/syn_x_cropped/map', self.dataset_name + '_map.png'))
         h = np.loadtxt(os.path.join('../datasets/syn_x_cropped/map', self.dataset_name +'_H.txt'))
@@ -750,7 +769,8 @@ class Solver(object):
                             obs_traj_st[-1],
                             encX_h_feat,
                             relaxed_p_dist.rsample(),
-                            seq_start_end)
+                            seq_start_end,
+                            goal=fut_traj[-1, :, 0:2])
 
                         pred_fut_traj_rel = fut_rel_pos_dist.rsample()
                         pred_fut_traj = integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
@@ -775,8 +795,6 @@ class Solver(object):
                         avg_viol.append(np.mean(viol20))
                         std_viol.append(np.std(viol20))
         return total_viol / total_traj, np.mean(np.array(min_viol)), np.mean(np.array(avg_viol)), np.mean(np.array(std_viol))
-
-
 
 
 
@@ -1031,7 +1049,8 @@ class Solver(object):
                             obs_traj_st[-1],
                             encX_h_feat,
                             relaxed_p_dist.rsample(),
-                            seq_start_end
+                            seq_start_end,
+                            goal=fut_traj[-1, :, 0:2]
                         )
 
                         pred_fut_traj_rel = fut_rel_pos_dist.rsample()
@@ -1099,17 +1118,17 @@ class Solver(object):
                         for i in range(n_agent):
                             # for i in range(len(colors)):
                             ln_gt[i].set_data(gt_data[i, :num_t, 0], gt_data[i, :num_t, 1])
-                            for j in range(1):
-                                all_ln_pred[i][j].set_data(multi_sample_pred[j][i, :num_t, 0],
-                                                           multi_sample_pred[j][i, :num_t, 1])
+                            # for j in range(1):
+                            #     all_ln_pred[i][j].set_data(multi_sample_pred[j][i, :num_t, 0],
+                            #                                multi_sample_pred[j][i, :num_t, 1])
 
                     for i in range(n_agent):
                         # for i in range(len(colors)):
                         ln_gt.append(ax.plot([], [], colors[i] + '--')[0])
                         ln_pred = []
-                        for _ in range(18,19):
-                            ln_pred.append(ax.plot([], [], colors[i], alpha=0.8, linewidth=1)[0])
-                        all_ln_pred.append(ln_pred)
+                        # for _ in range(18,19):
+                        #     ln_pred.append(ax.plot([], [], colors[i], alpha=0.8, linewidth=1)[0])
+                        # all_ln_pred.append(ln_pred)
 
                     ani = FuncAnimation(fig, update_dot, frames=n_frame, interval=1, init_func=init())
 

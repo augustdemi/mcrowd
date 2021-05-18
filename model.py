@@ -353,26 +353,27 @@ class Decoder(nn.Module):
         self.num_layers = num_layers
         self.attention = attention
 
-        self.dec_hidden = nn.Linear(mlp_dim + z_dim, dec_h_dim)
-        self.to_vel = nn.Linear(n_state, n_pred_state)
+        self.fc_zx = nn.Linear(mlp_dim + z_dim, dec_h_dim)
+        self.fc_last_x = nn.Linear(n_state, n_pred_state)
+        self.fc_goal = nn.Linear(n_pred_state, n_pred_state)
 
         self.rnn_decoder = nn.GRUCell(
-            input_size=mlp_dim + z_dim + n_pred_state, hidden_size=dec_h_dim
+            input_size=mlp_dim + z_dim + n_pred_state + n_pred_state, hidden_size=dec_h_dim
         )
 
 
 
 
-        if attention:
-            self.attn_net = AttentionHiddenNet(
-                enc_h_dim=dec_h_dim,
-            )
-            self.fc_attn = nn.Linear(2*dec_h_dim, dec_h_dim)
+        # if attention:
+        #     self.attn_net = AttentionHiddenNet(
+        #         enc_h_dim=dec_h_dim,
+        #     )
+        #     self.fc_attn = nn.Linear(2*dec_h_dim, dec_h_dim)
 
         self.fc_mu = nn.Linear(dec_h_dim, n_pred_state)
         self.fc_std = nn.Linear(dec_h_dim, n_pred_state)
 
-    def forward(self, last_state, enc_h_feat, z, seq_start_end, fut_state=None):
+    def forward(self, last_state, enc_h_feat, z, seq_start_end, fut_vel=None, goal=None):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
@@ -386,13 +387,14 @@ class Decoder(nn.Module):
 
         # x_feat+z(=zx) initial state생성(FC)
         zx = torch.cat([enc_h_feat, z], dim=1) # 493, 89(64+25)
-        decoder_h=self.dec_hidden(zx) # 493, 128
-        a = self.to_vel(last_state)
+        decoder_h=self.fc_zx(zx) # 493, 128
+        a = self.fc_last_x(last_state)
+        b = self.fc_goal(goal)
 
         mus = []
         stds = []
         for i in range(self.seq_len):
-            decoder_h= self.rnn_decoder(torch.cat([zx, a], dim=1), decoder_h) #493, 128
+            decoder_h= self.rnn_decoder(torch.cat([zx, a, b], dim=1), decoder_h) #493, 128
             # if self.attention:
             #     pool_h = self.attn_net(decoder_h, seq_start_end)  # 656, 32
                 # Construct input hidden states for decoder
@@ -402,8 +404,8 @@ class Decoder(nn.Module):
             mu= self.fc_mu(decoder_h)
             logVar = self.fc_std(decoder_h)
             std = torch.sqrt(torch.exp(logVar))
-            if fut_state is not None:
-                a = fut_state[i]
+            if fut_vel is not None:
+                a = fut_vel[i]
             else:
                 a = Normal(mu, std).rsample()
             mus.append(mu)
