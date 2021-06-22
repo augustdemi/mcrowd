@@ -26,22 +26,25 @@ class Solver(object):
     def __init__(self, args):
 
         self.args = args
-        if args.attention==1 or args.attention:
-            args.attention = True
-        else:
-            args.attention = False
 
-        self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_attn_%s_lr_%s_klw_%s' % \
+        # self.name = '%s_pred_len_%s_zS_%s_embedding_dim_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_pool_dim_%s_lr_%s_klw_%s' % \
+        #             (args.dataset_name, args.pred_len, args.zS_dim, 16, args.encoder_h_dim, args.decoder_h_dim, args.mlp_dim, args.pool_dim, args.lr_VAE, args.kl_weight)
+
+        self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_pool_dim_%s_lr_%s_klw_%s' % \
                     (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
-                     args.decoder_h_dim, args.mlp_dim, args.attention, args.lr_VAE, args.kl_weight)
+                     args.decoder_h_dim, args.mlp_dim, 0, args.lr_VAE, args.kl_weight)
+
+        # self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_attn_%s_lr_%s_klw_%s' % \
+        #             (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
+        #              args.decoder_h_dim, args.mlp_dim, args.attention, args.lr_VAE, args.kl_weight)
 
 
         # to be appended by run_id
 
         # self.use_cuda = args.cuda and torch.cuda.is_available()
         self.device = args.device
-        self.temp=args.temp
-        self.dt=args.dt
+        self.temp=1.99
+        self.dt=0.4
         self.kl_weight=args.kl_weight
 
         self.max_iter = int(args.max_iter)
@@ -136,7 +139,6 @@ class Solver(object):
                 args.zS_dim,
                 enc_h_dim=args.encoder_h_dim,
                 mlp_dim=args.mlp_dim,
-                attention=args.attention,
                 batch_norm=args.batch_norm,
                 num_layers=args.num_layers,
                 dropout_mlp=args.dropout_mlp,
@@ -145,7 +147,6 @@ class Solver(object):
                 args.zS_dim,
                 enc_h_dim=args.encoder_h_dim,
                 mlp_dim=args.mlp_dim,
-                attention=args.attention,
                 batch_norm=args.batch_norm,
                 num_layers=args.num_layers,
                 dropout_mlp=args.dropout_mlp,
@@ -161,8 +162,7 @@ class Solver(object):
                 device=args.device,
                 dropout_mlp=args.dropout_mlp,
                 dropout_rnn=args.dropout_rnn,
-                batch_norm=args.batch_norm,
-                attention=args.attention).to(self.device)
+                batch_norm=args.batch_norm).to(self.device)
 
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
@@ -195,7 +195,6 @@ class Solver(object):
             _, self.train_loader = data_loader(self.args, train_path)
             print("Initializing val dataset")
             _, self.val_loader = data_loader(self.args, val_path)
-            # self.val_loader = self.train_loader
 
             print(
                 'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
@@ -232,33 +231,28 @@ class Solver(object):
             # ============================================
 
             # sample a mini-batch
-            (obs_traj, fut_traj, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, pred_frames, goals_st) = next(iterator)
-            batch = obs_traj_st.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
+            (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, non_linear_ped,
+             loss_mask, seq_start_end, obs_frames, pred_frames) = next(iterator)
+            batch = obs_traj_rel.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
 
             (encX_h_feat, logitX) \
-                = self.encoderMx(obs_traj_st, seq_start_end, train=True)
+                = self.encoderMx(obs_traj, seq_start_end, train=True)
             (encY_h_feat, logitY) \
-                = self.encoderMy(obs_traj_st[-1], fut_traj_vel_st, seq_start_end, encX_h_feat, train=True)
+                = self.encoderMy(obs_traj[-1], fut_traj_rel, seq_start_end, encX_h_feat, train=True)
 
             p_dist = discrete(logits=logitX)
             q_dist = discrete(logits=logitY)
             relaxed_q_dist = concrete(logits=logitY, temperature=self.temp)
 
-            mean = torch.zeros_like(obs_traj[0]).type(torch.FloatTensor).to(obs_traj.device)
-            mean[:, :2] = obs_traj[-1, :, :2]
-            std = torch.tensor([3, 3, 2, 2, 1, 1]).type(torch.FloatTensor).to(obs_traj.device)
-            fut_traj_st = (fut_traj - mean) / std
 
             # 첫번째 iteration 디코더 인풋 = (obs_traj_rel의 마지막 값, (hidden_state, cell_state))
             # where hidden_state = "인코더의 마지막 hidden_layer아웃풋과 그것으로 만든 max_pooled값을 concat해서 mlp 통과시켜만든 feature인 noise_input에다 noise까지 추가한값)"
             fut_rel_pos_dist = self.decoderMy(
-                obs_traj_st[-1],
+                obs_traj[-1],
                 encX_h_feat,
                 relaxed_q_dist.rsample(),
-                seq_start_end,
-                fut_traj[:, :, 2:4], # predict하는건 future traj라서 std되지 않은 값 주는게 맞음
-                goal=(fut_traj_st[-1, :, :2], goals_st)
+                fut_traj
             )
 
 
@@ -276,7 +270,7 @@ class Solver(object):
             # log_p_yt_xz=torch.clamp(fut_rel_pos_dist.log_prob(torch.reshape(fut_traj_rel, [batch, self.pred_len, 2])), max=6)
             # print(">>>max:", log_p_yt_xz.max(), log_p_yt_xz.min(), log_p_yt_xz.mean())
             # loglikelihood = log_p_yt_xz.sum().div(batch)
-            loglikelihood = fut_rel_pos_dist.log_prob(fut_traj[:,:,2:4]).sum().div(batch)
+            loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_rel).sum().div(batch)
 
             loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
             loss_kl = torch.clamp(loss_kl, min=0.07)
@@ -297,7 +291,7 @@ class Solver(object):
 
 
             # (visdom) insert current line stats
-            if (self.viz_on and (iteration % self.viz_ll_iter == 0)) or (self.viz_on and (iteration == start_iter)):
+            if self.viz_on and (iteration % self.viz_ll_iter == 0):
                 ade_min, fde_min, \
                 ade_avg, fde_avg, \
                 ade_std, fde_std, \
@@ -392,6 +386,7 @@ class Solver(object):
 
     def evaluate_dist(self, data_loader, num_samples, loss=False):
         self.set_mode(train=False)
+        total_traj = 0
 
         loss_recon = loss_kl = vae_loss = 0
 
@@ -401,30 +396,25 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, pred_frames, goals_st) = batch
-                batch_size = obs_traj_st.size(1)
+                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
+                 fut_obst) = batch
+                batch_size = obs_traj_vel.size(1)
+                total_traj += fut_traj.size(1)
 
                 (encX_h_feat, logitX) \
-                    = self.encoderMx(obs_traj_st, seq_start_end)
+                    = self.encoderMx(obs_traj, seq_start_end)
                 p_dist = discrete(logits=logitX)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
-                mean = torch.zeros_like(obs_traj[0]).type(torch.FloatTensor).to(obs_traj.device)
-                mean[:, :2] = obs_traj[-1, :, :2]
-                std = torch.tensor([3, 3, 2, 2, 1, 1]).type(torch.FloatTensor).to(obs_traj.device)
-                fut_traj_st = (fut_traj - mean) / std
-
                 if loss:
                     (encY_h_feat, logitY) \
-                        = self.encoderMy(obs_traj_st[-1], fut_traj_vel_st, seq_start_end, encX_h_feat)
+                        = self.encoderMy(obs_traj[-1], fut_traj_vel, seq_start_end, encX_h_feat)
 
                     q_dist = discrete(logits=logitY)
                     fut_rel_pos_dist = self.decoderMy(
-                        obs_traj_st[-1],
+                        obs_traj[-1],
                         encX_h_feat,
-                        relaxed_p_dist.rsample(),
-                        seq_start_end,
-                        goal=(fut_traj_st[-1, :, :2], goals_st)
+                        relaxed_p_dist.rsample()
                     )
                     # fut_rel_pos_dist = self.decoderMy(
                     #     obs_traj[-1],
@@ -434,7 +424,7 @@ class Solver(object):
                     # )
 
                     ################## total loss for vae ####################
-                    loglikelihood = fut_rel_pos_dist.log_prob(fut_traj[:,:,2:4]).sum().div(batch_size)
+                    loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_vel).sum().div(batch_size)
 
                     kld = kl_divergence(q_dist, p_dist).sum().div(batch_size)
                     kld = torch.clamp(kld, min=0.07)
@@ -446,11 +436,9 @@ class Solver(object):
                 ade, fde = [], []
                 for _ in range(num_samples):
                     fut_rel_pos_dist = self.decoderMy(
-                        obs_traj_st[-1],
+                        obs_traj[-1],
                         encX_h_feat,
-                        relaxed_p_dist.rsample(),
-                        seq_start_end,
-                        goal=(fut_traj_st[-1, :, :2], goals_st)
+                        relaxed_p_dist.rsample()
                     )
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
 
@@ -499,7 +487,8 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames) = batch
+                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
+                 fut_obst) = batch
                 batch_size = fut_traj.size(1)
 
                 (encX_h_feat, logitX) \
@@ -542,7 +531,8 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames) = batch
+                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
+                 fut_obst) = batch
                 total_traj += fut_traj.size(1)
 
 
@@ -604,103 +594,6 @@ class Solver(object):
                coll_rate_std, non_zero_coll_std
 
 
-    def evaluate_total(self, data_loader, num_samples, threshold=0.1):
-        self.set_mode(train=False)
-
-        all_coll = []
-        all_ade =[]
-        all_fde =[]
-        with torch.no_grad():
-            b=0
-            for batch in data_loader:
-                b+=1
-                (obs_traj, fut_traj, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, pred_frames, goals_st) = batch
-
-                (encX_h_feat, logitX) \
-                    = self.encoderMx(obs_traj_st, seq_start_end)
-                relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
-
-                mean = torch.zeros_like(obs_traj[0]).type(torch.FloatTensor).to(obs_traj.device)
-                mean[:, :2] = obs_traj[-1, :, :2]
-                std = torch.tensor([3, 3, 2, 2, 1, 1]).type(torch.FloatTensor).to(obs_traj.device)
-                fut_traj_st = (fut_traj - mean) / std
-
-                ade, fde = [], []
-                coll_20samples = []
-                for _ in range(num_samples):
-                    fut_rel_pos_dist = self.decoderMy(
-                        obs_traj_st[-1],
-                        encX_h_feat,
-                        relaxed_p_dist.rsample(),
-                        seq_start_end,
-                        goal=(fut_traj_st[-1, :, :2], goals_st)
-                    )
-                    pred_fut_traj_rel = fut_rel_pos_dist.rsample()
-
-                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
-
-                    ################ ADE / FDE #######################
-                    ade.append(displacement_error(
-                        pred_fut_traj, fut_traj[:,:,:2], mode='raw'
-                    ))
-                    fde.append(final_displacement_error(
-                        pred_fut_traj[-1], fut_traj[-1,:,:2], mode='raw'
-                    ))
-
-                    ################ collision ####################
-                    seq_coll = []  # 64
-                    for idx, (start, end) in enumerate(seq_start_end):
-
-                        start = start.item()
-                        end = end.item()
-                        num_ped = end - start
-                        if num_ped == 1:
-                            continue
-                        one_frame_slide = pred_fut_traj[:, start:end, :]  # (pred_len, num_ped, 2)
-
-                        frame_coll = []  # num_ped
-                        for i in range(self.pred_len):
-                            curr_frame = one_frame_slide[i]  # frame of time=i #(num_ped,2)
-                            curr1 = curr_frame.repeat(num_ped, 1)
-                            curr2 = self.repeat(curr_frame, num_ped)
-                            dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
-                            dist = dist.reshape(num_ped, num_ped)  # all distance between all num_ped*num_ped
-                            diff_agent_idx = np.triu_indices(num_ped,
-                                                             k=1)  # only distinct distances of num_ped C 2(upper triange except for diag)
-                            diff_agent_dist = dist[diff_agent_idx]
-                            curr_coll_rate = (diff_agent_dist < threshold).sum()
-
-                            frame_coll.append(curr_coll_rate)
-                        seq_coll.append(frame_coll)
-                    coll_20samples.append(seq_coll)
-
-                all_ade.append(torch.stack(ade))
-                all_fde.append(torch.stack(fde))
-                all_coll.append(np.array(coll_20samples))
-
-            all_coll=np.concatenate(all_coll, axis=1) #(20,70,12)
-            print('all_coll: ', all_coll.shape)
-            coll_min=all_coll.min(axis=0).sum()
-            coll_avg=all_coll.mean(axis=0).sum()
-            coll_std=all_coll.std(axis=0).mean()
-
-            all_ade=torch.cat(all_ade, dim=1).cpu().numpy()
-            all_fde=torch.cat(all_fde, dim=1).cpu().numpy()
-
-            ade_min = np.min(all_ade, axis=0).mean()/self.pred_len
-            fde_min = np.min(all_fde, axis=0).mean()
-            ade_avg = np.mean(all_ade, axis=0).mean()/self.pred_len
-            fde_avg = np.mean(all_fde, axis=0).mean()
-            ade_std = np.std(all_ade, axis=0).mean()/self.pred_len
-            fde_std = np.std(all_fde, axis=0).mean()
-
-
-        self.set_mode(train=True)
-        return ade_min, fde_min, \
-               ade_avg, fde_avg, \
-               ade_std, fde_std, \
-               coll_min, coll_avg, coll_std
-
 
 
     def compute_obs_violations(self, predicted_trajs, obs_map):
@@ -726,7 +619,7 @@ class Solver(object):
         # for i in range(12):
         #     plt.scatter(predicted_trajs[i,0], predicted_trajs[i,1], s=1)
 
-        traj_obs_values = interp_obs_map(predicted_trajs[:, 0], predicted_trajs[:, 1], grid=False)
+        traj_obs_values = interp_obs_map(predicted_trajs[:, 1], predicted_trajs[:, 0], grid=False)
         traj_obs_values = traj_obs_values.reshape((old_shape[0], old_shape[1]))
         num_viol_trajs = np.sum(traj_obs_values.max(axis=1) > 0,
                                 dtype=float)  # 20개 case 각각에 대해 12 future time중 한번이라도(12개중 max) 충돌이 있었나 확인
@@ -734,8 +627,9 @@ class Solver(object):
         return num_viol_trajs, traj_obs_values.sum(axis=1)
 
     def map_collision(self, data_loader, num_samples=20):
-        obs_map = imageio.imread(os.path.join('../datasets/syn_x_cropped/map', self.dataset_name + '_map.png'))
-        h = np.loadtxt(os.path.join('../datasets/syn_x_cropped/map', self.dataset_name +'_H.txt'))
+
+        obs_map = imageio.imread(os.path.join('../datasets/nmap/map', self.dataset_name + '_map.png'))
+        h = np.loadtxt(os.path.join('../datasets/nmap/map', self.dataset_name +'_H.txt'))
         inv_h_t = np.linalg.pinv(np.transpose(h))
 
         total_traj = 0
@@ -747,17 +641,16 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, fut_frames, goals_st) = batch
+                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
+                 fut_obst) = batch
                 total_traj += fut_traj.size(1)
-
-                mean = torch.zeros_like(obs_traj[0]).type(torch.FloatTensor).to(obs_traj.device)
-                mean[:, :2] = obs_traj[-1, :, :2]
-                std = torch.tensor([3, 3, 2, 2, 1, 1]).type(torch.FloatTensor).to(obs_traj.device)
-                fut_traj_st = (fut_traj - mean) / std
 
                 (encX_h_feat, logitX) \
                     = self.encoderMx(obs_traj, seq_start_end, train=False)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
+
+
+
 
                 for s, e in seq_start_end:
                     agent_rng = range(s, e)
@@ -765,14 +658,14 @@ class Solver(object):
                     multi_sample_pred = []
                     for _ in range(num_samples):
                         fut_rel_pos_dist = self.decoderMy(
-                            obs_traj_st[-1],
+                            obs_traj[-1],
                             encX_h_feat,
-                            relaxed_p_dist.rsample(),
-                            seq_start_end,
-                            goal=(fut_traj_st[-1, :, :2], goals_st))
+                            relaxed_p_dist.rsample()
+                        )
 
-                        pred_fut_traj_rel = fut_rel_pos_dist.rsample()
-                        pred_fut_traj = integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
+                        pred_fut_traj_vel = fut_rel_pos_dist.rsample()
+                        pred_fut_traj = integrate_samples(pred_fut_traj_vel, obs_traj[-1][:, :2], dt=self.dt)
+
                         pred_data = []
                         for idx in range(len(agent_rng)):
                             one_ped = agent_rng[idx]
@@ -807,7 +700,8 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, goals_st) = batch
+                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
+                 fut_obst) = batch
 
                 total_traj += fut_traj.size(1)
 
@@ -848,239 +742,117 @@ class Solver(object):
     def plot_traj_var(self, data_loader, num_samples=20):
         import matplotlib.pyplot as plt
         from matplotlib.animation import FuncAnimation
-        # colors = ['r', 'g', 'y', 'm', 'c', 'k', 'black', 'b', 'pink', 'orange']
-        # colors = ['r', 'g', 'y', 'm', 'c', 'k', 'w', 'b']
-        colors = ['r', 'g', 'y', 'm', 'c', 'k', 'b', 'r', 'g', 'y', 'm', 'c', 'k', 'b', 'r', 'g', 'y', 'm', 'c', 'k', 'b', 'r', 'g', 'y', 'm', 'c', 'k', 'b', 'r', 'g', 'y', 'm', 'c', 'k', 'b']
-        # colors = ['r', 'g', 'y']
+        import cv2
         gif_path = "D:\crowd\\fig\\runid" + str(self.run_id)
         mkdirs(gif_path)
+        # read video
+        cap = cv2.VideoCapture('D:\crowd\ewap_dataset\seq_'+self.dataset_name+'\seq_'+self.dataset_name+'.avi')
+
+        colors = ['r', 'g', 'y', 'm', 'c', 'k', 'w', 'b']
+        h = np.loadtxt('D:\crowd\ewap_dataset\seq_'+self.dataset_name+'\H.txt')
+        inv_h_t = np.linalg.pinv(np.transpose(h))
 
         total_traj = 0
         with torch.no_grad():
             b=0
-            if self.dataset_name == 's1':
-                # s1
-                meanx = 24.040475732664177
-                meany = -0.07734422329194922
-
-
-            elif self.dataset_name == 's2':
-
-                # s2
-                meanx = 7.030673135361367
-                meany = -0.4632297107145953
-
-            elif self.dataset_name == 's3':
-
-                # s3
-                meanx = 5.732724152858931
-                meany = -0.06010250035901356
-
-            elif self.dataset_name == 's6':
-                # s6
-                meanx = -0.7774440413246667
-                meany = -0.09482729629074158
-
-
-            elif self.dataset_name == 's5':
-                # s5
-                meanx = -1.6984453950587548
-                meany = 0.21071758751504818
-
-
-            else:
-                # s4
-                meanx = 0.037678088318757054
-                meany = -0.012858424307332677
-
-
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, fut_frames, goals_st) = batch
-                mean = torch.zeros_like(obs_traj[0]).type(torch.FloatTensor).to(obs_traj.device)
-                mean[:, :2] = obs_traj[-1, :, :2]
-                std = torch.tensor([3, 3, 2, 2, 1, 1]).type(torch.FloatTensor).to(obs_traj.device)
-                fut_traj_st = (fut_traj - mean) / std
+                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, non_linear_ped,
+                 loss_mask, seq_start_end, obs_frames, pred_frames) = batch
+                batch_size = obs_traj_rel.size(1)
+                total_traj += fut_traj.size(1)
+
+                # path = '../datasets\hotel\\test\\biwi_hotel.txt'
+                # l=f.readlines()
+                # data = read_file(path, 'tab')
+                # framd_num=6980
+                # np.where(obs_frames[:, 0] == framd_num)
+                # d = data[1989:2000]
+                # gt_real = d[..., -2:]
+                # gt_real = np.concatenate([gt_real, np.ones((2000-1989, 1))], axis=1)
+                # gt_pixel = np.matmul(gt_real, inv_h_t)
+                # gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
+                #
+                # fig, ax = plt.subplots()
+                # cap.set(1, framd_num)
+                # _, frame = cap.read()
+                # ax.imshow(frame)
+                # for i in range(len(d)):
+                #     ax.text(gt_pixel[i][1], gt_pixel[i][0], str(int(d[:,1][i])), fontsize=10)
+
 
                 (encX_h_feat, logitX) \
-                    = self.encoderMx(obs_traj_st, seq_start_end)
+                    = self.encoderMx(obs_traj, seq_start_end)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
                 # s=seq_start_end.numpy()
                 # np.where(s[:,0]==63)
 
                 def init():
-                    if self.dataset_name == 's1':
-                        ax.plot(np.linspace(5.5, 95), np.linspace(-42, -42), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(4.5, 97.5), np.linspace(-44, -44), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(4.5, 97.5), np.linspace(44, 44), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(5.5, 95), np.linspace(42, 42), c='black', linewidth=0.5)
-                        # exit
-                        ax.plot(np.linspace(4.5, 5.5), np.linspace(1.2000000476837158, 1.2000000476837158), c='black',
-                                linewidth=0.5)
-                        ax.plot(np.linspace(4.5, 5.5), np.linspace(-1.2000000476837158, -1.2000000476837158), c='black',
-                                linewidth=0.5)
-                        # bottom
-                        ax.plot(np.linspace(5.5, 5.5), np.linspace(1.2000000476837158, 42), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(4.5, 4.5), np.linspace(1.2000000476837158, 44), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(5.5, 5.5), np.linspace(-1.2000000476837158, -42), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(4.5, 4.5), np.linspace(-1.2000000476837158, -44), c='black', linewidth=0.5)
-                        # right wall
-                        ax.plot(np.linspace(95, 95), np.linspace(-42, 42), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(97.5, 97.5), np.linspace(-44, 44), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(-13, 5), np.linspace(0, 1), c='white',
-                                linewidth=0.5)
-                        # s1
-                        meanx=24.040475732664177
-                        meany=-0.07734422329194922
+                    ax.imshow(frame)
 
+                def update_dot(num_t):
+                    print(num_t)
+                    cap.set(1, frame_numbers[num_t])
+                    _, frame = cap.read()
+                    ax.imshow(frame)
 
-                    elif self.dataset_name == 's2':
-                        #s2
-                        ax.plot(np.linspace(5.5, 95), np.linspace(-42, -42), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(4.5, 97.5), np.linspace(-44, -44), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(4.5, 97.5), np.linspace(44, 44), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(5.5, 95), np.linspace(42, 42), c='black', linewidth=0.5)
-                        # exit
-                        ax.plot(np.linspace(4.5, 5.5), np.linspace(0.20000000298023224, 0.20000000298023224), c='black',
-                                linewidth=0.5)
-                        ax.plot(np.linspace(4.5, 5.5), np.linspace(-1.2000000476837158, -1.2000000476837158), c='black',
-                                linewidth=0.5)
-                        # bottom
-                        ax.plot(np.linspace(5.5, 5.5), np.linspace(0.20000000298023224, 42), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(4.5, 4.5), np.linspace(0.20000000298023224, 44), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(5.5, 5.5), np.linspace(-1.2000000476837158, -42), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(4.5, 4.5), np.linspace(-1.2000000476837158, -44), c='black', linewidth=0.5)
-                        # right wall
-                        ax.plot(np.linspace(95, 95), np.linspace(-42, 42), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(97.5, 97.5), np.linspace(-44, 44), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(-13, 5), np.linspace(0, 1), c='white',
-                                linewidth=0.5)
-                        # s2
-                        meanx = 7.030673135361367
-                        meany = -0.4632297107145953
+                    for i in range(n_agent):
+                        ln_gt[i].set_data(gt_data[i, :num_t, 0], gt_data[i, :num_t, 1])
 
-                    elif self.dataset_name == 's3':
-                        ax.plot(np.linspace(-11, 20), np.linspace(2.0999999046325684, 2.0999999046325684), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(-11, 20), np.linspace(-2.0999999046325684, -2.0999999046325684), c='black',
-                                linewidth=0.5)
-                        ax.plot(np.linspace(-11, 20), np.linspace(100, 100), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(-11, 20), np.linspace(-100, -100), c='black', linewidth=0.5)
-                        # exit
-                        ax.plot(np.linspace(-11, -11), np.linspace(2.0999999046325684, 100), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(20, 20), np.linspace(2.0999999046325684, 100), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(-11, -11), np.linspace(-2.0999999046325684, -100), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(20, 20), np.linspace(-2.0999999046325684, -100), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(-27, 36), np.linspace(0, 1), c='white',
-                                linewidth=0.5)
-                        # s3
-                        meanx = 5.732724152858931
-                        meany = -0.06010250035901356
-
-                    elif self.dataset_name == 's6':
-                        #s6
-                        ax.plot(np.linspace(-100, -8.010000228881836), np.linspace(8.010000228881836, 8.010000228881836),
-                                c='black', linewidth=0.5)
-                        ax.plot(np.linspace(-100, -8.010000228881836), np.linspace(100, 100), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(-100, -100), np.linspace(8.010000228881836, 100), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(-8.010000228881836, -8.010000228881836), np.linspace(8.010000228881836, 100),
-                                c='black', linewidth=0.5)
-
-                        ax.plot(np.linspace(8.010000228881836, 100), np.linspace(8.010000228881836, 8.010000228881836),
-                                c='black', linewidth=0.5)
-                        ax.plot(np.linspace(8.010000228881836, 100), np.linspace(100, 100), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(100, 100), np.linspace(8.010000228881836, 100), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(8.010000228881836, 8.010000228881836), np.linspace(8.010000228881836, 100),
-                                c='black', linewidth=0.5)
-
-                        ax.plot(np.linspace(-100, -8.010000228881836), np.linspace(-8.010000228881836, -8.010000228881836),
-                                c='black', linewidth=0.5)
-                        ax.plot(np.linspace(-100, -8.010000228881836), np.linspace(-100, -100), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(-100, -100), np.linspace(-100, -8), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(-8.010000228881836, -8.010000228881836), np.linspace(-100, -8), c='black',
-                                linewidth=0.5)
-
-                        ax.plot(np.linspace(8.010000228881836, 100), np.linspace(-8, -8), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(8.010000228881836, 100), np.linspace(-100, -100), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(100, 100), np.linspace(-100, -8), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(8.010000228881836, 8.010000228881836), np.linspace(-100, -8), c='black',
-                                linewidth=0.5)
-
-                        # s6
-                        meanx=-0.7774440413246667
-                        meany=-0.09482729629074158
-
-
-                    elif self.dataset_name == 's5':
-                        ax.plot(np.linspace(-100, 100), np.linspace(8.010000228881836, 8.010000228881836), c='black',
-                                linewidth=0.5)
-                        ax.plot(np.linspace(-100, 100), np.linspace(-8, -8), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(-100, 100), np.linspace(100, 100), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(-100, 100), np.linspace(-100, -100), c='black', linewidth=0.5)
-                        # exit
-                        ax.plot(np.linspace(-100, -100), np.linspace(8.010000228881836, 100), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(100, 100), np.linspace(8.010000228881836, 100), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(-100, -100), np.linspace(-8, -100), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(100, 100), np.linspace(-8, -100), c='black', linewidth=0.5)
-                        ax.plot(np.linspace(-116, 116), np.linspace(-116, 116), c='white',
-                                linewidth=0.5)
-                        # s5
-                        meanx=-1.6984453950587548
-                        meany=0.21071758751504818
-
-
-                    else:
-                        #s4
-                        ax.plot(np.linspace(-15, 15), np.linspace(-15, 15), c='white',
-                                linewidth=0.5)
-                        # s4
-                        meanx=0.037678088318757054
-                        meany=-0.012858424307332677
-
-                    ax.axis('off')
+                        for j in range(20):
+                            all_ln_pred[i][j].set_data(multi_sample_pred[j][i, :num_t, 0],
+                                                       multi_sample_pred[j][i, :num_t, 1])
 
                 for s, e in seq_start_end:
                     agent_rng = range(s, e)
 
-                    frame_numbers = np.concatenate([obs_frames[agent_rng[0]], fut_frames[agent_rng[0]]])
-
-
+                    frame_numbers = np.concatenate([obs_frames[agent_rng[0]], pred_frames[agent_rng[0]]])
+                    frame_number = frame_numbers[0]
+                    cap.set(1, frame_number)
+                    ret, frame = cap.read()
                     multi_sample_pred = []
-                    ade = []
 
                     for _ in range(num_samples):
                         fut_rel_pos_dist = self.decoderMy(
-                            obs_traj_st[-1],
+                            obs_traj[-1],
                             encX_h_feat,
-                            relaxed_p_dist.rsample(),
-                            seq_start_end,
-                            # goal=fut_traj_st[-1, :, :2])
-                            goal=(fut_traj_st[-1, :, :2], goals_st))
-
+                            relaxed_p_dist.rsample()
+                        )
                         pred_fut_traj_rel = fut_rel_pos_dist.rsample()
                         pred_fut_traj = integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
-                        ade.append(displacement_error(
-                            pred_fut_traj, fut_traj[:, :, :2], mode='raw'
-                        ))
 
                         gt_data, pred_data = [], []
 
                         for idx in range(len(agent_rng)):
                             one_ped = agent_rng[idx]
                             obs_real = obs_traj[:, one_ped,:2]
+                            obs_real = np.concatenate([obs_real, np.ones((self.obs_len, 1))], axis=1)
+                            obs_pixel = np.matmul(obs_real, inv_h_t)
+                            obs_pixel /= np.expand_dims(obs_pixel[:, 2], 1)
 
                             gt_real = fut_traj[:, one_ped, :2]
+                            gt_real = np.concatenate([gt_real, np.ones((self.pred_len, 1))], axis=1)
+                            gt_pixel = np.matmul(gt_real, inv_h_t)
+                            gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
 
                             pred_real = pred_fut_traj[:, one_ped].numpy()
+                            pred_pixel = np.concatenate([pred_real, np.ones((self.pred_len, 1))], axis=1)
+                            pred_pixel = np.matmul(pred_pixel, inv_h_t)
+                            pred_pixel /= np.expand_dims(pred_pixel[:, 2], 1)
 
-                            gt_data.append(np.concatenate([obs_real, gt_real], 0)) # (20, 3)
-                            pred_data.append(np.concatenate([obs_real, pred_real], 0))
+                            gt_data.append(np.concatenate([obs_pixel, gt_pixel], 0)) # (20, 3)
+                            pred_data.append(np.concatenate([obs_pixel, pred_pixel], 0))
 
-                        gt_data = np.stack(gt_data) + np.array([meanx, meany])
-                        pred_data = np.stack(pred_data) + np.array(
-                            [meanx, meany])
+                        gt_data = np.stack(gt_data)
+                        pred_data = np.stack(pred_data)
+
+                        # if self.dataset_name == 'eth':
+                        gt_data[:,:, [0,1]] = gt_data[:,:,[1,0]]
+                        pred_data[:,:,[0,1]] = pred_data[:,:,[1,0]]
 
                         multi_sample_pred.append(pred_data)
+
 
                     n_agent = gt_data.shape[0]
                     n_frame = gt_data.shape[1]
@@ -1091,25 +863,12 @@ class Solver(object):
                     ax.set_title(title, fontsize=9)
                     fig.tight_layout()
 
-                    a = torch.stack(ade)
-                    b = a.mean(1)
-                    c = b.min(0)
-                    print(c)
 
                     ln_gt = []
                     all_ln_pred = []
 
-                    def update_dot(num_t):
-                        print(num_t)
-                        for i in range(n_agent):
-                            # for i in range(len(colors)):
-                            ln_gt[i].set_data(gt_data[i, :num_t, 0], gt_data[i, :num_t, 1])
-                            for j in range(20):
-                                all_ln_pred[i][j].set_data(multi_sample_pred[j][i, :num_t, 0],
-                                                           multi_sample_pred[j][i, :num_t, 1])
 
                     for i in range(n_agent):
-                        # for i in range(len(colors)):
                         ln_gt.append(ax.plot([], [], colors[i] + '--')[0])
                         ln_pred = []
                         for _ in range(20):
@@ -1117,29 +876,100 @@ class Solver(object):
                         all_ln_pred.append(ln_pred)
 
 
-                    def update_dot(num_t):
-                        print(num_t)
-                        for i in range(n_agent):
-                            ln_gt[i].set_data(gt_data[i, :num_t, 0], gt_data[i, :num_t, 1])
-                            for j in range(1):
-                                all_ln_pred[i][j].set_data(multi_sample_pred[j][i, :num_t, 0],
-                                                           multi_sample_pred[j][i, :num_t, 1])
-
-                    for i in range(n_agent):
-                        ln_gt.append(ax.plot([], [], colors[i] + '--')[0])
-                        ln_pred = []
-                        for _ in range(6,7):
-                            ln_pred.append(ax.plot([], [], colors[i], alpha=0.8, linewidth=1)[0])
-                        all_ln_pred.append(ln_pred)
-
                     ani = FuncAnimation(fig, update_dot, frames=n_frame, interval=1, init_func=init())
 
                     # writer = PillowWriter(fps=3000)
 
                     ani.save(gif_path + "/" +self.dataset_name+ "_f" + str(int(frame_numbers[0])) + "_agent" + str(agent_rng[0]) +"to" +str(agent_rng[-1]) +".gif", fps=4)
 
+    def plot_traj_var2(self, data_loader, num_samples=20):
+        import matplotlib.pyplot as plt
+        from matplotlib.animation import FuncAnimation
+        import cv2
+        gif_path = "D:\crowd\\fig\\runid" + str(self.run_id)
+        mkdirs(gif_path)
+        # read video
+        # cap = cv2.VideoCapture('D:\crowd\ewap_dataset\seq_' + self.dataset_name + '\seq_' + self.dataset_name + '.avi')
+        # cap = cv2.VideoCapture('D:\crowd/ucy_original\data/crowds_zara01.avi')
+        cap = cv2.VideoCapture('D:\crowd/ucy_original\data/crowds_zara01.avi')
+
+        colors = ['r', 'g', 'y', 'm', 'c', 'k', 'w', 'b']
+        h = np.loadtxt('D:\crowd\ewap_dataset\seq_' + self.dataset_name + '\H.txt')
+        # h = np.loadtxt('D:\crowd\datasets/nmap\map/zara01_H.txt')
+        inv_h_t = np.linalg.pinv(np.transpose(h))
+
+        total_traj = 0
+        with torch.no_grad():
+            b = 0
+            for batch in data_loader:
+                b += 1
+                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst) = batch
 
 
+                total_traj += fut_traj.size(1)
+
+
+                def init():
+                    ax.imshow(frame)
+
+                def update_dot(num_t):
+                    print(num_t)
+                    cap.set(1, frame_numbers[num_t])
+                    _, frame = cap.read()
+                    ax.imshow(frame)
+
+                    for i in range(n_agent):
+                        ln_gt[i].set_data(gt_data[i, :num_t, 0], gt_data[i, :num_t, 1])
+
+                for s, e in seq_start_end:
+                    agent_rng = range(s, e)
+
+                    frame_numbers = np.concatenate([fut_frames[agent_rng[0]]])
+                    frame_number = frame_numbers[0]
+                    cap.set(1, frame_number)
+                    ret, frame = cap.read()
+                    gt_data = []
+
+                    for idx in range(len(agent_rng)):
+                        one_ped = agent_rng[idx]
+
+                        gt_real = fut_traj[:, one_ped, :2]
+                        gt_real = np.concatenate([gt_real, np.ones((self.pred_len, 1))], axis=1)
+                        gt_pixel = np.matmul(gt_real, inv_h_t)
+                        gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
+                        gt_data.append(gt_pixel)  # (20, 3)
+
+                    gt_data = np.stack(gt_data)
+                    # if self.dataset_name == 'eth':
+                    gt_data[:, :, [0, 1]] = gt_data[:, :, [1, 0]]
+
+                    n_agent = gt_data.shape[0]
+                    n_frame = gt_data.shape[1]
+
+                    fig, ax = plt.subplots()
+                    # title = ",".join([str(int(elt)) for elt in frame_numbers[:8]]) + ' -->\n'
+                    # title += ",".join([str(int(elt)) for elt in frame_numbers[8:]])
+                    # ax.set_title(title, fontsize=9)
+                    ax.axis('off')
+                    fig.tight_layout()
+
+                    ln_gt = []
+
+                    colors = ['r', 'g', 'y', 'm', 'c', 'blue']
+
+                    ax.imshow(frame)
+                    for i in range(n_agent):
+                        plt.plot(gt_data[i,:,0], gt_data[i,:,1], c=colors[i])
+                        plt.scatter(gt_data[i,-1,0], gt_data[i,-1,1], c=colors[i])
+
+                    for i in range(n_agent):
+                        ln_gt.append(ax.plot([], [], colors[i])[0])
+
+                    ani = FuncAnimation(fig, update_dot, frames=n_frame, interval=1, init_func=init())
+
+                    ani.save(gif_path + "/" + self.dataset_name + "_f" + str(
+                        int(frame_numbers[0])) + "_agent" + str(agent_rng[0]) + "to" + str(
+                        agent_rng[-1]) + ".gif", fps=4)
 
     ####
     def viz_init(self):

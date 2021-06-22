@@ -42,14 +42,14 @@ def create_parser():
     
     parser = argparse.ArgumentParser()
 
-    parser.add_argument( '--run_id', default=18, type=int,
+    parser.add_argument( '--run_id', default=72, type=int,
       help='run id (default=-1 to create a new id)' )
 
     parser.add_argument( '--device', default='cpu', type=str,
       help='cpu/cuda' )
 
     # training hyperparameters
-    parser.add_argument( '--batch_size', default=3, type=int,
+    parser.add_argument( '--batch_size', default=16, type=int,
       help='batch size' )
     parser.add_argument( '--lr_VAE', default=1e-3, type=float,
       help='learning rate of the VAE' )
@@ -62,14 +62,14 @@ def create_parser():
 
 
     # saving directories and checkpoint/sample iterations
-    parser.add_argument( '--ckpt_load_iter', default=4000, type=int,
+    parser.add_argument( '--ckpt_load_iter', default=0, type=int,
       help='iter# to load the previously saved model ' +
         '(default=0 to start from the scratch)' )
-    parser.add_argument( '--max_iter', default=4000, type=float,
+    parser.add_argument( '--max_iter', default=0, type=float,
       help='maximum number of batch iterations' )
-    parser.add_argument( '--ckpt_save_iter', default=11150000, type=int,
+    parser.add_argument( '--ckpt_save_iter', default=100, type=int,
       help='checkpoint saved every # iters' )
-    parser.add_argument( '--output_save_iter', default=11150000, type=int,
+    parser.add_argument( '--output_save_iter', default=10000, type=int,
       help='output saved every # iters' )
     parser.add_argument( '--print_iter', default=10, type=int,
       help='print losses iter' )
@@ -82,9 +82,9 @@ def create_parser():
     parser.add_argument( '--viz_port',
       default=8002, type=int, help='visdom port number' )
     parser.add_argument( '--viz_ll_iter',
-      default=1, type=int, help='visdom line data logging iter' )
+      default=30, type=int, help='visdom line data logging iter' )
     parser.add_argument( '--viz_la_iter',
-      default=1, type=int, help='visdom line data applying iter' )
+      default=30, type=int, help='visdom line data applying iter' )
     #parser.add_argument( '--viz_ra_iter',
     #  default=10000, type=int, help='visdom recon image applying iter' )
     #parser.add_argument( '--viz_ta_iter',
@@ -98,9 +98,10 @@ def create_parser():
     parser.add_argument('--pred_len', default=12, type=int)
     parser.add_argument('--skip', default=1, type=int)
     # dataset
-    parser.add_argument( '--dataset_dir', default='../datasets/syn_x_cropped', type=str,
+    parser.add_argument( '--dataset_dir', default='../datasets', type=str,
       help='dataset directory' )
-
+    parser.add_argument( '--dataset_name', default='eth', type=str,
+      help='dataset name' )
     parser.add_argument( '--num_workers', default=0, type=int,
       help='dataloader num_workers' )
 
@@ -121,21 +122,11 @@ def create_parser():
     parser.add_argument('--mlp_dim', default=32, type=int)
     parser.add_argument('--batch_norm', default=0, type=bool_flag)
 
-
-    parser.add_argument( '--kl_weight', default=100.0, type=float,
-      help='kl weight' )
-    parser.add_argument('--min_ped', default=1, type=int)
-    parser.add_argument('--dt', default=1.5, type=float)
-    parser.add_argument('--temp', default=1.99, type=float)
-
-
-    parser.add_argument( '--dataset_name', default='s2', type=str,
-      help='dataset name' )
     parser.add_argument( '--attention', default=0, type=bool_flag,
       help='pool/attn' )
-    parser.add_argument( '--map_trainable', default=1, type=bool_flag,
-      help='trainable map enc' )
-    parser.add_argument('--map_size', default=198, type=int)
+    parser.add_argument( '--kl_weight', default=100.0, type=float,
+      help='kl weight' )
+    parser.add_argument('--map_size', default=180, type=int)
 
     parser.add_argument( '--desc', default='data', type=str,
       help='run description' )
@@ -151,40 +142,51 @@ def main(args):
         print("Initializing test dataset")
         if args.dataset_name=='all':
             print('======================== [iter_%d] ========================' %  args.ckpt_load_iter)
-            for dataset_name in ['s1', 's2', 's3', 's4', 's5', 's6']:
+            for dataset_name in ['eth', 'hotel', 'univ', 'zara1', 'zara2']:
                 args.dataset_name =dataset_name
-                print('--------------------', args.dataset_name, '----------------------')
 
                 solver = Solver(args)
-
-                print('-------------------- test ----------------------')
                 test_path = os.path.join(args.dataset_dir, dataset_name, 'test')
                 _, test_loader = data_loader(args, test_path)
-
-                if dataset_name != 's4':
-                    viol_case, min_viol, avg_viol, std_viol = solver.map_collision(test_loader)
-                    print('viol_case: ', viol_case)
-                    print('min_viol: ', min_viol)
-                    print('avg_viol: ', avg_viol)
-                    print('std_viol: ', std_viol)
-
-                threshold = 0.1
+                print('--------------------', args.dataset_name, '----------------------')
+                their_viol, min_viol, avg_viol, std_viol = solver.map_collision(test_loader)
+                print('//// map violation ////')
+                print('their_viol: ', their_viol)
+                print('min_viol: ', min_viol)
+                print('avg_viol: ', avg_viol)
+                print('std_viol: ', std_viol)
 
                 ade_min, fde_min, \
                 ade_avg, fde_avg, \
-                ade_std, fde_std, \
-                coll_min, coll_avg, coll_std = solver.evaluate_total(test_loader, 20, threshold)
+                ade_std, fde_std = solver.evaluate_dist(test_loader, 20, loss=False)
                 print('//// ADE / FDE ////')
+
                 print('ade min: ', ade_min)
                 print('ade avg: ', ade_avg)
                 print('ade std: ', ade_std)
                 print('fde min: ', fde_min)
                 print('fde avg: ', fde_avg)
                 print('fde std: ', fde_std)
-                print('coll min: ', coll_min)
-                print('coll avg: ', coll_avg)
-                print('coll std: ', coll_std)
 
+                if args.dataset_name == 'eth':
+                    threshold = 0.4
+                elif args.dataset_name == 'hotel':
+                    threshold = 0.3
+                elif args.dataset_name == 'univ':
+                    threshold = 0.05
+                elif args.dataset_name == 'zara1':
+                    threshold = 0.3
+                elif args.dataset_name == 'zara2':
+                    threshold = 0.1
+
+
+                coll_rate_min, non_zero_coll_min, \
+                coll_rate_avg, non_zero_coll_avg, \
+                coll_rate_std, non_zero_coll_std = solver.evaluate_collision(test_loader, 20, threshold)
+                print('//// agent collisions ////')
+                print('min: ', coll_rate_min)
+                print('avg: ', coll_rate_avg)
+                print('std: ', coll_rate_std)
 
         else:
             solver = Solver(args)
@@ -206,76 +208,32 @@ def main(args):
                 threshold = 0.1
 
 
-
             print('--------------------', args.dataset_name, '----------------------')
             test_path = os.path.join(args.dataset_dir, args.dataset_name, 'test')
+            args.batch_size=364
             _, test_loader = data_loader(args, test_path,shuffle=False)
 
-            if args.dataset_name != 's4':
-                viol_case, min_viol, avg_viol, std_viol = solver.map_collision(test_loader)
-                print('viol_case: ', viol_case)
-                print('min_viol: ', min_viol)
-                print('avg_viol: ', avg_viol)
-                print('std_viol: ', std_viol)
-
-            threshold = 0.1
-
-            ade_min, fde_min, \
-            ade_avg, fde_avg, \
-            ade_std, fde_std, \
-            coll_min, coll_avg, coll_std = solver.evaluate_total(test_loader, 20, threshold)
-            print('//// ADE / FDE ////')
-            print('ade min: ', ade_min)
-            print('ade avg: ', ade_avg)
-            print('ade std: ', ade_std)
-            print('fde min: ', fde_min)
-            print('fde avg: ', fde_avg)
-            print('fde std: ', fde_std)
-            print('coll min: ', coll_min)
-            print('coll avg: ', coll_avg)
-            print('coll std: ', coll_std)
-
-            '''
-            # viol_case, min_viol, avg_viol, std_viol = solver.map_collision(test_loader)
-            # print('viol_case: ', viol_case)
-            # print('min_viol: ', min_viol)
-            # print('avg_viol: ', avg_viol)
-            # print('std_viol: ', std_viol)
-
-            solver.plot_traj_var(test_loader)
+            solver.plot_traj_var2(test_loader)
 
             coll_rate_min, non_zero_coll_min, \
             coll_rate_avg, non_zero_coll_avg, \
-            coll_rate_std, non_zero_coll_std = solver.evaluate_collision(test_loader, 20, 0.1)
-            print('-------------------- test ----------------------')
+            coll_rate_std, non_zero_coll_std = solver.evaluate_collision(test_loader, 20, threshold)
+            print('-------------------- collision rate of ', args.dataset_name, '----------------------')
             print('min: ', coll_rate_min)
             print('avg: ', coll_rate_avg)
             print('std: ', coll_rate_std)
 
-
-            ade_min, fde_min, \
-            ade_avg, fde_avg, \
-            ade_std, fde_std = solver.evaluate_dist(test_loader, 20, loss=False)
-
-            print('ade min: ', ade_min)
-            print('ade avg: ', ade_avg)
-            print('ade std: ', ade_std)
-            print('fde min: ', fde_min)
-            print('fde avg: ', fde_avg)
-            print('fde std: ', fde_std)
-
-            print('--------------------- val ---------------------')
-            test_path = os.path.join(args.dataset_dir, args.dataset_name, 'val')
-            _, test_loader = data_loader(args, test_path,shuffle=False)
+            their_viol, min_viol, avg_viol, std_viol = solver.map_collision(test_loader)
+            print('their_viol: ', their_viol)
+            print('min_viol: ', min_viol)
+            print('avg_viol: ', avg_viol)
+            print('std_viol: ', std_viol)
 
             # solver.plot_traj_var(test_loader)
+            # solver.draw_traj(test_loader, 20)
+            # solver.check_dist_stat(test_loader)
 
-            coll_rate_min, non_zero_coll_min, \
-            coll_rate_avg, non_zero_coll_avg, \
-            coll_rate_std, non_zero_coll_std = solver.evaluate_collision(test_loader, 20, 0.1)
-            print('min: ', coll_rate_min)
-            print('avg: ', coll_rate_avg)
-            print('std: ', coll_rate_std)
+
 
 
             ade_min, fde_min, \
@@ -288,7 +246,8 @@ def main(args):
             print('fde min: ', fde_min)
             print('fde avg: ', fde_avg)
             print('fde std: ', fde_std)
-            '''
+            print('------------------------------------------')
+
 
     else:
         solver = Solver(args)
