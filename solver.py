@@ -132,14 +132,16 @@ class Solver(object):
                                      d_model = args.emb_size,
                                      d_ff = 2048,
                                      h = args.heads,
-                                     dropout = args.dropout).to(self.device)
+                                     dropout = args.dropout,
+                                     device=self.device).to(self.device)
             self.encoderY = EncoderY(enc_inp_size=2,
                                      d_latent=args.latent_dim,
                                      N = args.layers,
                                      d_model = args.emb_size,
                                      d_ff = 2048,
                                      h = args.heads,
-                                     dropout = args.dropout).to(self.device)
+                                     dropout = args.dropout,
+                                     device=self.device).to(self.device)
             self.decoderY = DecoderY(dec_inp_size=2,
                                      dec_out_size=2,
                                      d_latent=args.latent_dim,
