@@ -65,7 +65,7 @@ def create_parser():
     parser.add_argument( '--ckpt_load_iter', default=0, type=int,
       help='iter# to load the previously saved model ' +
         '(default=0 to start from the scratch)' )
-    parser.add_argument( '--max_iter', default=0, type=float,
+    parser.add_argument( '--max_iter', default=100, type=float,
       help='maximum number of batch iterations' )
     parser.add_argument( '--ckpt_save_iter', default=100, type=int,
       help='checkpoint saved every # iters' )
@@ -109,21 +109,16 @@ def create_parser():
 
 
     # model hyperparameters
-    parser.add_argument( '--zS_dim', default=64, type=int,
+    parser.add_argument( '--latent_dim', default=64, type=int,
       help='dimension of the shared latent representation' )
     # Encoder
-    parser.add_argument('--encoder_h_dim', default=32, type=int)
-    parser.add_argument('--decoder_h_dim', default=128, type=int)
-    parser.add_argument('--num_layers', default=1, type=int)
-    parser.add_argument('--dropout_mlp', default=0.1, type=float)
-    parser.add_argument('--dropout_rnn', default=0.25, type=float)
-    # Decoder
-    parser.add_argument('--pool_every_timestep', default=0, type=bool_flag)
-    parser.add_argument('--mlp_dim', default=32, type=int)
-    parser.add_argument('--batch_norm', default=0, type=bool_flag)
+    parser.add_argument('--emb_size', default=512, type=int)
+    parser.add_argument('--d_ff', default=2048, type=int)
+    parser.add_argument('--layers', default=6, type=int)
+    parser.add_argument('--heads', default=8, type=int)
+    parser.add_argument('--dropout', default=0.1, type=float)
 
-    parser.add_argument( '--attention', default=0, type=bool_flag,
-      help='pool/attn' )
+
     parser.add_argument( '--kl_weight', default=100.0, type=float,
       help='kl weight' )
     parser.add_argument('--map_size', default=180, type=int)

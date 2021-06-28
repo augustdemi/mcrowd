@@ -8,15 +8,16 @@ from loss import kl_two_gaussian, displacement_error, final_displacement_error
 from utils_sgan import relative_to_abs, integrate_samples
 from data.loader import data_loader
 import imageio
-
+from torch.autograd import Variable
+import torch
 import matplotlib.pyplot as plt
 from torch.distributions import RelaxedOneHotCategorical as concrete
 from torch.distributions import OneHotCategorical as discrete
 from torch.distributions import kl_divergence
 from scipy.interpolate import RectBivariateSpline
 from scipy.ndimage import binary_dilation
-from gmm2d import GMM2D
-
+from transformer.model import EncoderX, EncoderY, DecoderY
+from transformer.functional import subsequent_mask
 
 ###############################################################################
 
@@ -27,25 +28,16 @@ class Solver(object):
 
         self.args = args
 
-        # self.name = '%s_pred_len_%s_zS_%s_embedding_dim_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_pool_dim_%s_lr_%s_klw_%s' % \
-        #             (args.dataset_name, args.pred_len, args.zS_dim, 16, args.encoder_h_dim, args.decoder_h_dim, args.mlp_dim, args.pool_dim, args.lr_VAE, args.kl_weight)
-
-        self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_pool_dim_%s_lr_%s_klw_%s' % \
-                    (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
-                     args.decoder_h_dim, args.mlp_dim, 0, args.lr_VAE, args.kl_weight)
-
-        # self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_attn_%s_lr_%s_klw_%s' % \
-        #             (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
-        #              args.decoder_h_dim, args.mlp_dim, args.attention, args.lr_VAE, args.kl_weight)
+        self.name = '%s_pred_len_%s_d_latent_%s_d_model_%s_d_ff_%s_n_layers_%s_n_head_%s_dropout_%s_klw_%s' % \
+                    (args.dataset_name, args.pred_len, args.latent_dim, args.emb_size,
+                     args.d_ff, args.layers, args.heads, args.dropout, args.kl_weight)
 
 
-        # to be appended by run_id
-
-        # self.use_cuda = args.cuda and torch.cuda.is_available()
         self.device = args.device
         self.temp=1.99
         self.dt=0.4
         self.kl_weight=args.kl_weight
+        self.emb_size=args.emb_size
 
         self.max_iter = int(args.max_iter)
 
@@ -63,7 +55,8 @@ class Solver(object):
 
         # networks and optimizers
         self.batch_size = args.batch_size
-        self.zS_dim = args.zS_dim
+        self.d_latent = args.latent_dim
+        self.d_latent = args.latent_dim
         self.lr_VAE = args.lr_VAE
         self.beta1_VAE = args.beta1_VAE
         self.beta2_VAE = args.beta2_VAE
@@ -131,38 +124,31 @@ class Solver(object):
 
         self.obs_len = args.obs_len
         self.pred_len = args.pred_len
-        self.num_layers = args.num_layers
-        self.decoder_h_dim = args.decoder_h_dim
 
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
-            self.encoderMx = Encoder(
-                args.zS_dim,
-                enc_h_dim=args.encoder_h_dim,
-                mlp_dim=args.mlp_dim,
-                batch_norm=args.batch_norm,
-                num_layers=args.num_layers,
-                dropout_mlp=args.dropout_mlp,
-                dropout_rnn=args.dropout_rnn).to(self.device)
-            self.encoderMy = EncoderY(
-                args.zS_dim,
-                enc_h_dim=args.encoder_h_dim,
-                mlp_dim=args.mlp_dim,
-                batch_norm=args.batch_norm,
-                num_layers=args.num_layers,
-                dropout_mlp=args.dropout_mlp,
-                dropout_rnn=args.dropout_rnn,
-                device=self.device).to(self.device)
-            self.decoderMy = Decoder(
-                args.pred_len,
-                dec_h_dim=self.decoder_h_dim,
-                enc_h_dim=args.encoder_h_dim,
-                z_dim=args.zS_dim,
-                mlp_dim=args.mlp_dim,
-                num_layers=args.num_layers,
-                device=args.device,
-                dropout_mlp=args.dropout_mlp,
-                dropout_rnn=args.dropout_rnn,
-                batch_norm=args.batch_norm).to(self.device)
+            self.encoderX = EncoderX(enc_inp_size=2,
+                                     d_latent=args.latent_dim,
+                                     N = args.layers,
+                                     d_model = args.emb_size,
+                                     d_ff = 2048,
+                                     h = args.heads,
+                                     dropout = args.dropout).to(self.device)
+            self.encoderY = EncoderY(enc_inp_size=2,
+                                     d_latent=args.latent_dim,
+                                     N = args.layers,
+                                     d_model = args.emb_size,
+                                     d_ff = 2048,
+                                     h = args.heads,
+                                     dropout = args.dropout).to(self.device)
+            self.decoderY = DecoderY(dec_inp_size=2,
+                                     dec_out_size=2,
+                                     d_latent=args.latent_dim,
+                                     N = args.layers,
+                                     d_model = args.emb_size,
+                                     d_ff = 2048,
+                                     h = args.heads,
+                                     dropout = args.dropout).to(self.device)
+
 
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
@@ -172,9 +158,9 @@ class Solver(object):
 
         # get VAE parameters
         vae_params = \
-            list(self.encoderMx.parameters()) + \
-            list(self.encoderMy.parameters()) + \
-            list(self.decoderMy.parameters())
+            list(self.encoderX.parameters()) + \
+            list(self.encoderY.parameters()) + \
+            list(self.decoderY.parameters())
 
         # create optimizers
         self.optim_vae = optim.Adam(
@@ -185,7 +171,7 @@ class Solver(object):
 
         # prepare dataloader (iterable)
         print('Start loading data...')
-        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'train')
+        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
         val_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
 
         # long_dtype, float_dtype = get_dtypes(args)
@@ -233,33 +219,48 @@ class Solver(object):
             # sample a mini-batch
             (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, non_linear_ped,
              loss_mask, seq_start_end, obs_frames, pred_frames) = next(iterator)
-            batch = obs_traj_rel.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
+            batch_size = obs_traj_rel.size(0) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
+
+            # prior_token = Variable(torch.zeros(batch_size, 1, self.emb_size))
+            # posterior_token = Variable(torch.zeros(batch_size, 1, self.emb_size))
+            # encX_inp = torch.cat((prior_token, obs_traj_rel), dim=1)
+            # encY_inp = torch.cat((posterior_token, obs_traj_rel, fut_traj_rel), dim=1)
+            encX_inp = obs_traj_rel
+            encY_inp = torch.cat((obs_traj_rel, fut_traj_rel), dim=1)
+            dec_inp = fut_traj_rel
+
+            # encX_mask = torch.ones((encX_inp.shape[0], 1, encX_inp.shape[1] + 1)).to(self.device) # bs, 1,7의 all 1
+            # encY_mask = torch.ones((encY_inp.shape[0], 1, encY_inp.shape[1] + 1)).to(self.device) # bs, 1,7의 all 1
+            encX_mask = encY_mask = None
+            dec_mask=subsequent_mask(dec_inp.shape[1]).repeat(dec_inp.shape[0],1,1).to(self.device) # bs, 12,12의 T/F인데, [t,f,f,...,f]부터 [t,t,..,t]까지 12dim의 vec가 12개
+
+            encX_feat, prior_logit = self.encoderX(encX_inp, encX_mask)
+            encY_feat, posterior_logit = self.encoderY(encY_inp, encY_mask)
 
 
-            (encX_h_feat, logitX) \
-                = self.encoderMx(obs_traj, seq_start_end, train=True)
-            (encY_h_feat, logitY) \
-                = self.encoderMy(obs_traj[-1], fut_traj_rel, seq_start_end, encX_h_feat, train=True)
-
-            p_dist = discrete(logits=logitX)
-            q_dist = discrete(logits=logitY)
-            relaxed_q_dist = concrete(logits=logitY, temperature=self.temp)
+            p_dist = discrete(logits=prior_logit)
+            q_dist = discrete(logits=posterior_logit)
+            relaxed_q_dist = concrete(logits=posterior_logit, temperature=self.temp)
 
 
             # 첫번째 iteration 디코더 인풋 = (obs_traj_rel의 마지막 값, (hidden_state, cell_state))
             # where hidden_state = "인코더의 마지막 hidden_layer아웃풋과 그것으로 만든 max_pooled값을 concat해서 mlp 통과시켜만든 feature인 noise_input에다 noise까지 추가한값)"
-            fut_rel_pos_dist = self.decoderMy(
-                obs_traj[-1],
-                encX_h_feat,
-                relaxed_q_dist.rsample(),
-                fut_traj
+            mu, logvar = self.decoderY(
+                encX_feat, relaxed_q_dist.rsample(), dec_inp,
+                encX_mask, dec_mask
             )
-
+            fut_rel_pos_dist = Normal(mu, torch.sqrt(torch.exp(logvar)))
 
             ################# validate integration #################
             # a = integrate_samples(fut_traj_rel, obs_traj[-1][:, :2])
             # d = a - fut_traj[:, :, :2]
             # b = relative_to_abs(fut_traj_rel, obs_traj[-1][:, :2])
+            # e = b - fut_traj[:, :, :2]
+            # d==e
+
+            # a = integrate_samples(fut_traj_rel, obs_traj[:, -1, :2], self.dt)
+            # d = a - fut_traj[:, :, :2]
+            # b = relative_to_abs(fut_traj_rel, obs_traj[:, -1, :2])
             # e = b - fut_traj[:, :, :2]
             # d==e
             ####################################################################
@@ -270,9 +271,9 @@ class Solver(object):
             # log_p_yt_xz=torch.clamp(fut_rel_pos_dist.log_prob(torch.reshape(fut_traj_rel, [batch, self.pred_len, 2])), max=6)
             # print(">>>max:", log_p_yt_xz.max(), log_p_yt_xz.min(), log_p_yt_xz.mean())
             # loglikelihood = log_p_yt_xz.sum().div(batch)
-            loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_rel).sum().div(batch)
+            loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_rel).sum().div(batch_size)
 
-            loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
+            loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch_size)
             loss_kl = torch.clamp(loss_kl, min=0.07)
             # print('log_likelihood:', loglikelihood.item(), ' kl:', loss_kl.item())
 
@@ -283,7 +284,6 @@ class Solver(object):
             self.optim_vae.zero_grad()
             vae_loss.backward()
             self.optim_vae.step()
-
 
             # save model parameters
             if iteration % self.ckpt_save_iter == 0:
@@ -396,35 +396,44 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
+                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, seq_start_end, obs_frames, fut_frames, past_obst,
                  fut_obst) = batch
-                batch_size = obs_traj_vel.size(1)
-                total_traj += fut_traj.size(1)
 
-                (encX_h_feat, logitX) \
-                    = self.encoderMx(obs_traj, seq_start_end)
-                p_dist = discrete(logits=logitX)
-                relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
+                batch_size = obs_traj_rel.size(0)  # =sum(seq_start_end[:,1] - seq_start_end[:,0])
+
+                encX_inp = obs_traj_rel
+                encX_mask = encY_mask=None
+                encX_feat, prior_logit = self.encoderX(encX_inp, encX_mask)
+
+                p_dist = discrete(logits=prior_logit)
+                relaxed_p_dist = concrete(logits=prior_logit, temperature=self.temp)
 
                 if loss:
-                    (encY_h_feat, logitY) \
-                        = self.encoderMy(obs_traj[-1], fut_traj_vel, seq_start_end, encX_h_feat)
+                    encY_inp = torch.cat((obs_traj_rel, fut_traj_rel), dim=1)
+                    dec_inp = obs_traj_rel[:, -1].unsqueeze(1)
 
-                    q_dist = discrete(logits=logitY)
-                    fut_rel_pos_dist = self.decoderMy(
-                        obs_traj[-1],
-                        encX_h_feat,
-                        relaxed_p_dist.rsample()
-                    )
-                    # fut_rel_pos_dist = self.decoderMy(
-                    #     obs_traj[-1],
-                    #     encX_h_feat,
-                    #     relaxed_p_dist.rsample((num_samples,)),
-                    #     num_samples=num_samples
-                    # )
+                    encY_feat, posterior_logit = self.encoderY(encY_inp, encY_mask)
+                    q_dist = discrete(logits=posterior_logit)
+
+                    mus = []
+                    stds = []
+                    for i in range(self.pred_len+1):  # 12
+                        dec_mask = subsequent_mask(dec_inp.shape[1]).repeat(dec_inp.shape[0], 1, 1).to(self.device)
+                        mu, logvar = self.decoderY(
+                            encX_feat, relaxed_p_dist.rsample(), dec_inp,
+                            encX_mask, dec_mask
+                        )
+                        mus.append(mu[:, -1:, :])
+                        stds.append(torch.sqrt(torch.exp(logvar[:, -1:, :])))
+                        dec_out = Normal(mu, torch.sqrt(torch.exp(logvar))).rsample()
+                        dec_inp = torch.cat((dec_inp, dec_out[:, -1:, :]),1)
+
+                    mus = torch.cat(mus, dim=1)[:, 1:]
+                    stds = torch.cat(stds, dim=1)[:, 1:]
+                    fut_rel_pos_dist = Normal(mus, stds)
 
                     ################## total loss for vae ####################
-                    loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_vel).sum().div(batch_size)
+                    loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_rel).sum().div(batch_size)
 
                     kld = kl_divergence(q_dist, p_dist).sum().div(batch_size)
                     kld = torch.clamp(kld, min=0.07)
@@ -434,15 +443,28 @@ class Solver(object):
                     loss_kl +=kld
 
                 ade, fde = [], []
-                for _ in range(num_samples):
-                    fut_rel_pos_dist = self.decoderMy(
-                        obs_traj[-1],
-                        encX_h_feat,
-                        relaxed_p_dist.rsample()
-                    )
-                    pred_fut_traj_rel = fut_rel_pos_dist.rsample()
+                for _ in range(num_samples): # different relaxed_p_dist.rsample()
+                    mus = []
+                    stds = []
+                    dec_inp = obs_traj_rel[:, -1].unsqueeze(1)
 
-                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
+                    for i in range(self.pred_len+1):  # 12
+                        dec_mask = subsequent_mask(dec_inp.shape[1]).repeat(dec_inp.shape[0], 1, 1).to(self.device)
+                        mu, logvar = self.decoderY(
+                            encX_feat, relaxed_p_dist.rsample(), dec_inp,
+                            encX_mask, dec_mask
+                        )
+                        mus.append(mu[:, -1:, :])
+                        stds.append(torch.sqrt(torch.exp(logvar[:, -1:, :])))
+                        dec_out = Normal(mu, torch.sqrt(torch.exp(logvar))).rsample()
+                        dec_inp = torch.cat((dec_inp, dec_out[:, -1:, :]),1)
+
+                    mus = torch.cat(mus, dim=1)[:, 1:]
+                    stds = torch.cat(stds, dim=1)[:, 1:]
+                    fut_rel_pos_dist = Normal(mus, stds)
+
+                    pred_fut_traj_rel = fut_rel_pos_dist.rsample()
+                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[:, -1, :2], dt=self.dt)
 
 
                     ade.append(displacement_error(
@@ -492,12 +514,12 @@ class Solver(object):
                 batch_size = fut_traj.size(1)
 
                 (encX_h_feat, logitX) \
-                    = self.encoderMx(obs_traj, seq_start_end)
+                    = self.encoderX(obs_traj, seq_start_end)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
                 dist_20samples = [] # (20, # seq, 12)
                 for _ in range(num_samples):
-                    fut_rel_pos_dist = self.decoderMy(
+                    fut_rel_pos_dist = self.decoderY(
                         obs_traj[-1],
                         encX_h_feat,
                         relaxed_p_dist.rsample()
@@ -537,12 +559,12 @@ class Solver(object):
 
 
                 (encX_h_feat, logitX) \
-                    = self.encoderMx(obs_traj, seq_start_end)
+                    = self.encoderX(obs_traj, seq_start_end)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
                 coll_20samples = [] # (20, # seq, 12)
                 for _ in range(num_samples):
-                    fut_rel_pos_dist = self.decoderMy(
+                    fut_rel_pos_dist = self.decoderY(
                         obs_traj[-1],
                         encX_h_feat,
                         relaxed_p_dist.rsample()
@@ -646,7 +668,7 @@ class Solver(object):
                 total_traj += fut_traj.size(1)
 
                 (encX_h_feat, logitX) \
-                    = self.encoderMx(obs_traj, seq_start_end, train=False)
+                    = self.encoderX(obs_traj, seq_start_end, train=False)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
 
@@ -657,7 +679,7 @@ class Solver(object):
 
                     multi_sample_pred = []
                     for _ in range(num_samples):
-                        fut_rel_pos_dist = self.decoderMy(
+                        fut_rel_pos_dist = self.decoderY(
                             obs_traj[-1],
                             encX_h_feat,
                             relaxed_p_dist.rsample()
@@ -782,7 +804,7 @@ class Solver(object):
 
 
                 (encX_h_feat, logitX) \
-                    = self.encoderMx(obs_traj, seq_start_end)
+                    = self.encoderX(obs_traj, seq_start_end)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
                 # s=seq_start_end.numpy()
@@ -814,7 +836,7 @@ class Solver(object):
                     multi_sample_pred = []
 
                     for _ in range(num_samples):
-                        fut_rel_pos_dist = self.decoderMy(
+                        fut_rel_pos_dist = self.decoderY(
                             obs_traj[-1],
                             encX_h_feat,
                             relaxed_p_dist.rsample()
@@ -1092,57 +1114,57 @@ class Solver(object):
     def set_mode(self, train=True):
 
         if train:
-            self.encoderMx.train()
-            self.encoderMy.train()
-            self.decoderMy.train()
+            self.encoderX.train()
+            self.encoderY.train()
+            self.decoderY.train()
         else:
-            self.encoderMx.eval()
-            self.encoderMy.eval()
-            self.decoderMy.eval()
+            self.encoderX.eval()
+            self.encoderY.eval()
+            self.decoderY.eval()
 
     ####
     def save_checkpoint(self, iteration):
 
-        encoderMx_path = os.path.join(
+        encoderX_path = os.path.join(
             self.ckpt_dir,
-            'iter_%s_encoderMx.pt' % iteration
+            'iter_%s_encoderX.pt' % iteration
         )
-        encoderMy_path = os.path.join(
+        encoderY_path = os.path.join(
             self.ckpt_dir,
-            'iter_%s_encoderMy.pt' % iteration
+            'iter_%s_encoderY.pt' % iteration
         )
-        decoderMy_path = os.path.join(
+        decoderY_path = os.path.join(
             self.ckpt_dir,
-            'iter_%s_decoderMy.pt' % iteration
+            'iter_%s_decoderY.pt' % iteration
         )
 
 
         mkdirs(self.ckpt_dir)
 
-        torch.save(self.encoderMx, encoderMx_path)
-        torch.save(self.encoderMy, encoderMy_path)
-        torch.save(self.decoderMy, decoderMy_path)
+        torch.save(self.encoderX, encoderX_path)
+        torch.save(self.encoderY, encoderY_path)
+        torch.save(self.decoderY, decoderY_path)
     ####
     def load_checkpoint(self):
 
-        encoderMx_path = os.path.join(
+        encoderX_path = os.path.join(
             self.ckpt_dir,
-            'iter_%s_encoderMx.pt' % self.ckpt_load_iter
+            'iter_%s_encoderX.pt' % self.ckpt_load_iter
         )
-        encoderMy_path = os.path.join(
+        encoderY_path = os.path.join(
             self.ckpt_dir,
-            'iter_%s_encoderMy.pt' % self.ckpt_load_iter
+            'iter_%s_encoderY.pt' % self.ckpt_load_iter
         )
-        decoderMy_path = os.path.join(
+        decoderY_path = os.path.join(
             self.ckpt_dir,
-            'iter_%s_decoderMy.pt' % self.ckpt_load_iter
+            'iter_%s_decoderY.pt' % self.ckpt_load_iter
         )
 
         if self.device == 'cuda':
-            self.encoderMx = torch.load(encoderMx_path)
-            self.encoderMy = torch.load(encoderMy_path)
-            self.decoderMy = torch.load(decoderMy_path)
+            self.encoderX = torch.load(encoderX_path)
+            self.encoderY = torch.load(encoderY_path)
+            self.decoderY = torch.load(decoderY_path)
         else:
-            self.encoderMx = torch.load(encoderMx_path, map_location='cpu')
-            self.encoderMy = torch.load(encoderMy_path, map_location='cpu')
-            self.decoderMy = torch.load(decoderMy_path, map_location='cpu')
+            self.encoderX = torch.load(encoderX_path, map_location='cpu')
+            self.encoderY = torch.load(encoderY_path, map_location='cpu')
+            self.decoderY = torch.load(decoderY_path, map_location='cpu')
