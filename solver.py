@@ -471,7 +471,7 @@ class Solver(object):
                         pred_fut_traj, fut_traj[:,:,:2], mode='raw'
                     ))
                     fde.append(final_displacement_error(
-                        pred_fut_traj[-1], fut_traj[-1,:,:2], mode='raw'
+                        pred_fut_traj[:, -1], fut_traj[:, -1, :2], mode='raw'
                     ))
                 all_ade.append(torch.stack(ade))
                 all_fde.append(torch.stack(fde))
