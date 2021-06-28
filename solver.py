@@ -219,8 +219,7 @@ class Solver(object):
             # ============================================
 
             # sample a mini-batch
-            (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, non_linear_ped,
-             loss_mask, seq_start_end, obs_frames, pred_frames) = next(iterator)
+            (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, seq_start_end, obs_frames, pred_frames) = next(iterator)
             batch_size = obs_traj_rel.size(0) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
             # prior_token = Variable(torch.zeros(batch_size, 1, self.emb_size))
