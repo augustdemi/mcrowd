@@ -36,12 +36,9 @@ def seq_collate(data):
     obs_frames = np.concatenate(obs_frames, 0)
     fut_frames = np.concatenate(fut_frames, 0)
 
-    mean = torch.zeros_like(obs_traj[0]).type(torch.FloatTensor).to(obs_traj.device)
-    mean[:,:2] = obs_traj[-1,:,:2]
-    std = torch.tensor([3, 3, 2, 2, 1, 1]).type(torch.FloatTensor).to(obs_traj.device)
 
     out = [
-        obs_traj, pred_traj, (obs_traj - mean) / std, pred_traj_rel / 2, seq_start_end, obs_frames, fut_frames
+        obs_traj, pred_traj, obs_traj_rel, pred_traj_rel, seq_start_end, obs_frames, fut_frames
     ]
 
     return tuple(out)
