@@ -228,7 +228,7 @@ class Solver(object):
             encY_inp = torch.cat((obs_traj_rel, fut_traj_rel), dim=1)
 
             start_of_seq = torch.Tensor([0, 0, 1]).unsqueeze(0).unsqueeze(1).repeat(batch_size, 1, 1).to(self.device)
-            dec_input = fut_traj_rel[:,-1]
+            dec_input = fut_traj_rel[:,:-1]
             dec_inp=torch.cat((dec_input,torch.zeros((dec_input.shape[0],dec_input.shape[1],1)).to(self.device)),-1) # 70, 12, 3( 0이 더붙음)
             dec_inp = torch.cat((start_of_seq, dec_inp), 1) # 70, 13, 2. : 13 seq중에 맨 앞에 값이 (0,0,1)이게됨. 나머지 12개는 (x,y,0)
 
