@@ -132,17 +132,15 @@ class Solver(object):
                                      d_model = args.emb_size,
                                      d_ff = 2048,
                                      h = args.heads,
-                                     dropout = args.dropout,
-                                     device=self.device).to(self.device)
+                                     dropout = args.dropout).to(self.device)
             self.encoderY = EncoderY(enc_inp_size=2,
                                      d_latent=args.latent_dim,
                                      N = args.layers,
                                      d_model = args.emb_size,
                                      d_ff = 2048,
                                      h = args.heads,
-                                     dropout = args.dropout,
-                                     device=self.device).to(self.device)
-            self.decoderY = DecoderY(dec_inp_size=2,
+                                     dropout = args.dropout).to(self.device)
+            self.decoderY = DecoderY(dec_inp_size=3,
                                      dec_out_size=2,
                                      d_latent=args.latent_dim,
                                      N = args.layers,
@@ -228,10 +226,13 @@ class Solver(object):
             # encY_inp = torch.cat((posterior_token, obs_traj_rel, fut_traj_rel), dim=1)
             encX_inp = obs_traj_rel
             encY_inp = torch.cat((obs_traj_rel, fut_traj_rel), dim=1)
-            dec_inp = fut_traj_rel
+
+            start_of_seq = torch.Tensor([0, 0, 1]).unsqueeze(0).unsqueeze(1).repeat(batch_size, 1, 1).to(self.device)
+            dec_inp=torch.cat((fut_traj_rel,torch.zeros((fut_traj_rel.shape[0],fut_traj_rel.shape[1],1)).to(self.device)),-1) # 70, 12, 3( 0이 더붙음)
+            dec_inp = torch.cat((start_of_seq, dec_inp), 1) # 70, 13, 2. : 13 seq중에 맨 앞에 값이 (0,0,1)이게됨. 나머지 12개는 (x,y,0)
+
 
             # encX_mask = torch.ones((encX_inp.shape[0], 1, encX_inp.shape[1] + 1)).to(self.device) # bs, 1,7의 all 1
-            # encY_mask = torch.ones((encY_inp.shape[0], 1, encY_inp.shape[1] + 1)).to(self.device) # bs, 1,7의 all 1
             encX_mask = encY_mask = None
             dec_mask=subsequent_mask(dec_inp.shape[1]).repeat(dec_inp.shape[0],1,1).to(self.device) # bs, 12,12의 T/F인데, [t,f,f,...,f]부터 [t,t,..,t]까지 12dim의 vec가 12개
 
@@ -244,21 +245,19 @@ class Solver(object):
             relaxed_q_dist = concrete(logits=posterior_logit, temperature=self.temp)
 
 
-            # 첫번째 iteration 디코더 인풋 = (obs_traj_rel의 마지막 값, (hidden_state, cell_state))
-            # where hidden_state = "인코더의 마지막 hidden_layer아웃풋과 그것으로 만든 max_pooled값을 concat해서 mlp 통과시켜만든 feature인 noise_input에다 noise까지 추가한값)"
+
             mu, logvar = self.decoderY(
                 encX_feat, relaxed_q_dist.rsample(), dec_inp,
                 encX_mask, dec_mask
             )
             fut_rel_pos_dist = Normal(mu, torch.sqrt(torch.exp(logvar)))
 
-            ################# validate integration #################
-            # a = integrate_samples(fut_traj_rel, obs_traj[-1][:, :2])
-            # d = a - fut_traj[:, :, :2]
-            # b = relative_to_abs(fut_traj_rel, obs_traj[-1][:, :2])
-            # e = b - fut_traj[:, :, :2]
-            # d==e
+            # ade_min, fde_min, \
+            # ade_avg, fde_avg, \
+            # ade_std, fde_std, \
+            # test_loss_recon, test_loss_kl, test_vae_loss = self.evaluate_dist(self.val_loader, 20, loss=True)
 
+            ################# validate integration #################
             # a = integrate_samples(fut_traj_rel, obs_traj[:, -1, :2], self.dt)
             # d = a - fut_traj[:, :, :2]
             # b = relative_to_abs(fut_traj_rel, obs_traj[:, -1, :2])
@@ -410,7 +409,11 @@ class Solver(object):
 
                 if loss:
                     encY_inp = torch.cat((obs_traj_rel, fut_traj_rel), dim=1)
-                    dec_inp = obs_traj_rel[:, -1].unsqueeze(1)
+                    # dec_inp = obs_traj_rel[:, -1].unsqueeze(1)
+
+                    start_of_seq = torch.Tensor([0, 0, 1]).unsqueeze(0).unsqueeze(1).repeat(batch_size, 1, 1).to(
+                        self.device)
+                    dec_inp = start_of_seq
 
                     encY_feat, posterior_logit = self.encoderY(encY_inp, encY_mask)
                     q_dist = discrete(logits=posterior_logit)
@@ -423,10 +426,15 @@ class Solver(object):
                             encX_feat, relaxed_p_dist.rsample(), dec_inp,
                             encX_mask, dec_mask
                         )
-                        mus.append(mu[:, -1:, :])
-                        stds.append(torch.sqrt(torch.exp(logvar[:, -1:, :])))
-                        dec_out = Normal(mu, torch.sqrt(torch.exp(logvar))).rsample()
-                        dec_inp = torch.cat((dec_inp, dec_out[:, -1:, :]),1)
+                        mu = mu[:, -1:, :]
+                        std = torch.sqrt(torch.exp(logvar))[:, -1:, :]
+                        mus.append(mu)
+                        stds.append(std)
+                        dec_out = Normal(mu, std).rsample()
+                        dec_out = torch.cat((dec_out,
+                                             torch.zeros((dec_out.shape[0], dec_out.shape[1], 1)).to(
+                                                 self.device)), -1)  # 70, i, 3( 0이 더붙음)
+                        dec_inp = torch.cat((dec_inp, dec_out),1)
 
                     mus = torch.cat(mus, dim=1)[:, 1:]
                     stds = torch.cat(stds, dim=1)[:, 1:]
@@ -446,7 +454,10 @@ class Solver(object):
                 for _ in range(num_samples): # different relaxed_p_dist.rsample()
                     mus = []
                     stds = []
-                    dec_inp = obs_traj_rel[:, -1].unsqueeze(1)
+                    # dec_inp = obs_traj_rel[:, -1].unsqueeze(1)
+                    start_of_seq = torch.Tensor([0, 0, 1]).unsqueeze(0).unsqueeze(1).repeat(batch_size, 1, 1).to(
+                        self.device)
+                    dec_inp = start_of_seq
 
                     for i in range(self.pred_len+1):  # 12
                         dec_mask = subsequent_mask(dec_inp.shape[1]).repeat(dec_inp.shape[0], 1, 1).to(self.device)
@@ -454,10 +465,15 @@ class Solver(object):
                             encX_feat, relaxed_p_dist.rsample(), dec_inp,
                             encX_mask, dec_mask
                         )
-                        mus.append(mu[:, -1:, :])
-                        stds.append(torch.sqrt(torch.exp(logvar[:, -1:, :])))
-                        dec_out = Normal(mu, torch.sqrt(torch.exp(logvar))).rsample()
-                        dec_inp = torch.cat((dec_inp, dec_out[:, -1:, :]),1)
+                        mu = mu[:, -1:, :]
+                        std = torch.sqrt(torch.exp(logvar))[:, -1:, :]
+                        mus.append(mu)
+                        stds.append(std)
+                        dec_out = Normal(mu, std).rsample()
+                        dec_out = torch.cat((dec_out,
+                                             torch.zeros((dec_out.shape[0], dec_out.shape[1], 1)).to(
+                                                 self.device)), -1)  # 70, i, 3( 0이 더붙음)
+                        dec_inp = torch.cat((dec_inp, dec_out),1)
 
                     mus = torch.cat(mus, dim=1)[:, 1:]
                     stds = torch.cat(stds, dim=1)[:, 1:]
