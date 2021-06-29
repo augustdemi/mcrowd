@@ -238,11 +238,8 @@ class TrajectoryDataset(Dataset):
 
                     # Make coordinates relative
                     _idx = num_peds_considered
-                    rel_curr_ped_seq = np.zeros((self.obs_len + self.pred_len, 2))
-                    rel_curr_ped_seq[1:] = curr_ped_seq[1:, 2:] - curr_ped_seq[:-1, 2:] #한 프레임 동안 이동한 상대거리 pos_x(i) - pos_x(i-1), pos_y(i) - pos_y(i-1) for i = 1,.., n-1
-
-                    curr_seq[_idx, :, pad_front:pad_end] = np.stack([x, y, rel_curr_ped_seq[:,0], rel_curr_ped_seq[:,1], x, y])
-                    curr_seq_rel[_idx, :, pad_front:pad_end] = rel_curr_ped_seq.transpose((1,0))
+                    curr_seq[_idx, :, pad_front:pad_end] = np.stack([x, y, vx, vy, ax, ay])
+                    curr_seq_rel[_idx, :, pad_front:pad_end] = np.stack([vx, vy])
                     num_peds_considered += 1
 
                     ### others

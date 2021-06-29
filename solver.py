@@ -35,7 +35,7 @@ class Solver(object):
 
         self.device = args.device
         self.temp=1.99
-        self.dt=1
+        self.dt=0.4
         self.kl_weight=args.kl_weight
         self.emb_size=args.emb_size
 
@@ -130,14 +130,14 @@ class Solver(object):
                                      d_latent=args.latent_dim,
                                      N = args.layers,
                                      d_model = args.emb_size,
-                                     d_ff = 2048,
+                                     d_ff = args.d_ff,
                                      h = args.heads,
                                      dropout = args.dropout).to(self.device)
             self.encoderY = EncoderY(enc_inp_size=2,
                                      d_latent=args.latent_dim,
                                      N = args.layers,
                                      d_model = args.emb_size,
-                                     d_ff = 2048,
+                                     d_ff = args.d_ff,
                                      h = args.heads,
                                      dropout = args.dropout).to(self.device)
             self.decoderY = DecoderY(dec_inp_size=3,
@@ -145,7 +145,7 @@ class Solver(object):
                                      d_latent=args.latent_dim,
                                      N = args.layers,
                                      d_model = args.emb_size,
-                                     d_ff = 2048,
+                                     d_ff = args.d_ff,
                                      h = args.heads,
                                      dropout = args.dropout).to(self.device)
 
