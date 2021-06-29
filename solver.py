@@ -126,18 +126,18 @@ class Solver(object):
         self.pred_len = args.pred_len
 
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
-            self.encoderX = EncoderX(enc_inp_size=2,
+            self.encoderX = EncoderX(enc_inp_size=6,
                                      d_latent=args.latent_dim,
                                      N = args.layers,
                                      d_model = args.emb_size,
-                                     d_ff = 2048,
+                                     d_ff = args.d_ff,
                                      h = args.heads,
                                      dropout = args.dropout).to(self.device)
             self.encoderY = EncoderY(enc_inp_size=2,
                                      d_latent=args.latent_dim,
                                      N = args.layers,
                                      d_model = args.emb_size,
-                                     d_ff = 2048,
+                                     d_ff = args.d_ff,
                                      h = args.heads,
                                      dropout = args.dropout).to(self.device)
             self.decoderY = DecoderY(dec_inp_size=3,
@@ -145,7 +145,7 @@ class Solver(object):
                                      d_latent=args.latent_dim,
                                      N = args.layers,
                                      d_model = args.emb_size,
-                                     d_ff = 2048,
+                                     d_ff = args.d_ff,
                                      h = args.heads,
                                      dropout = args.dropout).to(self.device)
 
@@ -217,18 +217,18 @@ class Solver(object):
             # ============================================
 
             # sample a mini-batch
-            (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, seq_start_end, obs_frames, pred_frames) = next(iterator)
-            batch_size = obs_traj_rel.size(0) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
+            (_, fut_traj, obs_traj_st, fut_traj_rel_st, seq_start_end, obs_frames, pred_frames) = next(iterator)
+            batch_size = fut_traj.size(0) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
             # prior_token = Variable(torch.zeros(batch_size, 1, self.emb_size))
             # posterior_token = Variable(torch.zeros(batch_size, 1, self.emb_size))
             # encX_inp = torch.cat((prior_token, obs_traj_rel), dim=1)
             # encY_inp = torch.cat((posterior_token, obs_traj_rel, fut_traj_rel), dim=1)
-            encX_inp = obs_traj_rel
-            encY_inp = torch.cat((obs_traj_rel, fut_traj_rel), dim=1)
+            encX_inp = obs_traj_st
+            encY_inp = torch.cat((obs_traj_st[:,:,2:4], fut_traj_rel_st), dim=1)
 
             start_of_seq = torch.Tensor([0, 0, 1]).unsqueeze(0).unsqueeze(1).repeat(batch_size, 1, 1).to(self.device)
-            dec_input = fut_traj_rel[:,:-1]
+            dec_input = fut_traj_rel_st[:,:-1]
             dec_inp=torch.cat((dec_input,torch.zeros((dec_input.shape[0],dec_input.shape[1],1)).to(self.device)),-1) # 70, 12, 3( 0이 더붙음)
             dec_inp = torch.cat((start_of_seq, dec_inp), 1) # 70, 13, 2. : 13 seq중에 맨 앞에 값이 (0,0,1)이게됨. 나머지 12개는 (x,y,0)
 
@@ -272,7 +272,7 @@ class Solver(object):
             # log_p_yt_xz=torch.clamp(fut_rel_pos_dist.log_prob(torch.reshape(fut_traj_rel, [batch, self.pred_len, 2])), max=6)
             # print(">>>max:", log_p_yt_xz.max(), log_p_yt_xz.min(), log_p_yt_xz.mean())
             # loglikelihood = log_p_yt_xz.sum().div(batch)
-            loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_rel).sum().div(batch_size)
+            loglikelihood = fut_rel_pos_dist.log_prob(fut_traj[:,:,2:4]).sum().div(batch_size)
 
             loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch_size)
             loss_kl = torch.clamp(loss_kl, min=0.07)
@@ -397,11 +397,11 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, seq_start_end, obs_frames, fut_frames) = batch
+                (obs_traj, fut_traj, obs_traj_st, fut_traj_rel_st, seq_start_end, obs_frames, pred_frames) = batch
 
-                batch_size = obs_traj_rel.size(0)  # =sum(seq_start_end[:,1] - seq_start_end[:,0])
+                batch_size = fut_traj.size(0)  # =sum(seq_start_end[:,1] - seq_start_end[:,0])
 
-                encX_inp = obs_traj_rel
+                encX_inp = obs_traj_st
                 encX_mask = encY_mask=None
                 encX_feat, prior_logit = self.encoderX(encX_inp, encX_mask)
 
@@ -409,7 +409,7 @@ class Solver(object):
                 relaxed_p_dist = concrete(logits=prior_logit, temperature=self.temp)
 
                 if loss:
-                    encY_inp = torch.cat((obs_traj_rel, fut_traj_rel), dim=1)
+                    encY_inp = torch.cat((obs_traj_st[:,:,2:4], fut_traj_rel_st), dim=1)
                     # dec_inp = obs_traj_rel[:, -1].unsqueeze(1)
 
                     start_of_seq = torch.Tensor([0, 0, 1]).unsqueeze(0).unsqueeze(1).repeat(batch_size, 1, 1).to(
@@ -442,7 +442,7 @@ class Solver(object):
                     fut_rel_pos_dist = Normal(mus, stds)
 
                     ################## total loss for vae ####################
-                    loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_rel).sum().div(batch_size)
+                    loglikelihood = fut_rel_pos_dist.log_prob(fut_traj[:,:,2:4]).sum().div(batch_size)
 
                     kld = kl_divergence(q_dist, p_dist).sum().div(batch_size)
                     kld = torch.clamp(kld, min=0.07)
