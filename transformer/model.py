@@ -27,11 +27,10 @@ class LinearEmbedding(nn.Module):
 
 class EncoderX(nn.Module):
     def __init__(self, enc_inp_size, d_latent, N=6,
-                   d_model=512, d_ff=2048, h=8, dropout=0.1, device='cpu'):
+                   d_model=512, d_ff=2048, h=8, dropout=0.1):
         super(EncoderX, self).__init__()
 
         self.d_model = d_model
-        self.device = device
         self.embed_fn = nn.Sequential(
             LinearEmbedding(enc_inp_size,d_model),
             PositionalEncoding(d_model, dropout)
@@ -54,7 +53,7 @@ class EncoderX(nn.Module):
 
 
     def forward(self, src, src_mask):
-        logit_token = Variable(torch.FloatTensor(np.random.rand(src.shape[0], 1, self.d_model))).to(self.device)
+        logit_token = Variable(torch.FloatTensor(np.random.rand(src.shape[0], 1, self.d_model))).to(src.device)
         src_emb = torch.cat((logit_token, self.embed_fn(src)), dim=1)
         enc_out = self.encoder(src_emb, src_mask) # bs, 1+8, 512
         logit = self.fc(enc_out[:,0])
@@ -65,9 +64,8 @@ class EncoderX(nn.Module):
 
 class EncoderY(nn.Module):
     def __init__(self, enc_inp_size, d_latent, N=6,
-                   d_model=512, d_ff=2048, h=8, dropout=0.1, device='cpu'):
+                   d_model=512, d_ff=2048, h=8, dropout=0.1):
         super(EncoderY, self).__init__()
-        self.device = device
         self.d_model = d_model
         self.embed_fn = nn.Sequential(
             LinearEmbedding(enc_inp_size,d_model),
@@ -86,7 +84,7 @@ class EncoderY(nn.Module):
 
 
     def forward(self, src_trg, src_trg_mask):
-        logit_token = Variable(torch.FloatTensor(np.random.rand(src_trg.shape[0], 1, self.d_model))).to(self.device)
+        logit_token = Variable(torch.FloatTensor(np.random.rand(src_trg.shape[0], 1, self.d_model))).to(src_trg.device)
         src_trg_emb = torch.cat((logit_token, self.embed_fn(src_trg)), dim=1)
         enc_out = self.encoder(src_trg_emb, src_trg_mask) # bs, 1+8, 512
         logit = self.fc(enc_out[:,0])
