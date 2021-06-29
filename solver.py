@@ -35,7 +35,7 @@ class Solver(object):
 
         self.device = args.device
         self.temp=1.99
-        self.dt=0.4
+        self.dt=1
         self.kl_weight=args.kl_weight
         self.emb_size=args.emb_size
 
@@ -466,9 +466,6 @@ class Solver(object):
                             encX_feat, relaxed_p_dist.rsample(), dec_inp,
                             encX_mask, dec_mask
                         )
-                        if i == self.pred_len -1:
-                            fut_rel_pos_dist = Normal(mu, torch.sqrt(torch.exp(logvar))).rsample()
-                            break
                         mu = mu[:, -1:, :]
                         std = torch.sqrt(torch.exp(logvar))[:, -1:, :]
                         mus.append(mu)
@@ -479,9 +476,9 @@ class Solver(object):
                                                  self.device)), -1)  # 70, i, 3( 0이 더붙음)
                         dec_inp = torch.cat((dec_inp, dec_out),1)
 
-                    # mus = torch.cat(mus, dim=1)
-                    # stds = torch.cat(stds, dim=1)
-                    # fut_rel_pos_dist = Normal(mus, stds)
+                    mus = torch.cat(mus, dim=1)
+                    stds = torch.cat(stds, dim=1)
+                    fut_rel_pos_dist = Normal(mus, stds)
 
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
                     pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[:, -1, :2], dt=self.dt)
