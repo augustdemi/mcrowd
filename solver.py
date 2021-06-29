@@ -126,18 +126,18 @@ class Solver(object):
         self.pred_len = args.pred_len
 
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
-            self.encoderX = EncoderX(enc_inp_size=6,
+            self.encoderX = EncoderX(enc_inp_size=2,
                                      d_latent=args.latent_dim,
                                      N = args.layers,
                                      d_model = args.emb_size,
-                                     d_ff = args.d_ff,
+                                     d_ff = 2048,
                                      h = args.heads,
                                      dropout = args.dropout).to(self.device)
             self.encoderY = EncoderY(enc_inp_size=2,
                                      d_latent=args.latent_dim,
                                      N = args.layers,
                                      d_model = args.emb_size,
-                                     d_ff = args.d_ff,
+                                     d_ff = 2048,
                                      h = args.heads,
                                      dropout = args.dropout).to(self.device)
             self.decoderY = DecoderY(dec_inp_size=3,
@@ -145,7 +145,7 @@ class Solver(object):
                                      d_latent=args.latent_dim,
                                      N = args.layers,
                                      d_model = args.emb_size,
-                                     d_ff = args.d_ff,
+                                     d_ff = 2048,
                                      h = args.heads,
                                      dropout = args.dropout).to(self.device)
 
@@ -224,7 +224,7 @@ class Solver(object):
             # posterior_token = Variable(torch.zeros(batch_size, 1, self.emb_size))
             # encX_inp = torch.cat((prior_token, obs_traj_rel), dim=1)
             # encY_inp = torch.cat((posterior_token, obs_traj_rel, fut_traj_rel), dim=1)
-            encX_inp = obs_traj
+            encX_inp = obs_traj_rel
             encY_inp = torch.cat((obs_traj_rel, fut_traj_rel), dim=1)
 
             start_of_seq = torch.Tensor([0, 0, 1]).unsqueeze(0).unsqueeze(1).repeat(batch_size, 1, 1).to(self.device)
@@ -401,7 +401,7 @@ class Solver(object):
 
                 batch_size = obs_traj_rel.size(0)  # =sum(seq_start_end[:,1] - seq_start_end[:,0])
 
-                encX_inp = obs_traj
+                encX_inp = obs_traj_rel
                 encX_mask = encY_mask=None
                 encX_feat, prior_logit = self.encoderX(encX_inp, encX_mask)
 
@@ -466,6 +466,9 @@ class Solver(object):
                             encX_feat, relaxed_p_dist.rsample(), dec_inp,
                             encX_mask, dec_mask
                         )
+                        if i == self.pred_len -1:
+                            fut_rel_pos_dist = Normal(mu, torch.sqrt(torch.exp(logvar))).rsample()
+                            break
                         mu = mu[:, -1:, :]
                         std = torch.sqrt(torch.exp(logvar))[:, -1:, :]
                         mus.append(mu)
@@ -476,9 +479,9 @@ class Solver(object):
                                                  self.device)), -1)  # 70, i, 3( 0이 더붙음)
                         dec_inp = torch.cat((dec_inp, dec_out),1)
 
-                    mus = torch.cat(mus, dim=1)
-                    stds = torch.cat(stds, dim=1)
-                    fut_rel_pos_dist = Normal(mus, stds)
+                    # mus = torch.cat(mus, dim=1)
+                    # stds = torch.cat(stds, dim=1)
+                    # fut_rel_pos_dist = Normal(mus, stds)
 
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
                     pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[:, -1, :2], dt=self.dt)
