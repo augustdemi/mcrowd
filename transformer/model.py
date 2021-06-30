@@ -129,7 +129,7 @@ class DecoderY(nn.Module):
         for i in range(len(aa_enc_out)):
             src_mask[i,:aa_enc_out[i].shape[0]] = 1
             enc_out_neighbors[i,:aa_enc_out[i].shape[0]] = aa_enc_out[i]
-        src_mask = src_mask.unsqueeze(1).repeat((1,12,1))
+        src_mask = src_mask.unsqueeze(1).repeat((1,trg.shape[1],1))
         dec_out =  self.decoder(self.trg_embed(trg), enc_out_neighbors.to(enc_out.device), latents.unsqueeze(1), src_mask.to(enc_out.device), trg_mask) # bs, 12, 512
         stats = self.fc(dec_out) # bs, 12, out*2
         mu = stats[:,:,:self.dec_out_size]
