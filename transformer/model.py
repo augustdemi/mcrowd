@@ -118,8 +118,19 @@ class DecoderY(nn.Module):
                 nn.init.xavier_uniform_(p)
 
 
-    def forward(self, enc_out, latents, trg, src_mask, trg_mask):
-        dec_out =  self.decoder(self.trg_embed(trg), enc_out, latents.unsqueeze(1), src_mask, trg_mask) # bs, 12, 512
+    def forward(self, enc_out, latents, trg, src_mask, trg_mask, seq_start_end):
+        aa_enc_out = []
+        for s in seq_start_end:
+            for _ in range(s[1]-s[0]):
+                aa_enc_out.append(enc_out[s[0]:s[1]].reshape(-1, self.d_model))
+        max_n_agents = (seq_start_end[:,1] - seq_start_end[:,0]).max()
+        src_mask = torch.zeros((len(aa_enc_out), 8*max_n_agents))
+        enc_out_neighbors = torch.zeros((len(aa_enc_out), 8*max_n_agents, self.d_model))
+        for i in range(len(aa_enc_out)):
+            src_mask[i,:aa_enc_out[i].shape[0]] = 1
+            enc_out_neighbors[i,:aa_enc_out[i].shape[0]] = aa_enc_out[i]
+        src_mask = src_mask.unsqueeze(1).repeat((1,12,1))
+        dec_out =  self.decoder(self.trg_embed(trg), enc_out_neighbors, latents.unsqueeze(1), src_mask, trg_mask) # bs, 12, 512
         stats = self.fc(dec_out) # bs, 12, out*2
         mu = stats[:,:,:self.dec_out_size]
         logvar = stats[:,:,self.dec_out_size:]
