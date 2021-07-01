@@ -119,16 +119,21 @@ class DecoderY(nn.Module):
 
 
     def forward(self, enc_out, latents, trg, src_mask, trg_mask, seq_start_end):
-        aa_enc_out = []
-        for s in seq_start_end:
-            for _ in range(s[1]-s[0]):
-                aa_enc_out.append(enc_out[s[0]:s[1]].reshape(-1, self.d_model))
+        bs = enc_out.shape[0]
         max_n_agents = (seq_start_end[:,1] - seq_start_end[:,0]).max()
-        src_mask = torch.zeros((len(aa_enc_out), 8*max_n_agents))
-        enc_out_neighbors = torch.zeros((len(aa_enc_out), 8*max_n_agents, self.d_model))
-        for i in range(len(aa_enc_out)):
-            src_mask[i,:aa_enc_out[i].shape[0]] = 1
-            enc_out_neighbors[i,:aa_enc_out[i].shape[0]] = aa_enc_out[i]
+        src_mask = torch.zeros((bs, 8*max_n_agents))
+        enc_out_neighbors = torch.zeros((bs, 8*max_n_agents, self.d_model))
+
+        i = 0
+        for seq in seq_start_end:
+                # aa_enc_out.append(enc_out[s[0]:s[1]].reshape(-1, self.d_model).unsqueeze(0).repeat((s[1]-s[0]), 1, 1))
+                curr_seq_all_agents = enc_out[seq[0]:seq[1]].reshape(-1, self.d_model)
+                for a in range(seq[1]-seq[0]):
+                    enc_out_neighbors[i, :curr_seq_all_agents.shape[0]] = curr_seq_all_agents
+                    src_mask[i, :curr_seq_all_agents.shape[0]] = 0.5
+                    src_mask[i, 8*a : 8*(a+1)] = 1
+                    i+=1
+
         src_mask = src_mask.unsqueeze(1).repeat((1,trg.shape[1],1))
         dec_out =  self.decoder(self.trg_embed(trg), enc_out_neighbors.to(enc_out.device), latents.unsqueeze(1), src_mask.to(enc_out.device), trg_mask) # bs, 12, 512
         stats = self.fc(dec_out) # bs, 12, out*2
