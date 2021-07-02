@@ -171,7 +171,7 @@ class Solver(object):
 
         # prepare dataloader (iterable)
         print('Start loading data...')
-        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
+        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'train')
         val_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
 
         # long_dtype, float_dtype = get_dtypes(args)
@@ -401,7 +401,7 @@ class Solver(object):
                 batch_size = obs_traj_rel.size(0)  # =sum(seq_start_end[:,1] - seq_start_end[:,0])
 
                 encX_inp = obs_traj_rel
-                encX_mask = encY_mask=None
+                encX_mask =None
                 encX_feat, prior_logit = self.encoderX(encX_inp, encX_mask)
 
                 p_dist = discrete(logits=prior_logit)
@@ -409,13 +409,17 @@ class Solver(object):
 
                 if loss:
                     encY_inp = torch.cat((obs_traj_rel, fut_traj_rel), dim=1)
-                    # dec_inp = obs_traj_rel[:, -1].unsqueeze(1)
+                    encY_mask = subsequent_mask(dec_inp.shape[1]).repeat(dec_inp.shape[0], 1, 1).to(
+                        self.device)  # bs, 12,12의 T/F인데, [t,f,f,...,f]부터 [t,t,..,t]까지 12dim의 vec가 12개
 
                     start_of_seq = torch.Tensor([0, 0, 1]).unsqueeze(0).unsqueeze(1).repeat(batch_size, 1, 1).to(
                         self.device)
                     dec_inp = start_of_seq
 
-                    encY_feat, posterior_logit = self.encoderY(encY_inp, encY_mask)
+                    encY_feat, posterior_logit = self.encoderY(
+                        encX_feat, encY_inp,
+                        encX_mask, encY_mask
+                    )
                     q_dist = discrete(logits=posterior_logit)
 
                     mus = []

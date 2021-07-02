@@ -53,13 +53,14 @@ class EncoderX(nn.Module):
         # layer = EncoderLayer(d_model, MultiHeadAttention(h, d_model), PointerwiseFeedforward(d_model, d_ff, dropout), dropout)
         # self.layers = clones(layer, N)
         # self.norm = LayerNorm(layer.size)
-        # self.fc = nn.Linear(d_model, d_latent)
         self.mlp_pool = make_mlp(
-            [d_model, d_ff, d_latent],
+            [d_model, d_ff],
             dropout=dropout)
+        self.fc = nn.Linear(d_ff, d_latent)
 
         self.init_weights(self.encoder.parameters())
         self.init_weights(self.mlp_pool.parameters())
+        self.init_weights(self.fc.parameters())
 
     def init_weights(self, params):
         for p in params:
@@ -73,7 +74,8 @@ class EncoderX(nn.Module):
         # src_emb = torch.cat((logit_token, self.embed_fn(src)), dim=1)
         src_emb = self.embed_fn(src)
         enc_out = self.encoder(src_emb, src_mask) # bs, 1+8, 512
-        logit = self.mlp_pool(enc_out.max(1)[0]) # pooling the latent dist logit throughout the "time step" dim
+        enc_out = self.mlp_pool(enc_out.max(1)[0]) # pooling the latent dist logit throughout the "time step" dim
+        logit = self.fc(enc_out)
 
         return enc_out, logit
 
@@ -91,13 +93,15 @@ class EncoderY(nn.Module):
         self.encoder = Encoder(EncoderYLayer(d_model, MultiHeadAttention(h, d_model), MultiHeadAttention(h, d_model),
                                             PointerwiseFeedforward(d_model, d_ff, dropout), dropout), N)
 
-        # self.fc = nn.Linear(d_model, d_latent)
         self.mlp_pool = make_mlp(
-            [d_model, d_ff, d_latent],
+            [d_model, d_ff],
             dropout=dropout)
+        self.fc = nn.Linear(d_ff, d_latent)
 
         self.init_weights(self.encoder.parameters())
         self.init_weights(self.mlp_pool.parameters())
+        self.init_weights(self.fc.parameters())
+
 
     def init_weights(self, params):
         for p in params:
@@ -108,7 +112,8 @@ class EncoderY(nn.Module):
 
     def forward(self, enc_out, trg, src_mask, trg_mask):
         enc_out =  self.encoder(self.embed_fn(trg), trg_mask, enc_out, src_mask) # bs, 12, 512
-        logit = self.mlp_pool(enc_out.max(1)[0]) # pooling the latent dist logit throughout the "time step" dim
+        enc_out = self.mlp_pool(enc_out.max(1)[0]) # pooling the latent dist logit throughout the "time step" dim
+        logit = self.fc(enc_out)
 
         return enc_out, logit
 
