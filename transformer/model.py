@@ -10,6 +10,7 @@ from transformer.positional_encoding import PositionalEncoding
 from transformer.pointerwise_feedforward import PointerwiseFeedforward, ConcatPointerwiseFeedforward
 from transformer.encoder import Encoder
 from transformer.encoder_layer import EncoderLayer
+from transformer.encoderY_layer import EncoderYLayer
 from transformer.decoder_layer import DecoderLayer
 from torch.distributions.normal import Normal
 
@@ -87,7 +88,9 @@ class EncoderY(nn.Module):
             LinearEmbedding(enc_inp_size,d_model),
             PositionalEncoding(d_model, dropout)
         )
-        self.encoder = Encoder(EncoderLayer(d_model, MultiHeadAttention(h, d_model), PointerwiseFeedforward(d_model, d_ff, dropout), dropout), N)
+        self.encoder = Encoder(EncoderYLayer(d_model, MultiHeadAttention(h, d_model), MultiHeadAttention(h, d_model),
+                                            PointerwiseFeedforward(d_model, d_ff, dropout), dropout), N)
+
         # self.fc = nn.Linear(d_model, d_latent)
         self.mlp_pool = make_mlp(
             [d_model, d_ff, d_latent],
@@ -102,11 +105,9 @@ class EncoderY(nn.Module):
                 nn.init.xavier_uniform_(p)
 
 
-    def forward(self, src_trg, src_trg_mask):
-        # logit_token = Variable(torch.FloatTensor(np.random.rand(src_trg.shape[0], 1, self.d_model))).to(src_trg.device)
-        # src_trg_emb = torch.cat((logit_token, self.embed_fn(src_trg)), dim=1)
-        src_trg_emb = self.embed_fn(src_trg)
-        enc_out = self.encoder(src_trg_emb, src_trg_mask) # bs, 1+8, 512
+
+    def forward(self, enc_out, trg, src_mask, trg_mask):
+        enc_out =  self.encoder(self.embed_fn(trg), trg_mask, enc_out, src_mask) # bs, 12, 512
         logit = self.mlp_pool(enc_out.max(1)[0]) # pooling the latent dist logit throughout the "time step" dim
 
         return enc_out, logit

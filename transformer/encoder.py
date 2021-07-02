@@ -16,10 +16,13 @@ class Encoder(nn.Module):
         self.layers = clones(layer, n)
         self.norm = LayerNorm(layer.size)
 
-    def forward(self, x, x_mask):
+    def forward(self, x, x_mask, memory=None, memory_mask=None):
         """
         Pass the input (and mask) through each layer in turn.
         """
         for layer in self.layers: # 6 layers
-            x = layer(x, x_mask)
+            if memory is not None:
+                x = layer(x, x_mask, memory, memory_mask)  # x = bs, 12, 512 (in inference: bs, 1, 512) // memory = bs, 7, 512
+            else:
+                x = layer(x, x_mask)
         return self.norm(x)
