@@ -24,6 +24,19 @@ class LinearEmbedding(nn.Module):
     def forward(self, x):
         return self.lut(x) * math.sqrt(self.d_model)
 
+def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0.0):
+    layers = []
+    for dim_in, dim_out in zip(dim_list[:-1], dim_list[1:]):
+        layers.append(nn.Linear(dim_in, dim_out))
+        if batch_norm:
+            layers.append(nn.BatchNorm1d(dim_out))
+        if activation == 'relu':
+            layers.append(nn.ReLU())
+        elif activation == 'leakyrelu':
+            layers.append(nn.LeakyReLU())
+        if dropout > 0:
+            layers.append(nn.Dropout(p=dropout))
+    return nn.Sequential(*layers)
 
 class EncoderX(nn.Module):
     def __init__(self, enc_inp_size, d_latent, N=6,
@@ -41,6 +54,9 @@ class EncoderX(nn.Module):
         # self.norm = LayerNorm(layer.size)
         self.fc = nn.Linear(d_model, d_latent)
         # self.fc2 = nn.Linear(d_model, d_latent)
+        self.mlp_pre_pool = make_mlp(
+            d_model, d_ff, d_latent,
+            dropout=dropout)
 
         self.init_weights(self.encoder.parameters())
         self.init_weights(self.fc.parameters())
@@ -57,9 +73,9 @@ class EncoderX(nn.Module):
         # src_emb = torch.cat((logit_token, self.embed_fn(src)), dim=1)
         src_emb = self.embed_fn(src)
         enc_out = self.encoder(src_emb, src_mask) # bs, 1+8, 512
-        logit = self.fc(enc_out).max(1)[0] # pooling the latent dist logit throughout the "time step" dim
+        logit = self.fc(enc_out.max(1)[0]) # pooling the latent dist logit throughout the "time step" dim
 
-        return enc_out[:,1:], logit
+        return enc_out, logit
 
 
 
@@ -89,9 +105,9 @@ class EncoderY(nn.Module):
         # src_trg_emb = torch.cat((logit_token, self.embed_fn(src_trg)), dim=1)
         src_trg_emb = self.embed_fn(src_trg)
         enc_out = self.encoder(src_trg_emb, src_trg_mask) # bs, 1+8, 512
-        logit = self.fc(enc_out).max(1)[0] # pooling the latent dist logit throughout the "time step" dim
+        logit = self.fc(enc_out.max(1)[0]) # pooling the latent dist logit throughout the "time step" dim
 
-        return enc_out[:,1:], logit
+        return enc_out, logit
 
 
 
