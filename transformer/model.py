@@ -55,7 +55,7 @@ class EncoderX(nn.Module):
         self.fc = nn.Linear(d_model, d_latent)
         # self.fc2 = nn.Linear(d_model, d_latent)
         self.mlp_pre_pool = make_mlp(
-            d_model, d_ff, d_latent,
+            [d_model, d_ff, d_latent],
             dropout=dropout)
 
         self.init_weights(self.encoder.parameters())
