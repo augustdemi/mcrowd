@@ -74,7 +74,7 @@ class EncoderX(nn.Module):
         # src_emb = torch.cat((logit_token, self.embed_fn(src)), dim=1)
         src_emb = self.embed_fn(src)
         enc_out = self.encoder(src_emb, src_mask) # bs, 1+8, 512
-        logit = self.mlp_pool(enc_out.mean(1)[0]) # pooling the latent dist logit throughout the "time step" dim
+        logit = self.mlp_pool(enc_out.mean(1)) # pooling the latent dist logit throughout the "time step" dim
         logit = self.fc(logit)
 
         return enc_out, logit
@@ -112,7 +112,7 @@ class EncoderY(nn.Module):
 
     def forward(self, enc_out, trg, src_mask, trg_mask):
         enc_out =  self.encoder(self.embed_fn(trg), trg_mask, enc_out, src_mask) # bs, 12, 512
-        logit = self.mlp_pool(enc_out.mean(1)[0]) # pooling the latent dist logit throughout the "time step" dim
+        logit = self.mlp_pool(enc_out.mean(1)) # pooling the latent dist logit throughout the "time step" dim
         logit = self.fc(logit)
 
         return enc_out, logit
