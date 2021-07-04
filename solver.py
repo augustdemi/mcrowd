@@ -220,8 +220,12 @@ class Solver(object):
             (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, seq_start_end, obs_frames, pred_frames) = next(iterator)
             batch_size = obs_traj_rel.size(0) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
+            # prior_token = Variable(torch.zeros(batch_size, 1, self.emb_size))
+            # posterior_token = Variable(torch.zeros(batch_size, 1, self.emb_size))
+            # encX_inp = torch.cat((prior_token, obs_traj_rel), dim=1)
+            # encY_inp = torch.cat((posterior_token, obs_traj_rel, fut_traj_rel), dim=1)
             encX_inp = obs_traj_rel
-            encY_inp = fut_traj_rel
+            encY_inp = torch.cat((obs_traj_rel, fut_traj_rel), dim=1)
 
             start_of_seq = torch.Tensor([0, 0, 1]).unsqueeze(0).unsqueeze(1).repeat(batch_size, 1, 1).to(self.device)
             dec_input = fut_traj_rel[:,:-1]
@@ -230,14 +234,11 @@ class Solver(object):
 
 
             # encX_mask = torch.ones((encX_inp.shape[0], 1, encX_inp.shape[1] + 1)).to(self.device) # bs, 1,7의 all 1
-            encX_mask = None
-            dec_mask= encY_mask = subsequent_mask(dec_inp.shape[1]).repeat(dec_inp.shape[0],1,1).to(self.device) # bs, 12,12의 T/F인데, [t,f,f,...,f]부터 [t,t,..,t]까지 12dim의 vec가 12개
+            encX_mask = encY_mask = None
+            dec_mask=subsequent_mask(dec_inp.shape[1]).repeat(dec_inp.shape[0],1,1).to(self.device) # bs, 12,12의 T/F인데, [t,f,f,...,f]부터 [t,t,..,t]까지 12dim의 vec가 12개
 
             encX_feat, prior_logit = self.encoderX(encX_inp, encX_mask)
-            encY_feat, posterior_logit = self.encoderY(
-                encX_feat, encY_inp,
-                encX_mask, encY_mask
-            )
+            encY_feat, posterior_logit = self.encoderY(encY_inp, encY_mask)
 
 
             p_dist = discrete(logits=prior_logit)
@@ -401,25 +402,21 @@ class Solver(object):
                 batch_size = obs_traj_rel.size(0)  # =sum(seq_start_end[:,1] - seq_start_end[:,0])
 
                 encX_inp = obs_traj_rel
-                encX_mask =None
+                encX_mask = encY_mask=None
                 encX_feat, prior_logit = self.encoderX(encX_inp, encX_mask)
 
                 p_dist = discrete(logits=prior_logit)
                 relaxed_p_dist = concrete(logits=prior_logit, temperature=self.temp)
 
                 if loss:
-                    encY_inp = fut_traj_rel
-                    encY_mask = subsequent_mask(fut_traj_rel.shape[1]).repeat(fut_traj_rel.shape[0], 1, 1).to(
-                        self.device)  # bs, 12,12의 T/F인데, [t,f,f,...,f]부터 [t,t,..,t]까지 12dim의 vec가 12개
+                    encY_inp = torch.cat((obs_traj_rel, fut_traj_rel), dim=1)
+                    # dec_inp = obs_traj_rel[:, -1].unsqueeze(1)
 
                     start_of_seq = torch.Tensor([0, 0, 1]).unsqueeze(0).unsqueeze(1).repeat(batch_size, 1, 1).to(
                         self.device)
                     dec_inp = start_of_seq
 
-                    encY_feat, posterior_logit = self.encoderY(
-                        encX_feat, encY_inp,
-                        encX_mask, encY_mask
-                    )
+                    encY_feat, posterior_logit = self.encoderY(encY_inp, encY_mask)
                     q_dist = discrete(logits=posterior_logit)
 
                     mus = []
