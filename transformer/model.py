@@ -35,7 +35,7 @@ class EncoderX(nn.Module):
             LinearEmbedding(enc_inp_size,d_model),
             PositionalEncoding(d_model, dropout)
         )
-        self.encoder = Encoder(EncoderLayer(d_model, MultiHeadAttention(h, d_model), PointerwiseFeedforward(d_model, d_ff, dropout), dropout), N)
+        self.encoder = Encoder(EncoderLayer(d_model, MultiHeadAttention(h, d_model, dropout), PointerwiseFeedforward(d_model, d_ff, dropout), dropout), N)
         # layer = EncoderLayer(d_model, MultiHeadAttention(h, d_model), PointerwiseFeedforward(d_model, d_ff, dropout), dropout)
         # self.layers = clones(layer, N)
         # self.norm = LayerNorm(layer.size)
@@ -71,7 +71,7 @@ class EncoderY(nn.Module):
             LinearEmbedding(enc_inp_size,d_model),
             PositionalEncoding(d_model, dropout)
         )
-        self.encoder = Encoder(EncoderLayer(d_model, MultiHeadAttention(h, d_model), PointerwiseFeedforward(d_model, d_ff, dropout), dropout), N)
+        self.encoder = Encoder(EncoderLayer(d_model, MultiHeadAttention(h, d_model, dropout), PointerwiseFeedforward(d_model, d_ff, dropout), dropout), N)
         self.fc = nn.Linear(d_model, d_latent)
 
         self.init_weights(self.encoder.parameters())
@@ -105,7 +105,7 @@ class DecoderY(nn.Module):
             LinearEmbedding(dec_inp_size,d_model),
             PositionalEncoding(d_model, dropout)
         )
-        self.decoder = Decoder(DecoderLayer(d_model, MultiHeadAttention(h, d_model), MultiHeadAttention(h, d_model),
+        self.decoder = Decoder(DecoderLayer(d_model, MultiHeadAttention(h, d_model, dropout), MultiHeadAttention(h, d_model, dropout, dist_weight=True),
                                             ConcatPointerwiseFeedforward(d_model, d_latent, d_ff, dropout), dropout), N)
         self.fc = nn.Linear(d_model, dec_out_size * 2)
 
