@@ -25,21 +25,6 @@ class LinearEmbedding(nn.Module):
         return self.lut(x) * math.sqrt(self.d_model)
 
 
-def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0.0):
-    layers = []
-    for dim_in, dim_out in zip(dim_list[:-1], dim_list[1:]):
-        layers.append(nn.Linear(dim_in, dim_out))
-        if batch_norm:
-            layers.append(nn.BatchNorm1d(dim_out))
-        if activation == 'relu':
-            layers.append(nn.ReLU())
-        elif activation == 'leakyrelu':
-            layers.append(nn.LeakyReLU())
-        if dropout > 0:
-            layers.append(nn.Dropout(p=dropout))
-    return nn.Sequential(*layers)
-
-
 class EncoderX(nn.Module):
     def __init__(self, enc_inp_size, d_latent, N=6,
                    d_model=512, d_ff=2048, h=8, dropout=0.1):
@@ -51,13 +36,13 @@ class EncoderX(nn.Module):
             PositionalEncoding(d_model, dropout)
         )
         self.encoder = Encoder(EncoderLayer(d_model, MultiHeadAttention(h, d_model), PointerwiseFeedforward(d_model, d_ff, dropout), dropout), N)
-        self.mlp_pool = make_mlp(
-            [d_model, d_ff],
-            dropout=dropout)
-        self.fc = nn.Linear(d_ff, d_latent)
+        # layer = EncoderLayer(d_model, MultiHeadAttention(h, d_model), PointerwiseFeedforward(d_model, d_ff, dropout), dropout)
+        # self.layers = clones(layer, N)
+        # self.norm = LayerNorm(layer.size)
+        self.fc = nn.Linear(d_model, d_latent)
+        # self.fc2 = nn.Linear(d_model, d_latent)
 
         self.init_weights(self.encoder.parameters())
-        self.init_weights(self.mlp_pool.parameters())
         self.init_weights(self.fc.parameters())
 
     def init_weights(self, params):
@@ -71,8 +56,8 @@ class EncoderX(nn.Module):
         logit_token = Variable(torch.FloatTensor(np.random.rand(src.shape[0], 1, self.d_model))).to(src.device)
         src_emb = torch.cat((logit_token, self.embed_fn(src)), dim=1)
         enc_out = self.encoder(src_emb, src_mask) # bs, 1+8, 512
-        logit = self.mlp_pool(enc_out[:,0])
-        logit = self.fc(logit)
+        logit = self.fc(enc_out[:,0])
+
         return enc_out[:,1:], logit
 
 
@@ -87,13 +72,9 @@ class EncoderY(nn.Module):
             PositionalEncoding(d_model, dropout)
         )
         self.encoder = Encoder(EncoderLayer(d_model, MultiHeadAttention(h, d_model), PointerwiseFeedforward(d_model, d_ff, dropout), dropout), N)
-        self.mlp_pool = make_mlp(
-            [d_model, d_ff],
-            dropout=dropout)
-        self.fc = nn.Linear(d_ff, d_latent)
+        self.fc = nn.Linear(d_model, d_latent)
 
         self.init_weights(self.encoder.parameters())
-        self.init_weights(self.mlp_pool.parameters())
         self.init_weights(self.fc.parameters())
 
     def init_weights(self, params):
@@ -106,8 +87,8 @@ class EncoderY(nn.Module):
         logit_token = Variable(torch.FloatTensor(np.random.rand(src_trg.shape[0], 1, self.d_model))).to(src_trg.device)
         src_trg_emb = torch.cat((logit_token, self.embed_fn(src_trg)), dim=1)
         enc_out = self.encoder(src_trg_emb, src_trg_mask) # bs, 1+8, 512
-        logit = self.mlp_pool(enc_out[:,0])
-        logit = self.fc(logit)
+        logit = self.fc(enc_out[:,0])
+
         return enc_out[:,1:], logit
 
 
@@ -137,7 +118,27 @@ class DecoderY(nn.Module):
                 nn.init.xavier_uniform_(p)
 
 
-    def forward(self, enc_out, latents, trg, src_mask, trg_mask):
+    def forward(self, enc_out, latents, trg, src_mask, trg_mask, seq_start_end, src_traj):
+        bs = enc_out.shape[0]
+        max_n_agents = (seq_start_end[:,1] - seq_start_end[:,0]).max()
+        src_mask = torch.zeros((bs, 8*max_n_agents))
+        enc_out_neighbors = torch.zeros((bs, 8*max_n_agents, self.d_model))
+
+        i = 0
+        for seq in seq_start_end:
+                # aa_enc_out.append(enc_out[s[0]:s[1]].reshape(-1, self.d_model).unsqueeze(0).repeat((s[1]-s[0]), 1, 1))
+                curr_seq_all_agents_feat = enc_out[seq[0]:seq[1]].reshape(-1, self.d_model)
+                curr_seq_all_agnt_trj = src_traj[seq[0]:seq[1]]
+                # a1, a2, a3, a1, a2, a3, a1, a2, a3
+                traj1 = curr_seq_all_agnt_trj.repeat(seq[1]-seq[0], 1, 1)
+                # a1, a1, a1, a2, a2, a2, a3, a3, a3
+                traj2 = curr_seq_all_agnt_trj.unsqueeze(dim=1).repeat(1, seq[1]-seq[0], 1, 1).view((seq[1]-seq[0])**2, 8, 2)
+                dist = torch.norm(traj1 - traj2, dim=2)
+                for a in range(seq[1]-seq[0]):
+                    enc_out_neighbors[i, :curr_seq_all_agents_feat.shape[0]] = curr_seq_all_agents_feat
+                    src_mask[i, :curr_seq_all_agents_feat.shape[0]] = 1/(1+dist[(seq[1]-seq[0])*a : (seq[1]-seq[0])*(a+1)].view(-1))
+                    i+=1
+
         dec_out =  self.decoder(self.trg_embed(trg), enc_out, latents.unsqueeze(1), src_mask, trg_mask) # bs, 12, 512
         stats = self.fc(dec_out) # bs, 12, out*2
         mu = stats[:,:,:self.dec_out_size]

@@ -233,8 +233,8 @@ class Solver(object):
             dec_inp = torch.cat((start_of_seq, dec_inp), 1) # 70, 13, 2. : 13 seq중에 맨 앞에 값이 (0,0,1)이게됨. 나머지 12개는 (x,y,0)
 
 
-            # encX_mask = torch.ones((encX_inp.shape[0], 1, encX_inp.shape[1] + 1)).to(self.device) # bs, 1,7의 all 1
             encX_mask = encY_mask = None
+            # encX_mask = torch.ones((encX_inp.shape[0], 1, encX_inp.shape[1] + 1)).to(self.device) # bs, 1,7의 all 1
             dec_mask=subsequent_mask(dec_inp.shape[1]).repeat(dec_inp.shape[0],1,1).to(self.device) # bs, 12,12의 T/F인데, [t,f,f,...,f]부터 [t,t,..,t]까지 12dim의 vec가 12개
 
             encX_feat, prior_logit = self.encoderX(encX_inp, encX_mask)
@@ -249,7 +249,7 @@ class Solver(object):
 
             mu, logvar = self.decoderY(
                 encX_feat, relaxed_q_dist.rsample(), dec_inp,
-                encX_mask, dec_mask
+                encX_mask, dec_mask, seq_start_end, obs_traj[:, :, :2]
             )
             fut_rel_pos_dist = Normal(mu, torch.sqrt(torch.exp(logvar)))
 
@@ -425,7 +425,7 @@ class Solver(object):
                         dec_mask = subsequent_mask(dec_inp.shape[1]).repeat(dec_inp.shape[0], 1, 1).to(self.device)
                         mu, logvar = self.decoderY(
                             encX_feat, relaxed_p_dist.rsample(), dec_inp,
-                            encX_mask, dec_mask
+                            encX_mask, dec_mask, seq_start_end, obs_traj[:, :, :2]
                         )
                         mu = mu[:, -1:, :]
                         std = torch.sqrt(torch.exp(logvar))[:, -1:, :]
@@ -464,7 +464,7 @@ class Solver(object):
                         dec_mask = subsequent_mask(dec_inp.shape[1]).repeat(dec_inp.shape[0], 1, 1).to(self.device)
                         mu, logvar = self.decoderY(
                             encX_feat, relaxed_p_dist.rsample(), dec_inp,
-                            encX_mask, dec_mask
+                            encX_mask, dec_mask, seq_start_end, obs_traj[:, :, :2]
                         )
                         mu = mu[:, -1:, :]
                         std = torch.sqrt(torch.exp(logvar))[:, -1:, :]
