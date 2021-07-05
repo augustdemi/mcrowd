@@ -139,7 +139,8 @@ class DecoderY(nn.Module):
                     src_mask[i, :curr_seq_all_agents_feat.shape[0]] = 1/(1+dist[(seq[1]-seq[0])*a : (seq[1]-seq[0])*(a+1)].view(-1))
                     i+=1
         src_mask = src_mask.unsqueeze(1).repeat((1,trg.shape[1],1))
-        dec_out =  self.decoder(self.trg_embed(trg), enc_out, latents.unsqueeze(1), src_mask, trg_mask) # bs, 12, 512
+        dec_out =  self.decoder(self.trg_embed(trg), enc_out_neighbors.to(enc_out.device), latents.unsqueeze(1), src_mask.to(enc_out.device), trg_mask) # bs, 12, 512
+
         stats = self.fc(dec_out) # bs, 12, out*2
         mu = stats[:,:,:self.dec_out_size]
         logvar = stats[:,:,self.dec_out_size:]
