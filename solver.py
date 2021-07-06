@@ -518,79 +518,61 @@ class Solver(object):
 
 
 
-    def evaluate_dtw(self, data_loader, num_samples):
-        self.set_mode(train=False)
-        all_dist = []
-        from dtaidistance import dtw_ndim
-        with torch.no_grad():
-            b=0
-            for batch in data_loader:
-                b+=1
-                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
-                 fut_obst) = batch
-                batch_size = fut_traj.size(1)
-
-                (encX_h_feat, logitX) \
-                    = self.encoderX(obs_traj, seq_start_end)
-                relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
-
-                dist_20samples = [] # (20, # seq, 12)
-                for _ in range(num_samples):
-                    fut_rel_pos_dist = self.decoderY(
-                        obs_traj[-1],
-                        encX_h_feat,
-                        relaxed_p_dist.rsample()
-                    )
-                    pred_fut_traj_rel = fut_rel_pos_dist.rsample()
-
-                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
-
-                    dtw_dist = []
-                    for i in range(batch_size):
-                        dtw_dist.append(dtw_ndim.distance(pred_fut_traj[:,i].cpu().numpy(), fut_traj[:, i,:2].cpu().numpy()))
-                    dist_20samples.append(dtw_dist)
-                all_dist.append(np.array(dist_20samples))
-
-            all_dist=np.concatenate(all_dist, axis=1) #(20,70,12)
-            print('all_coll: ', all_dist.shape)
-            dtw_min=all_dist.min(axis=0).mean()
-            dtw_avg=all_dist.mean(axis=0).mean()
-            dtw_std=all_dist.std(axis=0).mean()
-        self.set_mode(train=True)
-        return dtw_min, dtw_avg, dtw_std
-
-
-
     def evaluate_collision(self, data_loader, num_samples, threshold):
         self.set_mode(train=False)
-        total_traj = 0
         all_coll = []
+        all_coll_ll = []
 
         with torch.no_grad():
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
-                 fut_obst) = batch
-                total_traj += fut_traj.size(1)
+                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, seq_start_end, obs_frames, fut_frames) = batch
+
+                batch_size = obs_traj_rel.size(0)  # =sum(seq_start_end[:,1] - seq_start_end[:,0])
 
 
-                (encX_h_feat, logitX) \
-                    = self.encoderX(obs_traj, seq_start_end)
-                relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
+                encX_inp = obs_traj_rel
+                encX_mask = encY_mask=None
+                encX_feat, prior_logit = self.encoderX(encX_inp, encX_mask)
+
+                relaxed_p_dist = concrete(logits=prior_logit, temperature=self.temp)
 
                 coll_20samples = [] # (20, # seq, 12)
-                for _ in range(num_samples):
-                    fut_rel_pos_dist = self.decoderY(
-                        obs_traj[-1],
-                        encX_h_feat,
-                        relaxed_p_dist.rsample()
-                    )
-                    pred_fut_traj_rel = fut_rel_pos_dist.rsample()
+                coll_20samples_ll = [] # (20, # seq, 12)
+                for _ in range(num_samples):  # different relaxed_p_dist.rsample()
+                    mus = []
+                    stds = []
+                    start_of_seq = torch.Tensor([0, 0, 1]).unsqueeze(0).unsqueeze(1).repeat(batch_size, 1, 1).to(
+                        self.device)
+                    dec_inp = start_of_seq
 
-                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
+                    for i in range(self.pred_len):  # 12
+                        dec_mask = subsequent_mask(dec_inp.shape[1]).repeat(dec_inp.shape[0], 1, 1).to(self.device)
+                        mu, logvar = self.decoderY(
+                            encX_feat, relaxed_p_dist.rsample(), dec_inp,
+                            encX_mask, dec_mask, seq_start_end, obs_traj[:, :, :2]
+                        )
+                        mu = mu[:, -1:, :]
+                        std = torch.sqrt(torch.exp(logvar))[:, -1:, :]
+                        mus.append(mu)
+                        stds.append(std)
+                        dec_out = Normal(mu, std).rsample()
+                        dec_out = torch.cat((dec_out,
+                                             torch.zeros((dec_out.shape[0], dec_out.shape[1], 1)).to(
+                                                 self.device)), -1)  # 70, i, 3( 0이 더붙음)
+                        dec_inp = torch.cat((dec_inp, dec_out), 1)
+
+                    mus = torch.cat(mus, dim=1)
+                    stds = torch.cat(stds, dim=1)
+                    fut_rel_pos_dist = Normal(mus, stds)
+
+                    pred_fut_traj_rel = fut_rel_pos_dist.rsample()
+                    pred_fut_traj = integrate_samples(pred_fut_traj_rel, obs_traj[:, -1, :2], dt=self.dt)
+                    likelihood = torch.exp(fut_rel_pos_dist.log_prob(fut_traj_rel))
 
                     seq_coll = [] #64
+                    seq_coll_ll = [] #64
                     for idx, (start, end) in enumerate(seq_start_end):
 
                         start = start.item()
@@ -598,39 +580,53 @@ class Solver(object):
                         num_ped = end - start
                         if num_ped==1:
                             continue
-                        one_frame_slide = pred_fut_traj[:,start:end,:] # (pred_len, num_ped, 2)
+                        one_frame_slide = pred_fut_traj[start:end] # (pred_len, num_ped, 2)
+                        one_frame_likelihood = likelihood[start:end].prod(2)
 
                         frame_coll = [] #num_ped
+                        frame_coll_ll = [] #num_ped
                         for i in range(self.pred_len):
-                            curr_frame = one_frame_slide[i] # frame of time=i #(num_ped,2)
+                            ## distance
+                            curr_frame = one_frame_slide[:,i] # frame of time=i #(num_ped,2)
                             curr1 = curr_frame.repeat(num_ped, 1)
                             curr2 = self.repeat(curr_frame, num_ped)
-                            dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
+                            dist = torch.norm(curr1 - curr2, dim=1).cpu().numpy()
                             dist = dist.reshape(num_ped, num_ped) # all distance between all num_ped*num_ped
+                            ## likelihood
+                            ll1 = one_frame_likelihood[:,i].unsqueeze(1).repeat(num_ped, 1)
+                            ll2 = self.repeat(one_frame_likelihood[:,i].unsqueeze(1), num_ped)
+                            ll_mat = (ll1*ll2).reshape(num_ped, num_ped)
+                            ## check if the distance < threshold for all pairs(num_ped C 2)
                             diff_agent_idx = np.triu_indices(num_ped, k=1) # only distinct distances of num_ped C 2(upper triange except for diag)
+                            # total_pairs +=len(diff_agent_idx[0])
                             diff_agent_dist = dist[diff_agent_idx]
+                            diff_agent_ll = ll_mat[diff_agent_idx]
+                            curr_coll_rate_ll = diff_agent_ll[(diff_agent_dist < threshold)].sum()
                             curr_coll_rate = (diff_agent_dist < threshold).sum()
 
                             frame_coll.append(curr_coll_rate)
+                            frame_coll_ll.append(curr_coll_rate_ll)
                         seq_coll.append(frame_coll)
+                        seq_coll_ll.append(frame_coll_ll)
                     coll_20samples.append(seq_coll)
+                    coll_20samples_ll.append(seq_coll_ll)
 
                 all_coll.append(np.array(coll_20samples))
+                all_coll_ll.append(np.array(coll_20samples_ll))
 
             all_coll=np.concatenate(all_coll, axis=1) #(20,70,12)
+            all_coll_ll=np.concatenate(all_coll_ll, axis=1) #(20,70,12)
             print('all_coll: ', all_coll.shape)
+            coll_rate_sum=all_coll.sum()
             coll_rate_min=all_coll.min(axis=0).sum()
             coll_rate_avg=all_coll.mean(axis=0).sum()
             coll_rate_std=all_coll.std(axis=0).mean()
 
-            #non-zero coll
-            non_zero_coll_avg = 0
-            non_zero_coll_min = 0
-            non_zero_coll_std = 0
 
-        return coll_rate_min, non_zero_coll_min, \
-               coll_rate_avg, non_zero_coll_avg, \
-               coll_rate_std, non_zero_coll_std
+        return coll_rate_sum, all_coll_ll.sum(), \
+               coll_rate_min, all_coll_ll.min(axis=0).sum(), \
+               coll_rate_avg, all_coll_ll.mean(axis=0).sum(), \
+               coll_rate_std, all_coll_ll.std(axis=0).mean()
 
 
 
