@@ -215,7 +215,7 @@ def main(args):
             coll1, coll_ll1, \
             coll2, coll_ll2, \
             coll3, coll_ll3, total_pairs = solver.evaluate_collision_total(test_loader, 20, [0.1, 0.3, 0.5])
-            print('-------------------- collision rate of ', args.dataset_name, ' / thr: ', threshold , '----------------------')
+            print('-------------------- collision rate of ', args.dataset_name, ' / thr: [0.1, 0.3, 0.5] ----------------------')
             print('0.1: ', coll1)
             print('0.3: ', coll2)
             print('0.5: ', coll3)

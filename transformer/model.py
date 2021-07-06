@@ -35,7 +35,7 @@ class EncoderX(nn.Module):
             LinearEmbedding(enc_inp_size,d_model),
             PositionalEncoding(d_model, dropout)
         )
-        self.encoder = Encoder(EncoderLayer(d_model, MultiHeadAttention(h, d_model), PointerwiseFeedforward(d_model, d_ff, dropout), dropout), N)
+        self.encoder = Encoder(EncoderLayer(d_model, MultiHeadAttention(h, d_model, dropout), PointerwiseFeedforward(d_model, d_ff, dropout), dropout), N)
         # layer = EncoderLayer(d_model, MultiHeadAttention(h, d_model), PointerwiseFeedforward(d_model, d_ff, dropout), dropout)
         # self.layers = clones(layer, N)
         # self.norm = LayerNorm(layer.size)
@@ -71,7 +71,7 @@ class EncoderY(nn.Module):
             LinearEmbedding(enc_inp_size,d_model),
             PositionalEncoding(d_model, dropout)
         )
-        self.encoder = Encoder(EncoderLayer(d_model, MultiHeadAttention(h, d_model), PointerwiseFeedforward(d_model, d_ff, dropout), dropout), N)
+        self.encoder = Encoder(EncoderLayer(d_model, MultiHeadAttention(h, d_model, dropout), PointerwiseFeedforward(d_model, d_ff, dropout), dropout), N)
         self.fc = nn.Linear(d_model, d_latent)
 
         self.init_weights(self.encoder.parameters())
@@ -105,7 +105,7 @@ class DecoderY(nn.Module):
             LinearEmbedding(dec_inp_size,d_model),
             PositionalEncoding(d_model, dropout)
         )
-        self.decoder = Decoder(DecoderLayer(d_model, MultiHeadAttention(h, d_model), MultiHeadAttention(h, d_model),
+        self.decoder = Decoder(DecoderLayer(d_model, MultiHeadAttention(h, d_model, dropout), MultiHeadAttention(h, d_model, dropout, dist_weight=True),
                                             ConcatPointerwiseFeedforward(d_model, d_latent, d_ff, dropout), dropout), N)
         self.fc = nn.Linear(d_model, dec_out_size * 2)
 
@@ -118,8 +118,29 @@ class DecoderY(nn.Module):
                 nn.init.xavier_uniform_(p)
 
 
-    def forward(self, enc_out, latents, trg, src_mask, trg_mask):
-        dec_out =  self.decoder(self.trg_embed(trg), enc_out, latents.unsqueeze(1), src_mask, trg_mask) # bs, 12, 512
+    def forward(self, enc_out, latents, trg, src_mask, trg_mask, seq_start_end, src_traj):
+        bs = enc_out.shape[0]
+        max_n_agents = (seq_start_end[:,1] - seq_start_end[:,0]).max()
+        src_mask = torch.zeros((bs, 8*max_n_agents))
+        enc_out_neighbors = torch.zeros((bs, 8*max_n_agents, self.d_model))
+
+        i = 0
+        for seq in seq_start_end:
+                # aa_enc_out.append(enc_out[s[0]:s[1]].reshape(-1, self.d_model).unsqueeze(0).repeat((s[1]-s[0]), 1, 1))
+                curr_seq_all_agents_feat = enc_out[seq[0]:seq[1]].reshape(-1, self.d_model)
+                curr_seq_all_agnt_trj = src_traj[seq[0]:seq[1]]
+                # a1, a2, a3, a1, a2, a3, a1, a2, a3
+                traj1 = curr_seq_all_agnt_trj.repeat(seq[1]-seq[0], 1, 1)
+                # a1, a1, a1, a2, a2, a2, a3, a3, a3
+                traj2 = curr_seq_all_agnt_trj.unsqueeze(dim=1).repeat(1, seq[1]-seq[0], 1, 1).view((seq[1]-seq[0])**2, 8, 2)
+                dist = torch.norm(traj1 - traj2, dim=2)
+                for a in range(seq[1]-seq[0]):
+                    enc_out_neighbors[i, :curr_seq_all_agents_feat.shape[0]] = curr_seq_all_agents_feat
+                    src_mask[i, :curr_seq_all_agents_feat.shape[0]] = 1/(1+dist[(seq[1]-seq[0])*a : (seq[1]-seq[0])*(a+1)].view(-1))
+                    i+=1
+        src_mask = src_mask.unsqueeze(1).repeat((1,trg.shape[1],1))
+        dec_out =  self.decoder(self.trg_embed(trg), enc_out_neighbors.to(enc_out.device), latents.unsqueeze(1), src_mask.to(enc_out.device), trg_mask) # bs, 12, 512
+
         stats = self.fc(dec_out) # bs, 12, out*2
         mu = stats[:,:,:self.dec_out_size]
         logvar = stats[:,:,self.dec_out_size:]

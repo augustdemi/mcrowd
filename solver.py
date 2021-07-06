@@ -171,7 +171,7 @@ class Solver(object):
 
         # prepare dataloader (iterable)
         print('Start loading data...')
-        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'train')
+        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
         val_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
 
         # long_dtype, float_dtype = get_dtypes(args)
@@ -233,8 +233,8 @@ class Solver(object):
             dec_inp = torch.cat((start_of_seq, dec_inp), 1) # 70, 13, 2. : 13 seq중에 맨 앞에 값이 (0,0,1)이게됨. 나머지 12개는 (x,y,0)
 
 
-            # encX_mask = torch.ones((encX_inp.shape[0], 1, encX_inp.shape[1] + 1)).to(self.device) # bs, 1,7의 all 1
             encX_mask = encY_mask = None
+            # encX_mask = torch.ones((encX_inp.shape[0], 1, encX_inp.shape[1] + 1)).to(self.device) # bs, 1,7의 all 1
             dec_mask=subsequent_mask(dec_inp.shape[1]).repeat(dec_inp.shape[0],1,1).to(self.device) # bs, 12,12의 T/F인데, [t,f,f,...,f]부터 [t,t,..,t]까지 12dim의 vec가 12개
 
             encX_feat, prior_logit = self.encoderX(encX_inp, encX_mask)
@@ -249,7 +249,7 @@ class Solver(object):
 
             mu, logvar = self.decoderY(
                 encX_feat, relaxed_q_dist.rsample(), dec_inp,
-                encX_mask, dec_mask
+                encX_mask, dec_mask, seq_start_end, obs_traj[:, :, :2]
             )
             fut_rel_pos_dist = Normal(mu, torch.sqrt(torch.exp(logvar)))
 
@@ -425,7 +425,7 @@ class Solver(object):
                         dec_mask = subsequent_mask(dec_inp.shape[1]).repeat(dec_inp.shape[0], 1, 1).to(self.device)
                         mu, logvar = self.decoderY(
                             encX_feat, relaxed_p_dist.rsample(), dec_inp,
-                            encX_mask, dec_mask
+                            encX_mask, dec_mask, seq_start_end, obs_traj[:, :, :2]
                         )
                         mu = mu[:, -1:, :]
                         std = torch.sqrt(torch.exp(logvar))[:, -1:, :]
@@ -464,7 +464,7 @@ class Solver(object):
                         dec_mask = subsequent_mask(dec_inp.shape[1]).repeat(dec_inp.shape[0], 1, 1).to(self.device)
                         mu, logvar = self.decoderY(
                             encX_feat, relaxed_p_dist.rsample(), dec_inp,
-                            encX_mask, dec_mask
+                            encX_mask, dec_mask, seq_start_end, obs_traj[:, :, :2]
                         )
                         mu = mu[:, -1:, :]
                         std = torch.sqrt(torch.exp(logvar))[:, -1:, :]
@@ -514,6 +514,10 @@ class Solver(object):
                    ade_avg, fde_avg, \
                    ade_std, fde_std
 
+
+
+
+
     def evaluate_collision(self, data_loader, num_samples, threshold):
         self.set_mode(train=False)
         all_coll = []
@@ -547,7 +551,7 @@ class Solver(object):
                         dec_mask = subsequent_mask(dec_inp.shape[1]).repeat(dec_inp.shape[0], 1, 1).to(self.device)
                         mu, logvar = self.decoderY(
                             encX_feat, relaxed_p_dist.rsample(), dec_inp,
-                            encX_mask, dec_mask
+                            encX_mask, dec_mask, seq_start_end, obs_traj[:, :, :2]
                         )
                         mu = mu[:, -1:, :]
                         std = torch.sqrt(torch.exp(logvar))[:, -1:, :]
@@ -625,6 +629,7 @@ class Solver(object):
                coll_rate_std, all_coll_ll.std(axis=0).mean(), total_pairs
 
 
+
     def evaluate_collision_total(self, data_loader, num_samples, threshold):
         self.set_mode(train=False)
 
@@ -661,7 +666,7 @@ class Solver(object):
                         dec_mask = subsequent_mask(dec_inp.shape[1]).repeat(dec_inp.shape[0], 1, 1).to(self.device)
                         mu, logvar = self.decoderY(
                             encX_feat, relaxed_p_dist.rsample(), dec_inp,
-                            encX_mask, dec_mask
+                            encX_mask, dec_mask, seq_start_end, obs_traj[:, :, :2]
                         )
                         mu = mu[:, -1:, :]
                         std = torch.sqrt(torch.exp(logvar))[:, -1:, :]
@@ -766,8 +771,6 @@ class Solver(object):
         return np.stack(all_coll).sum(), np.stack(all_coll_ll).sum(), \
                np.stack(all_coll2).sum(), np.stack(all_coll_ll2).sum(), \
                np.stack(all_coll3).sum(), np.stack(all_coll_ll3).sum(), total_pairs
-
-
 
 
     def compute_obs_violations(self, predicted_trajs, obs_map):
