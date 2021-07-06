@@ -625,6 +625,150 @@ class Solver(object):
                coll_rate_std, all_coll_ll.std(axis=0).mean(), total_pairs
 
 
+    def evaluate_collision_total(self, data_loader, num_samples, threshold):
+        self.set_mode(train=False)
+
+        total_pairs = 0
+        with torch.no_grad():
+            b=0
+            all_pred20 = []
+            all_ll20 = []
+            all_seq_start_end = []
+
+            for batch in data_loader:
+                b+=1
+                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, seq_start_end, obs_frames, fut_frames) = batch
+
+                batch_size = obs_traj_rel.size(0)  # =sum(seq_start_end[:,1] - seq_start_end[:,0])
+
+
+                encX_inp = obs_traj_rel
+                encX_mask = encY_mask=None
+                encX_feat, prior_logit = self.encoderX(encX_inp, encX_mask)
+
+                relaxed_p_dist = concrete(logits=prior_logit, temperature=self.temp)
+                pred20 = [] # (20, # seq, 12)
+                ll20 = [] # (20, # seq, 12)
+
+                for _ in range(num_samples):  # different relaxed_p_dist.rsample()
+                    mus = []
+                    stds = []
+                    start_of_seq = torch.Tensor([0, 0, 1]).unsqueeze(0).unsqueeze(1).repeat(batch_size, 1, 1).to(
+                        self.device)
+                    dec_inp = start_of_seq
+
+                    for i in range(self.pred_len):  # 12
+                        dec_mask = subsequent_mask(dec_inp.shape[1]).repeat(dec_inp.shape[0], 1, 1).to(self.device)
+                        mu, logvar = self.decoderY(
+                            encX_feat, relaxed_p_dist.rsample(), dec_inp,
+                            encX_mask, dec_mask
+                        )
+                        mu = mu[:, -1:, :]
+                        std = torch.sqrt(torch.exp(logvar))[:, -1:, :]
+                        mus.append(mu)
+                        stds.append(std)
+                        dec_out = Normal(mu, std).rsample()
+                        dec_out = torch.cat((dec_out,
+                                             torch.zeros((dec_out.shape[0], dec_out.shape[1], 1)).to(
+                                                 self.device)), -1)  # 70, i, 3( 0이 더붙음)
+                        dec_inp = torch.cat((dec_inp, dec_out), 1)
+
+                    mus = torch.cat(mus, dim=1)
+                    stds = torch.cat(stds, dim=1)
+                    fut_rel_pos_dist = Normal(mus, stds)
+
+                    pred_fut_traj_rel = fut_rel_pos_dist.rsample()
+                    pred_fut_traj = integrate_samples(pred_fut_traj_rel, obs_traj[:, -1, :2], dt=self.dt)
+                    likelihood = torch.exp(fut_rel_pos_dist.log_prob(fut_traj_rel))
+
+                    pred20.append(pred_fut_traj) # 20 samples
+                    ll20.append(likelihood)
+
+
+                all_pred20.append(torch.stack(pred20)) # bs, 12, 2 의 list를 stack => 20, bs, 12, 2
+                all_ll20.append(torch.stack(ll20))
+                if len(all_seq_start_end) > 0:
+                    seq_start_end +=all_seq_start_end[-1][-1][1]
+                all_seq_start_end.append(seq_start_end)
+
+            all_pred20 = torch.cat(all_pred20, dim=1)
+            all_ll20 = torch.cat(all_ll20, dim=1)
+            all_seq_start_end = torch.cat(all_seq_start_end, dim=0)
+
+            all_coll = []
+            all_coll_ll = []
+            all_coll2 = []
+            all_coll_ll2 = []
+            all_coll3 = []
+            all_coll_ll3 = []
+            for idx, (start, end) in enumerate(all_seq_start_end):
+                start = start.item()
+                end = end.item()
+                num_ped = end - start
+                if num_ped == 1:
+                    continue
+                one_frame_slide = all_pred20[:, start:end]  # (20, num_ped, 12, 2)
+                one_frame_likelihood = all_ll20[:, start:end].prod(-1)
+
+                one_frame_slide= one_frame_slide.reshape(-1, one_frame_slide.shape[2], one_frame_slide.shape[3])
+                one_frame_likelihood = one_frame_likelihood.reshape(-1, one_frame_likelihood.shape[2])
+
+                frame_coll = []  # num_ped
+                frame_coll_ll = []  # num_ped
+                frame_coll2 = []  # num_ped
+                frame_coll_ll2 = []  # num_ped
+                frame_coll3 = []  # num_ped
+                frame_coll_ll3 = []  # num_ped
+                for i in range(self.pred_len):
+                    ## distance
+                    curr_frame = one_frame_slide[:, i]  # frame of time=i #(num_ped,2)
+                    curr1 = curr_frame.repeat(num_ped * num_samples, 1)
+                    curr2 = self.repeat(curr_frame, num_ped * num_samples)
+                    dist = torch.norm(curr1 - curr2, dim=1).cpu().numpy()
+                    dist = dist.reshape(num_ped * num_samples, num_ped * num_samples)  # all distance between all num_ped*num_ped
+
+                    for i1 in range(num_ped * num_samples):
+                        for i2 in range(i1+1, num_ped * num_samples):
+                            if (i2 - i1 ) % num_ped ==0:
+                                dist[i1,i2] = 9 # make the distance large for the same agent
+                                total_pairs -=1
+
+                    ## likelihood
+                    ll1 = one_frame_likelihood[:, i].unsqueeze(1).repeat(num_ped * num_samples, 1)
+                    ll2 = self.repeat(one_frame_likelihood[:, i].unsqueeze(1), num_ped * num_samples)
+                    ll_mat = (ll1 * ll2).reshape(num_ped * num_samples, num_ped * num_samples)
+                    ## check if the distance < threshold for all pairs(num_ped C 2)
+                    diff_agent_idx = np.triu_indices(num_ped * num_samples, k=1)  # only distinct distances of num_ped C 2(upper triange except for diag)
+                    total_pairs += len(diff_agent_idx[0])
+                    diff_agent_dist = dist[diff_agent_idx]
+                    diff_agent_ll = ll_mat[diff_agent_idx]
+                    frame_coll.append((diff_agent_dist < threshold[0]).sum())
+                    frame_coll_ll.append(diff_agent_ll[(diff_agent_dist < threshold[0])].sum().item())
+
+                    frame_coll2.append((diff_agent_dist < threshold[1]).sum())
+                    frame_coll_ll2.append(diff_agent_ll[(diff_agent_dist < threshold[1])].sum().item())
+
+                    frame_coll3.append((diff_agent_dist < threshold[2]).sum())
+                    frame_coll_ll3.append(diff_agent_ll[(diff_agent_dist < threshold[2])].sum().item())
+
+                all_coll.append(np.array(frame_coll))
+                all_coll_ll.append(np.array(frame_coll_ll))
+
+                all_coll2.append(np.array(frame_coll2))
+                all_coll_ll2.append(np.array(frame_coll_ll2))
+
+                all_coll3.append(np.array(frame_coll3))
+                all_coll_ll3.append(np.array(frame_coll_ll3))
+
+
+            print('all_coll: ', np.stack(all_coll_ll).shape)
+
+        return np.stack(all_coll).sum(), np.stack(all_coll_ll).sum(), \
+               np.stack(all_coll2).sum(), np.stack(all_coll_ll2).sum(), \
+               np.stack(all_coll3).sum(), np.stack(all_coll_ll3).sum(), total_pairs
+
+
+
 
     def compute_obs_violations(self, predicted_trajs, obs_map):
         interp_obs_map = RectBivariateSpline(range(obs_map.shape[0]),

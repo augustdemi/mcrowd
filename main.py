@@ -212,23 +212,21 @@ def main(args):
             # solver.plot_traj_var2(test_loader)
 
 
-            threshold=0.1
-            coll_rate_sum, coll_rate_ll_sum, \
-            coll_rate_min, coll_rate_ll_min, \
-            coll_rate_avg, coll_rate_ll_avg, \
-            coll_rate_std, coll_rate_ll_std, total_pairs = solver.evaluate_collision(test_loader, 20, threshold)
+            coll1, coll_ll1, \
+            coll2, coll_ll2, \
+            coll3, coll_ll3, total_pairs = solver.evaluate_collision_total(test_loader, 20, [0.1, 0.3, 0.5])
             print('-------------------- collision rate of ', args.dataset_name, ' / thr: ', threshold , '----------------------')
-            print('sum: ', coll_rate_sum)
-            print('min: ', coll_rate_min)
-            print('avg: ', coll_rate_avg)
-            print('std: ', coll_rate_std)
+            print('0.1: ', coll1)
+            print('0.3: ', coll2)
+            print('0.5: ', coll3)
             print('-----ll-----')
-            print('sum: ', coll_rate_ll_sum)
-            print('min: ', coll_rate_ll_min)
-            print('avg: ', coll_rate_ll_avg)
-            print('std: ', coll_rate_ll_std)
+            print('0.1: ', coll_ll1)
+            print('0.3: ', coll_ll2)
+            print('0.5: ', coll_ll3)
             print('total_pairs: ', total_pairs)
 
+
+            '''
             threshold=0.3
             coll_rate_sum, coll_rate_ll_sum, \
             coll_rate_min, coll_rate_ll_min, \
@@ -290,7 +288,7 @@ def main(args):
             print('fde avg: ', fde_avg)
             print('fde std: ', fde_std)
             # print('------------------------------------------')
-
+            '''
 
     else:
         solver = Solver(args)
