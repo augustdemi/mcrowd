@@ -206,6 +206,7 @@ def main(args):
             print('--------------------', args.dataset_name, '----------------------')
             test_path = os.path.join(args.dataset_dir, args.dataset_name, 'test')
             # args.batch_size=364
+            args.batch_size=64
             _, test_loader = data_loader(args, test_path,shuffle=False)
 
             # solver.plot_traj_var2(test_loader)
@@ -215,7 +216,7 @@ def main(args):
             coll_rate_sum, coll_rate_ll_sum, \
             coll_rate_min, coll_rate_ll_min, \
             coll_rate_avg, coll_rate_ll_avg, \
-            coll_rate_std, coll_rate_ll_std = solver.evaluate_collision(test_loader, 20, threshold)
+            coll_rate_std, coll_rate_ll_std, total_pairs = solver.evaluate_collision(test_loader, 20, threshold)
             print('-------------------- collision rate of ', args.dataset_name, ' / thr: ', threshold , '----------------------')
             print('sum: ', coll_rate_sum)
             print('min: ', coll_rate_min)
@@ -226,13 +227,31 @@ def main(args):
             print('min: ', coll_rate_ll_min)
             print('avg: ', coll_rate_ll_avg)
             print('std: ', coll_rate_ll_std)
+            print('total_pairs: ', total_pairs)
+
+            threshold=0.3
+            coll_rate_sum, coll_rate_ll_sum, \
+            coll_rate_min, coll_rate_ll_min, \
+            coll_rate_avg, coll_rate_ll_avg, \
+            coll_rate_std, coll_rate_ll_std, total_pairs = solver.evaluate_collision(test_loader, 20, threshold)
+            print('-------------------- collision rate of ', args.dataset_name, ' / thr: ', threshold , '----------------------')
+            print('sum: ', coll_rate_sum)
+            print('min: ', coll_rate_min)
+            print('avg: ', coll_rate_avg)
+            print('std: ', coll_rate_std)
+            print('-----ll-----')
+            print('sum: ', coll_rate_ll_sum)
+            print('min: ', coll_rate_ll_min)
+            print('avg: ', coll_rate_ll_avg)
+            print('std: ', coll_rate_ll_std)
+            print('total_pairs: ', total_pairs)
 
 
             threshold=0.5
             coll_rate_sum, coll_rate_ll_sum, \
             coll_rate_min, coll_rate_ll_min, \
             coll_rate_avg, coll_rate_ll_avg, \
-            coll_rate_std, coll_rate_ll_std = solver.evaluate_collision(test_loader, 20, threshold)
+            coll_rate_std, coll_rate_ll_std, total_pairs = solver.evaluate_collision(test_loader, 20, threshold)
             print('-------------------- collision rate of ', args.dataset_name, ' / thr: ', threshold , '----------------------')
             print('sum: ', coll_rate_sum)
             print('min: ', coll_rate_min)
@@ -243,6 +262,7 @@ def main(args):
             print('min: ', coll_rate_ll_min)
             print('avg: ', coll_rate_ll_avg)
             print('std: ', coll_rate_ll_std)
+            print('total_pairs: ', total_pairs)
 
 
             #
