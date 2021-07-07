@@ -126,20 +126,20 @@ class DecoderY(nn.Module):
 
         i = 0
         for seq in seq_start_end:
-                # aa_enc_out.append(enc_out[s[0]:s[1]].reshape(-1, self.d_model).unsqueeze(0).repeat((s[1]-s[0]), 1, 1))
-                num_ped = seq[1] - seq[0]
-                curr_seq_all_agents_feat = enc_out[seq[0]:seq[1]].reshape(-1, self.d_model) # (num_ped * 8, 512)
-                curr_seq_all_agnt_trj = src_traj[seq[0]:seq[1]]
-                # a1, a2, a3, a1, a2, a3, a1, a2, a3
-                traj1 = curr_seq_all_agnt_trj.repeat(num_ped, 1, 1)
-                # a1, a1, a1, a2, a2, a2, a3, a3, a3
-                traj2 = curr_seq_all_agnt_trj.unsqueeze(dim=1).repeat(1, num_ped, 1, 1).view(num_ped**2, 8, 2)
-                dist = torch.norm(traj1 - traj2, dim=2) # (num_ped*num_ped, 8)
-                # dist[dist > 2] = 1e9
-                for a in range(num_ped):
-                    enc_out_neighbors[i, : num_ped * 8] = curr_seq_all_agents_feat
-                    src_mask[i, :num_ped * 8] = 1/(1+dist[num_ped*a : num_ped*(a+1)].view(-1))
-                    i+=1
+            # aa_enc_out.append(enc_out[s[0]:s[1]].reshape(-1, self.d_model).unsqueeze(0).repeat((s[1]-s[0]), 1, 1))
+            num_ped = seq[1] - seq[0]
+            curr_seq_all_agents_feat = enc_out[seq[0]:seq[1]].reshape(-1, self.d_model) # (num_ped * 8, 512)
+            curr_seq_all_agnt_trj = src_traj[seq[0]:seq[1]]
+            # a1, a2, a3, a1, a2, a3, a1, a2, a3
+            traj1 = curr_seq_all_agnt_trj.repeat(num_ped, 1, 1)
+            # a1, a1, a1, a2, a2, a2, a3, a3, a3
+            traj2 = curr_seq_all_agnt_trj.unsqueeze(dim=1).repeat(1, num_ped, 1, 1).view(num_ped**2, 8, 2)
+            dist = torch.norm(traj1 - traj2, dim=2) # (num_ped*num_ped, 8)
+            # dist[dist > 2] = 1e9
+            for a in range(num_ped):
+                enc_out_neighbors[i, : num_ped * 8] = curr_seq_all_agents_feat
+                src_mask[i, :num_ped * 8] = 1/(1+dist[num_ped*a : num_ped*(a+1)].view(-1))
+                i+=1
 
         src_mask[src_mask < (1/3)] = 0 # if distance > 2, not neighbor
         src_mask = src_mask.unsqueeze(1).repeat((1,trg.shape[1],1))
