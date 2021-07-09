@@ -105,12 +105,15 @@ class DecoderY(nn.Module):
             LinearEmbedding(dec_inp_size,d_model),
             PositionalEncoding(d_model, dropout)
         )
-        self.decoder = Decoder(DecoderLayer(d_model, MultiHeadAttention(h, d_model, dropout), MultiHeadAttention(h, d_model, dropout, dist_weight=True),
-                                            ConcatPointerwiseFeedforward(d_model, d_latent, d_ff, dropout), dropout), N)
+        self.decoder = Decoder(DecoderLayer(d_model, MultiHeadAttention(h, d_model, dropout), MultiHeadAttention(h, d_model, dropout),
+                                            ConcatPointerwiseFeedforward(d_model, 2*d_latent, d_ff, dropout), dropout), N)
+        self.neighbor_attn = Encoder(EncoderLayer(d_model, MultiHeadAttention(h, d_model, dropout), PointerwiseFeedforward(d_model, d_ff, dropout), dropout), N)
+        self.neighbor_fc = nn.Linear(d_model, d_latent)
         self.fc = nn.Linear(d_model, dec_out_size * 2)
 
         self.init_weights(self.decoder.parameters())
         self.init_weights(self.fc.parameters())
+        self.init_weights(self.neighbor_attn.parameters())
 
     def init_weights(self, params):
         for p in params:
@@ -120,30 +123,24 @@ class DecoderY(nn.Module):
 
     def forward(self, enc_out, latents, trg, src_mask, trg_mask, seq_start_end, src_traj):
         bs = enc_out.shape[0]
+        last_obs_enc_feat = enc_out[:,-1]
         max_n_agents = (seq_start_end[:,1] - seq_start_end[:,0]).max()
-        src_mask = torch.zeros((bs, 8*max_n_agents))
-        enc_out_neighbors = torch.zeros((bs, 8*max_n_agents, self.d_model))
+        neighbor_mask = torch.zeros((bs, max_n_agents))
+        last_obs_neighbors = torch.zeros((bs, max_n_agents, self.d_model))
 
         i = 0
         for seq in seq_start_end:
-            # aa_enc_out.append(enc_out[s[0]:s[1]].reshape(-1, self.d_model).unsqueeze(0).repeat((s[1]-s[0]), 1, 1))
             num_ped = seq[1] - seq[0]
-            curr_seq_all_agents_feat = enc_out[seq[0]:seq[1]].reshape(-1, self.d_model) # (num_ped * 8, 512)
-            curr_seq_all_agnt_trj = src_traj[seq[0]:seq[1]]
-            # a1, a2, a3, a1, a2, a3, a1, a2, a3
-            traj1 = curr_seq_all_agnt_trj.repeat(num_ped, 1, 1)
-            # a1, a1, a1, a2, a2, a2, a3, a3, a3
-            traj2 = curr_seq_all_agnt_trj.unsqueeze(dim=1).repeat(1, num_ped, 1, 1).view(num_ped**2, 8, 2)
-            dist = torch.norm(traj1 - traj2, dim=2) # (num_ped*num_ped, 8)
-            # dist[dist > 2] = 1e9
+            curr_seq_all_agents_feat = last_obs_enc_feat[seq[0]:seq[1]]
             for a in range(num_ped):
-                enc_out_neighbors[i, : num_ped * 8] = curr_seq_all_agents_feat
-                src_mask[i, :num_ped * 8] = 1/(1+dist[num_ped*a : num_ped*(a+1)].view(-1))
+                last_obs_neighbors[i, : num_ped] = curr_seq_all_agents_feat
+                neighbor_mask[i, :num_ped] = 1
                 i+=1
 
-        src_mask[src_mask < (1/3)] = 0 # if distance > 2, not neighbor
-        src_mask = src_mask.unsqueeze(1).repeat((1,trg.shape[1],1))
-        dec_out =  self.decoder(self.trg_embed(trg), enc_out_neighbors.to(enc_out.device), latents.unsqueeze(1), src_mask.to(enc_out.device), trg_mask) # bs, 12, 512
+        neighbor_feat = self.neighbor_attn(last_obs_neighbors.to(enc_out.device), neighbor_mask.unsqueeze(1).to(enc_out.device)) # bs, max_n_agents, 512
+        neighbor_feat = self.neighbor_fc(neighbor_feat).mean(1) # avg pooling
+
+        dec_out =  self.decoder(self.trg_embed(trg), enc_out, torch.cat([latents, neighbor_feat], dim=1).unsqueeze(1), src_mask, trg_mask) # bs, 12, 512
 
         stats = self.fc(dec_out) # bs, 12, out*2
         mu = stats[:,:,:self.dec_out_size]
