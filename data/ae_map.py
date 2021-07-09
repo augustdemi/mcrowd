@@ -82,7 +82,7 @@ def transform(image, aug):
     # plt.imshow(im)
     # plt.show()
     angle=0
-    if np.random.rand() > 1:
+    if np.random.rand() > 0.5:
         angle = random.choice([-150, -120, -90, -60, -30, 30, 60, 90, 120, 150, 180])
         im = TF.rotate(im, angle, fill=(0,))
 
@@ -95,66 +95,67 @@ def transform(image, aug):
 
 
 
-def crop(map, target_pos1, inv_h_t, context_size=198):
-    # map = imageio.imread(os.path.join('../datasets/syn_x/map/', 's2_map.png'))
-    # h = np.loadtxt(os.path.join('../datasets/syn_x/map/','s2_H.txt'))
-    # inv_h_t = np.linalg.pinv(np.transpose(h))
-
-    target_pos1 = target_pos1
-    nearby_area = context_size//2
+def crop(map, target_pos, inv_h_t, context_size=198):
     expanded_obs_img = np.full((map.shape[0] + context_size, map.shape[1] + context_size), False, dtype=np.float32)
     expanded_obs_img[context_size//2:-context_size//2, context_size//2:-context_size//2] = map.astype(np.float32) # 99~-99
 
-    target_pos = np.expand_dims(target_pos1, 0)
+    target_pos = np.expand_dims(target_pos, 0)
     target_pixel = np.matmul(np.concatenate([target_pos, np.ones((len(target_pos), 1))], axis=1), inv_h_t)
     target_pixel /= np.expand_dims(target_pixel[:, 2], 1)
     target_pixel = target_pixel[:,:2]
 
     # plt.imshow(map)
-    # b = current_fut_traj[0, :2] + torch.tensor(mean_pos).unsqueeze(1)
-    # for i in range(12):
-    #     target_pos1 = b[:,i]
-    #     target_pos = np.expand_dims(target_pos1, 0)
-    #     target_pixel = np.matmul(np.concatenate([target_pos, np.ones((len(target_pos), 1))], axis=1), inv_h_t)
-    #     target_pixel /= np.expand_dims(target_pixel[:, 2], 1)
-    #     target_pixel = target_pixel[:, :2]
-    #     plt.scatter(target_pixel[0][1], target_pixel[0][0], c='y', s=1)
-    #
-    #     img_pts = context_size // 2 + np.round(target_pixel).astype(int)
-    #     expanded_obs_img[img_pts[0, 0]][img_pts[0, 1]] = 255
-
-    # plt.imshow(map)
     # plt.scatter(target_pixel[0][1], target_pixel[0][0], c='r', s=1)
 
-    # img_pts = np.array([[289,106]]) # s5-160
-    # img_pts = np.array([[272,63]]) # s5-64
-    # img_pts = np.array([[263,38]]) # s5-64
-    # img_pts = np.array([[246,38]]) # s5-16
-    # img_pts = np.array([[325,124]]) #s2-160
-    # img_pts = np.array([[279,62]]) #s2-64
-    # img_pts = np.array([[265,44]]) #s2-32
-    # img_pts = np.array([[264,38]]) #s2-16
-    # img_pts = np.array([[273,62]]) #s3-64
-    # img_pts = np.array([[257,40]]) #s3-16
+    img_pts = context_size//2 + np.round(target_pixel).astype(int)
 
-    img_pts = context_size//2 + np.round(target_pixel).astype(int).squeeze(0)
+    ######## TEST #########
+    # # zara1 data points
+    # pts = [[4.1068, 7.5457], [3.90560103932, 7.51993162917], [3.70418592941, 7.493917711], [3.52529058623, 7.48795121601], [3.34639524305, 7.48198472102],  [3.16749989986, 7.47601822602],
+    #        [2.98860455668,	7.47005173103], [2.95282548805,	7.41921719369], [2.91704641941, 7.36838265635], [2.98860455668, 7.47005173103], [2.95282548805, 7.41921719369]]
+    # pts = [[3.71976034752, 3.09875883948], [3.26957547803, 3.12095420085], [2.81918014343, 3.14314956223], [2.36899527394,3.1653449236], [2.03098830789,	3.18754028497], [1.76790692085,	3.20997430615],
+    #        [1.50482553382,	3.23240832732], [1.34087321342,	3.2483985339], [1.32571972553, 3.25484234849]]
+    # pts = [[11.5907345173, 5.95718726065], [11.1112949976, 5.86434859856], [10.6356438498, 5.81518467982], [10.1688322367, 5.86721251616], [9.70181015841, 5.91947901229], [9.23436714993, 5.97890530242],
+    #        [8.76250437415, 6.10229241887], [8.29085206348, 6.22567953533], [7.82109393879, 6.32734861]]
+    # target_pixel = np.matmul(np.concatenate([pts, np.ones((len(pts), 1))], axis=1), inv_h_t)
+    # target_pixel /= np.expand_dims(target_pixel[:, 2], 1)
+    # target_pixel = target_pixel[:,:2]
+    # img_pts = context_size//2 + np.round(target_pixel).astype(int)
+    #
+    # plt.imshow(expanded_obs_img)
+    # for p in range(len(img_pts)):
+    #     plt.scatter(img_pts[p][1], img_pts[p][0], c='r', s=1)
+    #     expanded_obs_img[img_pts[p][0], img_pts[p][1]] = 255
+    # plt.show()
+    #########
 
     # plt.imshow(expanded_obs_img)
-    # plt.scatter(img_pts[1], img_pts[0], c='r', s=1)
+    # plt.scatter(img_pts[0][1], img_pts[0][0], c='r', s=1)
+    # expanded_obs_img[img_pts[0][0], img_pts[0][1]]=255
 
-    cropped_img = expanded_obs_img[max(img_pts[0] - nearby_area,0) : min(img_pts[0] + nearby_area, expanded_obs_img.shape[0]),
-                                      max(img_pts[1] - nearby_area ,0): min(img_pts[1] + nearby_area, expanded_obs_img.shape[1])]
+    # nearby_area = context_size//2
+    nearby_area = context_size//2 - 10
+    if img_pts[0][0] < nearby_area:
+        img_pts[0][0] = nearby_area
+        print(target_pos[0])
+    elif img_pts[0][0] > expanded_obs_img.shape[0] - nearby_area:
+        img_pts[0][0] = expanded_obs_img.shape[0] - nearby_area
+        print(target_pos[0])
 
-    if (np.array(cropped_img.shape) < context_size).any():
-        cropped_img2 = np.zeros((context_size, context_size))
-        cropped_img2[:cropped_img.shape[0],:cropped_img.shape[1]] = cropped_img
-        cropped_img = cropped_img2
+    if img_pts[0][1] < nearby_area :
+        img_pts[0][1] = nearby_area
+        print(target_pos[0])
+    elif img_pts[0][1] > expanded_obs_img.shape[1] - nearby_area:
+        img_pts[0][1] = expanded_obs_img.shape[1] - nearby_area
+        print(target_pos[0])
+    cropped_img = np.stack([expanded_obs_img[img_pts[i, 0] - nearby_area : img_pts[i, 0] + nearby_area,
+                                      img_pts[i, 1] - nearby_area : img_pts[i, 1] + nearby_area]
+                      for i in range(target_pos.shape[0])], axis=0)
 
-    cropped_img[nearby_area, nearby_area] = 255
-    cropped_img = np.expand_dims(cropped_img,0).astype(np.float32)
+    cropped_img[0, nearby_area, nearby_area] = 255
     # plt.imshow(cropped_img[0])
-    return cropped_img/255
-
+    # plt.show()
+    return cropped_img
 
 
 
@@ -162,7 +163,7 @@ class TrajectoryDataset(Dataset):
     """Dataloder for the Trajectory datasets"""
     def __init__(
         self, data_dir, obs_len=8, pred_len=12, skip=1, resize=198,
-        min_ped=0, delim='\t', device='cpu', dt=1.5
+        min_ped=0, delim='\t', device='cpu', dt=0.4, map_ae=False
     ):
         """
         Args:
@@ -185,7 +186,7 @@ class TrajectoryDataset(Dataset):
         self.seq_len = self.obs_len + self.pred_len
         self.delim = delim
         self.device = device
-        self.map_dir =  '../datasets/syn_x_cropped/map/'
+        self.map_dir =  '../datasets/nmap/map/'
         n_pred_state=2
         n_state=6
 
@@ -203,16 +204,31 @@ class TrajectoryDataset(Dataset):
         deli = '\\'
         for path in all_files:
             print('data path:', path)
-
-            map_file_name = path.split(deli)[-1].split('-')[0]
+            # if 'zara' in path or 'eth' in path or 'hotel' in path:
+            # if 'zara02' not in path:
+            #     continue
+            if 'zara01' in path.split(deli)[-1]:
+                map_file_name = 'zara01'
+            else:
+                continue
+            # elif 'zara02' in path.split(deli)[-1]:
+            #     map_file_name = 'zara02'
+            # elif 'eth' in path.split(deli)[-1]:
+            #     map_file_name = 'eth'
+            # elif 'hotel' in path.split(deli)[-1]:
+            #     map_file_name = 'hotel'
+            # else:
+            #     map_file_name = 'univ'
 
             print('map path: ', map_file_name)
 
             data = read_file(path, delim)
             # print('uniq ped: ', len(np.unique(data[:, 1])))
 
-            frames = np.unique(data[:, 0]).tolist()
-
+            if 'zara01' in map_file_name:
+                frames = (np.unique(data[:, 0]) + 10).tolist()
+            else:
+                frames = np.unique(data[:, 0]).tolist()
 
             df = []
             # print('uniq frames: ', len(frames))
@@ -298,22 +314,47 @@ class TrajectoryDataset(Dataset):
         current_fut_traj = self.pred_traj[start:end, :].detach().clone()
 
         map_file_name = self.map_file_name[index]
+        aug=True
+        # if 'aug' in map_file_name:
+        #     aug=True
         map = imageio.imread(os.path.join(self.map_dir, map_file_name + '_map.png'))
         h = np.loadtxt(os.path.join(self.map_dir, map_file_name + '_H.txt'))
 
+       #  h = np.array([[ 5.42467998e-04,  2.18631545e-02, -5.63007115e-01],
+       # [-2.16207650e-02,  4.19009264e-04,  1.29938154e+01],
+       # [-1.90340656e-04,  8.61952953e-05,  1.00000000e+00]])
+       #
 
         inv_h_t = np.linalg.pinv(np.transpose(h))
         past_map_obst = []
         for i in range(end-start):  # len(past_obst) = batch
             seq_map = []
+
+            # t=0
+            # frame = self.obs_frame_num[start:end][i, t];frame
+            # import cv2
+            # cap = cv2.VideoCapture('D:\crowd\datasets/nmap\map2/zara01_video.avi')
+            # cap.set(1, int(frame))
+            # _, ff = cap.read()
+            # plt.imshow(ff)
+            # c = imageio.imread(os.path.join('D:\crowd\datasets/nmap\map/zara_map.png'))
+            #
+            # for i in range(current_obs_traj[:, :2, t].shape[0]):
+            #     target_pos = np.expand_dims(current_obs_traj[i, :2, t], 0)
+            #     target_pixel = np.matmul(np.concatenate([target_pos, np.ones((len(target_pos), 1))], axis=1), inv_h_t)
+            #     target_pixel /= np.expand_dims(target_pixel[:, 2], 1)
+            #     target_pixel = target_pixel[:, :2]
+            #     plt.scatter(target_pixel[0][1], target_pixel[0][0], c='r', s=1)
+            # plt.show()
+
             for t in range(self.obs_len):
                 cp_map = map.copy()
                 cp_map = crop(cp_map, current_obs_traj[i,:2,t], inv_h_t, self.context_size)
-                # cp_map, angle = transform(cp_map, aug=aug)
-                # if angle > 0:
-                #     angle = np.pi*angle/180
-                #     m = np.array([[np.cos(angle), -np.sin(angle)],[np.sin(angle), np.cos(angle)]])
-                #     current_obs_traj[i, 2:4, t] = torch.matmul(torch.from_numpy(m).type(torch.FloatTensor) , current_obs_traj[i, 2:4, t])
+                cp_map, angle = transform(cp_map, aug=aug)
+                if angle > 0:
+                    angle = np.pi*angle/180
+                    m = np.array([[np.cos(angle), -np.sin(angle)],[np.sin(angle), np.cos(angle)]])
+                    current_obs_traj[i, 2:4, t] = torch.matmul(torch.from_numpy(m).type(torch.FloatTensor) , current_obs_traj[i, 2:4, t])
                 seq_map.append(cp_map)
             past_map_obst.append(np.stack(seq_map))
         past_map_obst = np.stack(past_map_obst) # (batch(start-end), 8, 1, map_size,map_size)
@@ -325,11 +366,15 @@ class TrajectoryDataset(Dataset):
             for t in range(self.pred_len):
                 cp_map = map.copy()
                 cp_map = crop(cp_map, current_fut_traj[i, :2, t], inv_h_t, self.context_size)
-                # cp_map, angle = transform(cp_map, aug=aug)
-                # if angle > 0:
-                #     angle = np.pi*angle/180
-                #     m = np.array([[np.cos(angle), -np.sin(angle)],[np.sin(angle), np.cos(angle)]])
-                #     current_fut_traj[i, 2:4, t] = torch.matmul(torch.from_numpy(m).type(torch.FloatTensor) , current_fut_traj[i, 2:4, t])
+                cp_map, angle = transform(cp_map, aug=aug)
+                # if cp_map.shape[1] !=64 or cp_map.shape[2] !=64:
+                #     print('222:', cp_map.shape)
+                #     print(start, end, i, t)
+                #     print(self.fut_frame_num[start:end][i, t])
+                if angle > 0:
+                    angle = np.pi*angle/180
+                    m = np.array([[np.cos(angle), -np.sin(angle)],[np.sin(angle), np.cos(angle)]])
+                    current_fut_traj[i, 2:4, t] = torch.matmul(torch.from_numpy(m).type(torch.FloatTensor) , current_fut_traj[i, 2:4, t])
                 seq_map.append(cp_map)
             fut_map_obst.append(np.stack(seq_map))
         fut_map_obst = np.stack(fut_map_obst)  # (batch(start-end), 12, 1, 128,128)

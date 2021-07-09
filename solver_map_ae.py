@@ -161,28 +161,22 @@ class Solver(object):
         )
 
         # prepare dataloader (iterable)
-        if args.ckpt_load_iter == args.max_iter:
-            val_path = os.path.join(self.dataset_dir, self.dataset_name, 'val')
-            _, self.val_loader = data_loader(self.args, val_path)
+        print('Start loading data...')
+        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'train')
+        val_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
 
-        else:
-            print('Start loading data...')
-            train_path = os.path.join(self.dataset_dir, self.dataset_name, 'val')
-            val_path = os.path.join(self.dataset_dir, self.dataset_name, 'val')
+        # long_dtype, float_dtype = get_dtypes(args)
 
-            # long_dtype, float_dtype = get_dtypes(args)
+        print("Initializing train dataset")
+        _, self.train_loader = data_loader(self.args, train_path, map_ae=True)
+        print("Initializing val dataset")
+        # self.args.batch_size = 32
+        _, self.val_loader = data_loader(self.args, val_path, map_ae=True)
 
-            print("Initializing train dataset")
-            _, self.train_loader = data_loader(self.args, train_path)
-            print("Initializing val dataset")
-            # self.args.batch_size = 32
-            _, self.val_loader = data_loader(self.args, val_path)
-            # self.val_loader = self.train_loader
-
-            print(
-                'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
-            )
-            print('...done')
+        print(
+            'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
+        )
+        print('...done')
 
 
     ####
@@ -229,15 +223,15 @@ class Solver(object):
                 obst_feat
             )
 
-            # focal_loss = self.alpha * map * torch.log(recon_map + self.eps) * ((1-recon_map) ** self.gamma) \
-            #              + (1-self.alpha) * (1 - map) * torch.log(1 - recon_map + self.eps) * (recon_map ** self.gamma)
-
-            map_loss = - (torch.log(recon_map + self.eps) * map +
-              torch.log(1 - recon_map + self.eps) * (1 - map))
+            focal_loss = self.alpha * map * torch.log(recon_map + self.eps) * ((1-recon_map) ** self.gamma) \
+                         + (1-self.alpha) * (1 - map) * torch.log(1 - recon_map + self.eps) * (recon_map ** self.gamma)
 
             recon_vel = F.mse_loss(pred_vel, state[:,2:4], reduction='sum')
 
-            loss =  map_loss.sum().div(state.shape[0]) + recon_vel.div(state.shape[0])
+            loss =  - focal_loss.sum().div(state.shape[0]) + recon_vel.div(state.shape[0])
+
+            # loss = - (torch.log(recon_map + self.eps) * map +
+            #           torch.log(1 - recon_map + self.eps) * (1 - map)).sum().div(batch)
 
             self.optim_vae.zero_grad()
             loss.backward()
@@ -298,28 +292,58 @@ class Solver(object):
                     obst_feat
                 )
 
-
-                map_loss = - (torch.log(recon_map + self.eps) * map +
-                              torch.log(1 - recon_map + self.eps) * (1 - map))
+                focal_loss = self.alpha * map * torch.log(recon_map + self.eps) * ((1 - recon_map) ** self.gamma) \
+                             + (1 - self.alpha) * (1 - map) * torch.log(1 - recon_map + self.eps) * (
+                recon_map ** self.gamma)
 
                 recon_vel = F.mse_loss(pred_vel, state[:, 2:4], reduction='sum')
 
-                loss += (map_loss.sum().div(state.shape[0]) + recon_vel.div(state.shape[0]))
-
+                loss = - focal_loss.sum().div(state.shape[0]) + recon_vel.div(state.shape[0])
         self.set_mode(train=True)
         return loss.div(b)
 
     ####
 
-    def recon(self):
+    def recon(self, data_loader):
         self.set_mode(train=False)
         with torch.no_grad():
             # if 'eth' in self.name:
-            fixed_idxs = [50, 64, 200]
-            # fixed_idxs = range(30,60)
-            # fixed_idxs = range(49)
-            dset='test'
-            data_loader = self.val_loader
+            if 'train' in data_loader.dataset.data_dir:
+                # aug train
+                fixed_idxs = [10,50,70,80,100,120,123,140, 220, 230]
+                dset = 'train'
+                data_loader = self.train_loader
+            else:
+                # fixed_idxs = [20, 120, 33, 55, 140, 139, 25, 115, 24, 26, 27, 28, 31]
+                fixed_idxs = [125, 135, 136, 117, 114, 116]
+                # fixed_idxs = range(30,60)
+                # fixed_idxs = range(49)
+                dset='test'
+                data_loader = self.val_loader
+
+            b=0
+            maxx = 0
+            for abatch in data_loader:
+
+                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
+                 fut_obst) = abatch
+                state = torch.cat([obs_traj, fut_traj], dim=0)
+                state = state.view(-1, state.shape[2])
+                map = torch.cat([past_obst, fut_obst], dim=0)
+                map = map.view(-1, map.shape[2], map.shape[3], map.shape[4])
+
+                obst_feat = self.encoder(state, map, train=True)
+
+                recon_map, _ = self.decoder(
+                    obst_feat
+                )
+                for i in range(recon_map.shape[0]):
+                    maxx +=recon_map[i].max()
+                b+=recon_map.shape[0]
+            avg_max = maxx/b
+            print(avg_max)
+
+
 
 ##########################
             data = []
