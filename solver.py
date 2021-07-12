@@ -249,8 +249,6 @@ class Solver(object):
 
             cropped_fut_map = []
             for i, (s, e) in enumerate(seq_start_end):
-                print(i)
-                print(e-s)
                 if map_path[i] is None:
                     seq_cropped_map = torch.zeros(12*(e - s) , 1, 64, 64)
                     seq_cropped_map[:, 0, 31, 31] = 0.0144
