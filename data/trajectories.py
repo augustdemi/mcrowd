@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 def seq_collate(data):
     (obs_seq_list, pred_seq_list, obs_seq_rel_list, pred_seq_rel_list,
-     obs_frames, fut_frames) = zip(*data)
+     obs_frames, fut_frames, past_obst, fut_obst, map_path, inv_h_t) = zip(*data)
 
     _len = [len(seq) for seq in obs_seq_list]
     cum_start_idx = [0] + np.cumsum(_len).tolist()
@@ -36,11 +36,16 @@ def seq_collate(data):
     obs_frames = np.concatenate(obs_frames, 0)
     fut_frames = np.concatenate(fut_frames, 0)
 
+    map_path = np.array(map_path)
+    inv_h_t = np.array(inv_h_t)
+
+    past_obst = torch.cat(past_obst, 0)
+    fut_obst = torch.cat(fut_obst, 0)
+
 
     out = [
-        obs_traj, pred_traj, obs_traj_rel, pred_traj_rel, seq_start_end, obs_frames, fut_frames
+        obs_traj, pred_traj, obs_traj_rel, pred_traj_rel, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst, map_path, inv_h_t
     ]
-
     return tuple(out)
 
 
@@ -323,11 +328,58 @@ class TrajectoryDataset(Dataset):
 
     def __getitem__(self, index):
         start, end = self.seq_start_end[index]
+        map_file_name = self.map_file_name[index]
+
+        if map_file_name is not '':
+            map_path = os.path.join(self.map_dir, map_file_name + '_map.png')
+            map = imageio.imread(map_path)
+            h = np.loadtxt(os.path.join(self.map_dir, map_file_name + '_H.txt'))
+            inv_h_t = np.linalg.pinv(np.transpose(h))
+            past_map_obst = []
+            past_obst = self.past_obst[start:end]
+            for i in range(len(past_obst)):  # len(past_obst) = batch
+                seq_map = []
+                for t in range(self.obs_len):
+                    cp_map = map.copy()
+                    cp_map = crop(cp_map, self.obs_traj[start:end][i,:2,t], inv_h_t, self.context_size)
+                    cp_map = transform(cp_map, self.resize) / 255.0
+                    seq_map.append(cp_map)
+                past_map_obst.append(np.stack(seq_map))
+
+            past_map_obst = np.stack(past_map_obst) # (batch(start-end), 8, 1, map_size,map_size)
+            past_map_obst = torch.from_numpy(past_map_obst)
+
+            fut_map_obst = []
+            fut_obst = self.fut_obst[start:end]
+            for i in range(len(fut_obst)):
+                seq_map = []
+                for t in range(self.pred_len):
+                    cp_map = map.copy()
+                    cp_map = crop(cp_map, self.pred_traj[start:end][i, :2, t], inv_h_t, self.context_size)
+                    cp_map = transform(cp_map, self.resize) / 255.0
+                    seq_map.append(cp_map)
+                fut_map_obst.append(np.stack(seq_map))
+            fut_map_obst = np.stack(fut_map_obst)  # (batch(start-end), 8, 1, 128,128)
+            fut_map_obst = torch.from_numpy(fut_map_obst)
+        else: # map is not available
+            map_path = inv_h_t = None
+            past_map_obst = torch.zeros(end - start, self.obs_len, 1, self.resize, self.resize)
+            past_map_obst[:, :, 0, 31,31] =0.0144
+            past_map_obst[:, :, 0, 31,32] =0.0336
+            past_map_obst[:, :, 0, 32,31] =0.0336
+            past_map_obst[:, :, 0, 32,32] =0.0784
+            fut_map_obst = torch.zeros(end - start, self.pred_len, 1, self.resize, self.resize)
+            fut_map_obst[:, :, 0, 31, 31] = 0.0144
+            fut_map_obst[:, :, 0, 31, 32] = 0.0336
+            fut_map_obst[:, :, 0, 32, 31] = 0.0336
+            fut_map_obst[:, :, 0, 32, 32] = 0.0784
+
 
 
         out = [
             self.obs_traj[start:end, :].to(self.device) , self.pred_traj[start:end, :].to(self.device),
             self.obs_traj_rel[start:end, :].to(self.device), self.pred_traj_rel[start:end, :].to(self.device),
-            self.obs_frame_num[start:end], self.fut_frame_num[start:end]
+            self.obs_frame_num[start:end], self.fut_frame_num[start:end],
+            past_map_obst.to(self.device), fut_map_obst.to(self.device), map_path, inv_h_t
         ]
         return out

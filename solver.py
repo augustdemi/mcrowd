@@ -18,7 +18,8 @@ from scipy.interpolate import RectBivariateSpline
 from scipy.ndimage import binary_dilation
 from transformer.model import EncoderX, EncoderY, DecoderY
 from transformer.functional import subsequent_mask
-
+from model_map_ae import Encoder as Map_Encoder
+from utils import crop
 ###############################################################################
 
 class Solver(object):
@@ -40,6 +41,7 @@ class Solver(object):
         self.emb_size=args.emb_size
 
         self.max_iter = int(args.max_iter)
+        self.map_size = args.map_size
 
         # do it every specified iters
         self.print_iter = args.print_iter
@@ -132,14 +134,16 @@ class Solver(object):
                                      d_model = args.emb_size,
                                      d_ff = args.d_ff,
                                      h = args.heads,
-                                     dropout = args.dropout).to(self.device)
+                                     dropout = args.dropout,
+                                     device=self.device).to(self.device)
             self.encoderY = EncoderY(enc_inp_size=2,
                                      d_latent=args.latent_dim,
                                      N = args.layers,
                                      d_model = args.emb_size,
                                      d_ff = args.d_ff,
                                      h = args.heads,
-                                     dropout = args.dropout).to(self.device)
+                                     dropout = args.dropout,
+                                     device=self.device).to(self.device)
             self.decoderY = DecoderY(dec_inp_size=3,
                                      dec_out_size=2,
                                      d_latent=args.latent_dim,
@@ -147,7 +151,12 @@ class Solver(object):
                                      d_model = args.emb_size,
                                      d_ff = args.d_ff,
                                      h = args.heads,
-                                     dropout = args.dropout).to(self.device)
+                                     dropout = args.dropout,
+                                     device=self.device).to(self.device)
+            self.map_encoder = Map_Encoder(
+                fc_hidden_dim=32,
+                output_dim=8,
+                drop_out=0.0).to(self.device)
 
 
         else:  # load a previously saved model
@@ -187,8 +196,6 @@ class Solver(object):
             )
         print('...done')
 
-
-
     ####
     def train(self):
         self.set_mode(train=True)
@@ -217,13 +224,9 @@ class Solver(object):
             # ============================================
 
             # sample a mini-batch
-            (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, seq_start_end, obs_frames, pred_frames) = next(iterator)
+            (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, seq_start_end, obs_frames, pred_frames, obs_obst, fut_obst, map_path, inv_h_t) = next(iterator)
             batch_size = obs_traj_rel.size(0) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
-            # prior_token = Variable(torch.zeros(batch_size, 1, self.emb_size))
-            # posterior_token = Variable(torch.zeros(batch_size, 1, self.emb_size))
-            # encX_inp = torch.cat((prior_token, obs_traj_rel), dim=1)
-            # encY_inp = torch.cat((posterior_token, obs_traj_rel, fut_traj_rel), dim=1)
             encX_inp = obs_traj_rel
             encY_inp = torch.cat((obs_traj_rel, fut_traj_rel), dim=1)
 
@@ -233,23 +236,38 @@ class Solver(object):
             dec_inp = torch.cat((start_of_seq, dec_inp), 1) # 70, 13, 2. : 13 seq중에 맨 앞에 값이 (0,0,1)이게됨. 나머지 12개는 (x,y,0)
 
 
-            encX_mask = encY_mask = None
             # encX_mask = torch.ones((encX_inp.shape[0], 1, encX_inp.shape[1] + 1)).to(self.device) # bs, 1,7의 all 1
+            encX_mask = encY_mask = None
             dec_mask=subsequent_mask(dec_inp.shape[1]).repeat(dec_inp.shape[0],1,1).to(self.device) # bs, 12,12의 T/F인데, [t,f,f,...,f]부터 [t,t,..,t]까지 12dim의 vec가 12개
 
-            encX_feat, prior_logit = self.encoderX(encX_inp, encX_mask)
-            encY_feat, posterior_logit = self.encoderY(encY_inp, encY_mask)
-
+            encX_feat, prior_logit = self.encoderX(encX_inp, encX_mask, obs_obst)
+            encY_feat, posterior_logit = self.encoderY(encY_inp, encY_mask, torch.cat([obs_obst, fut_obst], dim=1))
 
             p_dist = discrete(logits=prior_logit)
             q_dist = discrete(logits=posterior_logit)
             relaxed_q_dist = concrete(logits=posterior_logit, temperature=self.temp)
 
+            cropped_fut_map = []
+            for i, (s, e) in enumerate(seq_start_end):
+                print(i)
+                print(e-s)
+                if map_path[i] is None:
+                    seq_cropped_map = torch.zeros(12*(e - s) , 1, 64, 64)
+                    seq_cropped_map[:, 0, 31, 31] = 0.0144
+                    seq_cropped_map[:, 0, 31, 32] = 0.0336
+                    seq_cropped_map[:, 0, 32, 31] = 0.0336
+                    seq_cropped_map[:, 0, 32, 32] = 0.0784
+                else:
+                    seq_map = imageio.imread(map_path[i]) # seq = 한 씬에서 모든 neighbors니까. 같은 데이터셋.
+                    last_obs_and_future_traj = torch.cat((obs_traj[s:e, -1,:2].unsqueeze(1), fut_traj[s:e,:-1,:2]), dim=1)
+                    seq_cropped_map = crop(seq_map, last_obs_and_future_traj.reshape(-1, 2), inv_h_t[i], context_size=self.map_size) # (e-s)*12, 1, 64, 64
+                cropped_fut_map.append(seq_cropped_map)
+            cropped_fut_map = torch.cat(cropped_fut_map).reshape(-1, 12, 1, 64, 64)
 
 
             mu, logvar = self.decoderY(
                 encX_feat, relaxed_q_dist.rsample(), dec_inp,
-                encX_mask, dec_mask, seq_start_end, obs_traj[:, :, :2]
+                encX_mask, dec_mask, cropped_fut_map
             )
             fut_rel_pos_dist = Normal(mu, torch.sqrt(torch.exp(logvar)))
 
@@ -397,45 +415,78 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, seq_start_end, obs_frames, fut_frames) = batch
+                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, seq_start_end, obs_frames, fut_frames, obs_obst, fut_obst, map_path, inv_h_t) = batch
 
                 batch_size = obs_traj_rel.size(0)  # =sum(seq_start_end[:,1] - seq_start_end[:,0])
 
                 encX_inp = obs_traj_rel
                 encX_mask = encY_mask=None
-                encX_feat, prior_logit = self.encoderX(encX_inp, encX_mask)
+                encX_feat, prior_logit = self.encoderX(encX_inp, encX_mask, obs_obst)
 
                 p_dist = discrete(logits=prior_logit)
                 relaxed_p_dist = concrete(logits=prior_logit, temperature=self.temp)
 
                 if loss:
                     encY_inp = torch.cat((obs_traj_rel, fut_traj_rel), dim=1)
-                    # dec_inp = obs_traj_rel[:, -1].unsqueeze(1)
+                    encY_feat, posterior_logit = self.encoderY(encY_inp, encY_mask, torch.cat([obs_obst, fut_obst], dim=1))
+                    q_dist = discrete(logits=posterior_logit)
 
                     start_of_seq = torch.Tensor([0, 0, 1]).unsqueeze(0).unsqueeze(1).repeat(batch_size, 1, 1).to(
                         self.device)
                     dec_inp = start_of_seq
-
-                    encY_feat, posterior_logit = self.encoderY(encY_inp, encY_mask)
-                    q_dist = discrete(logits=posterior_logit)
+                    cropped_fut_map = []
+                    for j, (s, e) in enumerate(seq_start_end):
+                        if map_path[j] is None:
+                            seq_cropped_map = torch.zeros((e - s), 1, 64, 64)
+                            seq_cropped_map[:, 0, 31, 31] = 0.0144
+                            seq_cropped_map[:, 0, 31, 32] = 0.0336
+                            seq_cropped_map[:, 0, 32, 31] = 0.0336
+                            seq_cropped_map[:, 0, 32, 32] = 0.0784
+                        else:
+                            seq_map = imageio.imread(map_path[j])  # seq = 한 씬에서 모든 neighbors니까. 같은 데이터셋.
+                            seq_cropped_map = crop(seq_map, obs_traj[s:e, -1, :2].unsqueeze(1).reshape(-1, 2), inv_h_t[j],
+                                                   context_size=self.map_size)  # (e-s)*12, 1, 64, 64
+                        cropped_fut_map.append(seq_cropped_map)
+                    cropped_fut_map = torch.cat(cropped_fut_map).reshape(-1, 1, 1, 64, 64)
 
                     mus = []
                     stds = []
                     for i in range(self.pred_len):  # 12
                         dec_mask = subsequent_mask(dec_inp.shape[1]).repeat(dec_inp.shape[0], 1, 1).to(self.device)
+
                         mu, logvar = self.decoderY(
                             encX_feat, relaxed_p_dist.rsample(), dec_inp,
-                            encX_mask, dec_mask, seq_start_end, obs_traj[:, :, :2]
+                            encX_mask, dec_mask, cropped_fut_map
                         )
                         mu = mu[:, -1:, :]
                         std = torch.sqrt(torch.exp(logvar))[:, -1:, :]
                         mus.append(mu)
                         stds.append(std)
                         dec_out = Normal(mu, std).rsample()
+                        pred_fut_traj = integrate_samples(dec_out, obs_traj[:, -1, :2], dt=self.dt)
+
+                        cropped_pred_map = []
+                        for j, (s, e) in enumerate(seq_start_end):
+                            if map_path[j] is None:
+                                seq_cropped_map = torch.zeros((e - s), 1, 64, 64)
+                                seq_cropped_map[:, 0, 31, 31] = 0.0144
+                                seq_cropped_map[:, 0, 31, 32] = 0.0336
+                                seq_cropped_map[:, 0, 32, 31] = 0.0336
+                                seq_cropped_map[:, 0, 32, 32] = 0.0784
+                            else:
+                                seq_map = imageio.imread(map_path[j])  # seq = 한 씬에서 모든 neighbors니까. 같은 데이터셋.
+                                seq_cropped_map = crop(seq_map, pred_fut_traj[s:e].reshape(-1, 2), inv_h_t[j],
+                                                       context_size=self.map_size)  # (e-s)*12, 1, 64, 64
+                            cropped_pred_map.append(seq_cropped_map)
+                        cropped_pred_map = torch.cat(cropped_pred_map).reshape(-1, 1, 1, 64, 64)
+                        cropped_fut_map = torch.cat((cropped_fut_map, cropped_pred_map), 1)
+
+
                         dec_out = torch.cat((dec_out,
                                              torch.zeros((dec_out.shape[0], dec_out.shape[1], 1)).to(
                                                  self.device)), -1)  # 70, i, 3( 0이 더붙음)
                         dec_inp = torch.cat((dec_inp, dec_out),1)
+
 
                     mus = torch.cat(mus, dim=1)
                     stds = torch.cat(stds, dim=1)
@@ -459,18 +510,51 @@ class Solver(object):
                     start_of_seq = torch.Tensor([0, 0, 1]).unsqueeze(0).unsqueeze(1).repeat(batch_size, 1, 1).to(
                         self.device)
                     dec_inp = start_of_seq
+                    cropped_fut_map = []
+                    for j, (s, e) in enumerate(seq_start_end):
+                        if map_path[j] is None:
+                            seq_cropped_map = torch.zeros((e - s), 1, 64, 64)
+                            seq_cropped_map[:, 0, 31, 31] = 0.0144
+                            seq_cropped_map[:, 0, 31, 32] = 0.0336
+                            seq_cropped_map[:, 0, 32, 31] = 0.0336
+                            seq_cropped_map[:, 0, 32, 32] = 0.0784
+                        else:
+                            seq_map = imageio.imread(map_path[j])  # seq = 한 씬에서 모든 neighbors니까. 같은 데이터셋.
+                            seq_cropped_map = crop(seq_map, obs_traj[s:e, -1, :2].unsqueeze(1).reshape(-1, 2), inv_h_t[j],
+                                                   context_size=self.map_size)  # (e-s)*12, 1, 64, 64
+                        cropped_fut_map.append(seq_cropped_map)
+                    cropped_fut_map = torch.cat(cropped_fut_map).reshape(-1, 1, 1, 64, 64)
+
 
                     for i in range(self.pred_len):  # 12
                         dec_mask = subsequent_mask(dec_inp.shape[1]).repeat(dec_inp.shape[0], 1, 1).to(self.device)
                         mu, logvar = self.decoderY(
                             encX_feat, relaxed_p_dist.rsample(), dec_inp,
-                            encX_mask, dec_mask, seq_start_end, obs_traj[:, :, :2]
+                            encX_mask, dec_mask, cropped_fut_map
                         )
                         mu = mu[:, -1:, :]
                         std = torch.sqrt(torch.exp(logvar))[:, -1:, :]
                         mus.append(mu)
                         stds.append(std)
                         dec_out = Normal(mu, std).rsample()
+                        pred_fut_traj = integrate_samples(dec_out, obs_traj[:, -1, :2], dt=self.dt)
+
+                        cropped_pred_map = []
+                        for j, (s, e) in enumerate(seq_start_end):
+                            if map_path[j] is None:
+                                seq_cropped_map = torch.zeros((e - s), 1, 64, 64)
+                                seq_cropped_map[:, 0, 31, 31] = 0.0144
+                                seq_cropped_map[:, 0, 31, 32] = 0.0336
+                                seq_cropped_map[:, 0, 32, 31] = 0.0336
+                                seq_cropped_map[:, 0, 32, 32] = 0.0784
+                            else:
+                                seq_map = imageio.imread(map_path[j])  # seq = 한 씬에서 모든 neighbors니까. 같은 데이터셋.
+                                seq_cropped_map = crop(seq_map, pred_fut_traj[s:e].reshape(-1, 2), inv_h_t[j],
+                                                       context_size=self.map_size)  # (e-s)*12, 1, 64, 64
+                            cropped_pred_map.append(seq_cropped_map)
+                        cropped_pred_map = torch.cat(cropped_pred_map).reshape(-1, 1, 1, 64, 64)
+                        cropped_fut_map = torch.cat((cropped_fut_map, cropped_pred_map), 1)
+
                         dec_out = torch.cat((dec_out,
                                              torch.zeros((dec_out.shape[0], dec_out.shape[1], 1)).to(
                                                  self.device)), -1)  # 70, i, 3( 0이 더붙음)
@@ -514,10 +598,6 @@ class Solver(object):
                    ade_avg, fde_avg, \
                    ade_std, fde_std
 
-
-
-
-
     def evaluate_collision(self, data_loader, num_samples, threshold):
         self.set_mode(train=False)
         all_coll = []
@@ -551,7 +631,7 @@ class Solver(object):
                         dec_mask = subsequent_mask(dec_inp.shape[1]).repeat(dec_inp.shape[0], 1, 1).to(self.device)
                         mu, logvar = self.decoderY(
                             encX_feat, relaxed_p_dist.rsample(), dec_inp,
-                            encX_mask, dec_mask, seq_start_end, obs_traj[:, :, :2]
+                            encX_mask, dec_mask
                         )
                         mu = mu[:, -1:, :]
                         std = torch.sqrt(torch.exp(logvar))[:, -1:, :]
@@ -629,7 +709,6 @@ class Solver(object):
                coll_rate_std, all_coll_ll.std(axis=0).mean(), total_pairs
 
 
-
     def evaluate_collision_total(self, data_loader, num_samples, threshold):
         self.set_mode(train=False)
 
@@ -666,7 +745,7 @@ class Solver(object):
                         dec_mask = subsequent_mask(dec_inp.shape[1]).repeat(dec_inp.shape[0], 1, 1).to(self.device)
                         mu, logvar = self.decoderY(
                             encX_feat, relaxed_p_dist.rsample(), dec_inp,
-                            encX_mask, dec_mask, seq_start_end, obs_traj[:, :, :2]
+                            encX_mask, dec_mask
                         )
                         mu = mu[:, -1:, :]
                         std = torch.sqrt(torch.exp(logvar))[:, -1:, :]
@@ -771,6 +850,8 @@ class Solver(object):
         return np.stack(all_coll).sum(), np.stack(all_coll_ll).sum(), \
                np.stack(all_coll2).sum(), np.stack(all_coll_ll2).sum(), \
                np.stack(all_coll3).sum(), np.stack(all_coll_ll3).sum(), total_pairs
+
+
 
 
     def compute_obs_violations(self, predicted_trajs, obs_map):
