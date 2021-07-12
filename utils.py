@@ -524,12 +524,12 @@ def crop(map, target_pos, inv_h_t, context_size=198):
         elif img_pts[i][1] > expanded_obs_img.shape[1] - nearby_area:
             img_pts[i][1] = expanded_obs_img.shape[1] - nearby_area
             print(target_pos[i])
-        import matplotlib.pyplot as plt
-        plt.imshow(expanded_obs_img)
-        plt.scatter(img_pts[i][1], img_pts[i][0], c='r', s=1)
-
-        plt.imshow(map)
-        plt.scatter(target_pixel[i][1], target_pixel[i][0], c='r', s=1)
+        # import matplotlib.pyplot as plt
+        # plt.imshow(expanded_obs_img)
+        # plt.scatter(img_pts[i][1], img_pts[i][0], c='r', s=1)
+        #
+        # plt.imshow(map)
+        # plt.scatter(target_pixel[i][1], target_pixel[i][0], c='r', s=1)
 
     cropped_imgs = np.stack([expanded_obs_img[img_pts[i, 0] - nearby_area: img_pts[i, 0] + nearby_area,
                             img_pts[i, 1] - nearby_area: img_pts[i, 1] + nearby_area]
