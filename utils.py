@@ -8,6 +8,8 @@ from torch.nn import functional as F
 import numpy as np
 from util_math import *
 from torch.distributions.relaxed_categorical import ExpRelaxedCategorical
+from PIL import Image
+import imageio
 ###############################################################################
 
 
@@ -491,3 +493,53 @@ def derivative_of(x, dt=1):
     dx[~np.isnan(x)] = np.gradient(x[~np.isnan(x)], dt)
 
     return dx
+
+
+def crop(map, target_pos, inv_h_t, context_size=198):
+    nearby_area = context_size // 2 - 10
+
+    expanded_obs_img = np.full((map.shape[0] + context_size, map.shape[1] + context_size), False,
+                               dtype=np.float32)
+    expanded_obs_img[context_size // 2:-context_size // 2,
+    context_size // 2:-context_size // 2] = map.astype(np.float32)  # 99~-99
+
+    target_pixel = np.matmul(np.concatenate([target_pos, np.ones((len(target_pos), 1))], axis=1), inv_h_t)
+    target_pixel /= np.expand_dims(target_pixel[:, 2], 1)
+    target_pixel = target_pixel[:, :2]
+
+
+    img_pts = context_size // 2 + np.round(target_pixel).astype(int)
+    for i in range(len(img_pts)):
+        if img_pts[i][0] < nearby_area:
+            img_pts[i][0] = nearby_area
+            print(target_pos[i])
+        elif img_pts[i][0] > expanded_obs_img.shape[0] - nearby_area:
+            img_pts[i][0] = expanded_obs_img.shape[0] - nearby_area
+            print(target_pos[i])
+
+        if img_pts[i][1] < nearby_area:
+            img_pts[i][1] = nearby_area
+            print(target_pos[i])
+        elif img_pts[i][1] > expanded_obs_img.shape[1] - nearby_area:
+            img_pts[i][1] = expanded_obs_img.shape[1] - nearby_area
+            print(target_pos[i])
+        import matplotlib.pyplot as plt
+        plt.imshow(expanded_obs_img)
+        plt.scatter(img_pts[i][1], img_pts[i][0], c='r', s=1)
+
+        plt.imshow(map)
+        plt.scatter(target_pixel[i][1], target_pixel[i][0], c='r', s=1)
+
+    cropped_imgs = np.stack([expanded_obs_img[img_pts[i, 0] - nearby_area: img_pts[i, 0] + nearby_area,
+                            img_pts[i, 1] - nearby_area: img_pts[i, 1] + nearby_area]
+                            for i in range(target_pos.shape[0])], axis=0)
+
+    cropped_imgs[:, nearby_area, nearby_area] = 255
+    resized_cropped_imgs = []
+    for img in cropped_imgs:
+        im = Image.fromarray(img)
+        resized_cropped_imgs.append(transforms.Compose([
+            transforms.Resize(64),
+            transforms.ToTensor()
+        ])(im) / 255.0)
+    return torch.stack(resized_cropped_imgs)
