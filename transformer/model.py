@@ -120,6 +120,7 @@ class DecoderY(nn.Module):
 
         self.dec_out_size = dec_out_size
         self.d_model = d_model
+        self.device=device
 
         self.trg_embed = nn.Sequential(
             LinearEmbedding(dec_inp_size,d_model-d_map_latent),
@@ -142,6 +143,7 @@ class DecoderY(nn.Module):
 
 
     def forward(self, enc_out, latents, trg, src_mask, trg_mask, map):
+        map = map.to(self.device)
         map_feat = self.map_encoder(trg[:, :, :2].reshape(-1, 2),
                                     map.reshape(-1, map.shape[2], map.shape[3], map.shape[4]), train=False)
         map_feat = map_feat.reshape((-1, trg.shape[1], map_feat.shape[-1]))
