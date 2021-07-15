@@ -242,14 +242,14 @@ class Solver(object):
             # ============================================
 
             # sample a mini-batch
-            (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, seq_start_end, obs_frames, pred_frames) = next(iterator)
-            batch = obs_traj_rel.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
+            (obs_traj, fut_traj, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, pred_frames) = next(iterator)
+            batch = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
 
             (encX_h_feat, logitX) \
-                = self.encoderMx(obs_traj, seq_start_end, train=True)
+                = self.encoderMx(obs_traj_st, seq_start_end, train=True)
             (encY_h_feat, logitY) \
-                = self.encoderMy(obs_traj[-1], fut_traj_rel, seq_start_end, encX_h_feat, train=True)
+                = self.encoderMy(obs_traj_st[-1], fut_traj_vel_st, seq_start_end, encX_h_feat, train=True)
 
             p_dist = discrete(logits=logitX)
             q_dist = discrete(logits=logitY)
@@ -259,7 +259,7 @@ class Solver(object):
             # 첫번째 iteration 디코더 인풋 = (obs_traj_rel의 마지막 값, (hidden_state, cell_state))
             # where hidden_state = "인코더의 마지막 hidden_layer아웃풋과 그것으로 만든 max_pooled값을 concat해서 mlp 통과시켜만든 feature인 noise_input에다 noise까지 추가한값)"
             fut_rel_pos_dist = self.decoderMy(
-                obs_traj[-1],
+                obs_traj_st[-1],
                 encX_h_feat,
                 relaxed_q_dist.rsample(),
                 fut_traj
@@ -280,7 +280,7 @@ class Solver(object):
             # log_p_yt_xz=torch.clamp(fut_rel_pos_dist.log_prob(torch.reshape(fut_traj_rel, [batch, self.pred_len, 2])), max=6)
             # print(">>>max:", log_p_yt_xz.max(), log_p_yt_xz.min(), log_p_yt_xz.mean())
             # loglikelihood = log_p_yt_xz.sum().div(batch)
-            loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_rel).sum().div(batch)
+            loglikelihood = fut_rel_pos_dist.log_prob(fut_traj[:, :, 2:4]).sum().div(batch)
 
             loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
             loss_kl = torch.clamp(loss_kl, min=0.07)
@@ -406,22 +406,22 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames) = batch
-                batch_size = obs_traj_vel.size(1)
+                (obs_traj, fut_traj, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, fut_frames) = batch
+                batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
                 (encX_h_feat, logitX) \
-                    = self.encoderMx(obs_traj, seq_start_end)
+                    = self.encoderMx(obs_traj_st, seq_start_end)
                 p_dist = discrete(logits=logitX)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
                 if loss:
                     (encY_h_feat, logitY) \
-                        = self.encoderMy(obs_traj[-1], fut_traj_vel, seq_start_end, encX_h_feat)
+                        = self.encoderMy(obs_traj_st[-1], fut_traj_vel_st, seq_start_end, encX_h_feat)
 
                     q_dist = discrete(logits=logitY)
                     fut_rel_pos_dist = self.decoderMy(
-                        obs_traj[-1],
+                        obs_traj_st[-1],
                         encX_h_feat,
                         relaxed_p_dist.rsample()
                     )
@@ -433,7 +433,7 @@ class Solver(object):
                     # )
 
                     ################## total loss for vae ####################
-                    loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_vel).sum().div(batch_size)
+                    loglikelihood = fut_rel_pos_dist.log_prob(fut_traj[:, :, 2:4]).sum().div(batch_size)
 
                     kld = kl_divergence(q_dist, p_dist).sum().div(batch_size)
                     kld = torch.clamp(kld, min=0.07)
@@ -451,7 +451,7 @@ class Solver(object):
                     )
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
 
-                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
+                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[-1, :, :2], dt=self.dt)
 
 
                     ade.append(displacement_error(
