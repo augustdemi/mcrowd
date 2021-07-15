@@ -5,7 +5,6 @@ import torch.optim as optim
 from utils import DataGather, mkdirs, grid2gif2, apply_poe, sample_gaussian, sample_gumbel_softmax
 from model import *
 from loss import kl_two_gaussian, displacement_error, final_displacement_error
-from utils_sgan import relative_to_abs, integrate_samples
 from data.loader import data_loader
 import imageio
 
@@ -19,6 +18,18 @@ from gmm2d import GMM2D
 
 
 ###############################################################################
+
+def integrate_samples(v, p_0, dt=1):
+    """
+    Integrates deterministic samples of velocity.
+
+    :param v: Velocity samples
+    :return: Position samples
+    """
+    v=v.permute(1, 0, 2)
+    abs_traj = torch.cumsum(v, dim=1) * dt + p_0.unsqueeze(1)
+    return  abs_traj.permute((1, 0, 2))
+
 
 class Solver(object):
 
