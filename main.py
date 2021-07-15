@@ -42,14 +42,14 @@ def create_parser():
     
     parser = argparse.ArgumentParser()
 
-    parser.add_argument( '--run_id', default=1, type=int,
+    parser.add_argument( '--run_id', default=72, type=int,
       help='run id (default=-1 to create a new id)' )
 
     parser.add_argument( '--device', default='cpu', type=str,
       help='cpu/cuda' )
 
     # training hyperparameters
-    parser.add_argument( '--batch_size', default=4, type=int,
+    parser.add_argument( '--batch_size', default=16, type=int,
       help='batch size' )
     parser.add_argument( '--lr_VAE', default=1e-3, type=float,
       help='learning rate of the VAE' )
@@ -65,7 +65,7 @@ def create_parser():
     parser.add_argument( '--ckpt_load_iter', default=0, type=int,
       help='iter# to load the previously saved model ' +
         '(default=0 to start from the scratch)' )
-    parser.add_argument( '--max_iter', default=0, type=float,
+    parser.add_argument( '--max_iter', default=10, type=float,
       help='maximum number of batch iterations' )
     parser.add_argument( '--ckpt_save_iter', default=100, type=int,
       help='checkpoint saved every # iters' )
@@ -109,16 +109,21 @@ def create_parser():
 
 
     # model hyperparameters
-    parser.add_argument( '--latent_dim', default=64, type=int,
+    parser.add_argument( '--zS_dim', default=64, type=int,
       help='dimension of the shared latent representation' )
     # Encoder
-    parser.add_argument('--emb_size', default=512, type=int)
-    parser.add_argument('--d_ff', default=2024, type=int)
-    parser.add_argument('--layers', default=6, type=int)
-    parser.add_argument('--heads', default=8, type=int)
-    parser.add_argument('--dropout', default=0.1, type=float)
+    parser.add_argument('--encoder_h_dim', default=32, type=int)
+    parser.add_argument('--decoder_h_dim', default=128, type=int)
+    parser.add_argument('--num_layers', default=1, type=int)
+    parser.add_argument('--dropout_mlp', default=0.1, type=float)
+    parser.add_argument('--dropout_rnn', default=0.25, type=float)
+    # Decoder
+    parser.add_argument('--pool_every_timestep', default=0, type=bool_flag)
+    parser.add_argument('--mlp_dim', default=32, type=int)
+    parser.add_argument('--batch_norm', default=0, type=bool_flag)
 
-
+    parser.add_argument( '--attention', default=0, type=bool_flag,
+      help='pool/attn' )
     parser.add_argument( '--kl_weight', default=100.0, type=float,
       help='kl weight' )
     parser.add_argument('--map_size', default=180, type=int)
@@ -205,70 +210,24 @@ def main(args):
 
             print('--------------------', args.dataset_name, '----------------------')
             test_path = os.path.join(args.dataset_dir, args.dataset_name, 'test')
-            # args.batch_size=364
-            args.batch_size=64
+            args.batch_size=364
             _, test_loader = data_loader(args, test_path,shuffle=False)
 
-            # solver.plot_traj_var2(test_loader)
+            solver.plot_traj_var2(test_loader)
 
-
-            coll1, coll_ll1, \
-            coll2, coll_ll2, \
-            coll3, coll_ll3, total_pairs = solver.evaluate_collision_total(test_loader, 20, [0.1, 0.3, 0.5])
-            print('-------------------- collision rate of ', args.dataset_name, ' / thr: [0.1, 0.3, 0.5] ----------------------')
-            print('0.1: ', coll1)
-            print('0.3: ', coll2)
-            print('0.5: ', coll3)
-            print('-----ll-----')
-            print('0.1: ', coll_ll1)
-            print('0.3: ', coll_ll2)
-            print('0.5: ', coll_ll3)
-            print('total_pairs: ', total_pairs)
-
-
-            '''
-            threshold=0.3
-            coll_rate_sum, coll_rate_ll_sum, \
-            coll_rate_min, coll_rate_ll_min, \
-            coll_rate_avg, coll_rate_ll_avg, \
-            coll_rate_std, coll_rate_ll_std, total_pairs = solver.evaluate_collision(test_loader, 20, threshold)
-            print('-------------------- collision rate of ', args.dataset_name, ' / thr: ', threshold , '----------------------')
-            print('sum: ', coll_rate_sum)
+            coll_rate_min, non_zero_coll_min, \
+            coll_rate_avg, non_zero_coll_avg, \
+            coll_rate_std, non_zero_coll_std = solver.evaluate_collision(test_loader, 20, threshold)
+            print('-------------------- collision rate of ', args.dataset_name, '----------------------')
             print('min: ', coll_rate_min)
             print('avg: ', coll_rate_avg)
             print('std: ', coll_rate_std)
-            print('-----ll-----')
-            print('sum: ', coll_rate_ll_sum)
-            print('min: ', coll_rate_ll_min)
-            print('avg: ', coll_rate_ll_avg)
-            print('std: ', coll_rate_ll_std)
-            print('total_pairs: ', total_pairs)
 
-
-            threshold=0.5
-            coll_rate_sum, coll_rate_ll_sum, \
-            coll_rate_min, coll_rate_ll_min, \
-            coll_rate_avg, coll_rate_ll_avg, \
-            coll_rate_std, coll_rate_ll_std, total_pairs = solver.evaluate_collision(test_loader, 20, threshold)
-            print('-------------------- collision rate of ', args.dataset_name, ' / thr: ', threshold , '----------------------')
-            print('sum: ', coll_rate_sum)
-            print('min: ', coll_rate_min)
-            print('avg: ', coll_rate_avg)
-            print('std: ', coll_rate_std)
-            print('-----ll-----')
-            print('sum: ', coll_rate_ll_sum)
-            print('min: ', coll_rate_ll_min)
-            print('avg: ', coll_rate_ll_avg)
-            print('std: ', coll_rate_ll_std)
-            print('total_pairs: ', total_pairs)
-
-
-            #
-            # their_viol, min_viol, avg_viol, std_viol = solver.map_collision(test_loader)
-            # print('their_viol: ', their_viol)
-            # print('min_viol: ', min_viol)
-            # print('avg_viol: ', avg_viol)
-            # print('std_viol: ', std_viol)
+            their_viol, min_viol, avg_viol, std_viol = solver.map_collision(test_loader)
+            print('their_viol: ', their_viol)
+            print('min_viol: ', min_viol)
+            print('avg_viol: ', avg_viol)
+            print('std_viol: ', std_viol)
 
             # solver.plot_traj_var(test_loader)
             # solver.draw_traj(test_loader, 20)
@@ -287,8 +246,8 @@ def main(args):
             print('fde min: ', fde_min)
             print('fde avg: ', fde_avg)
             print('fde std: ', fde_std)
-            # print('------------------------------------------')
-            '''
+            print('------------------------------------------')
+
 
     else:
         solver = Solver(args)
