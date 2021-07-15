@@ -445,7 +445,7 @@ class Solver(object):
                 ade, fde = [], []
                 for _ in range(num_samples):
                     fut_rel_pos_dist = self.decoderMy(
-                        obs_traj[-1],
+                        obs_traj_st[-1],
                         encX_h_feat,
                         relaxed_p_dist.rsample()
                     )
