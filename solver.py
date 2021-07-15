@@ -8,18 +8,16 @@ from loss import kl_two_gaussian, displacement_error, final_displacement_error
 from utils_sgan import relative_to_abs, integrate_samples
 from data.loader import data_loader
 import imageio
-from torch.autograd import Variable
-import torch
+
 import matplotlib.pyplot as plt
 from torch.distributions import RelaxedOneHotCategorical as concrete
 from torch.distributions import OneHotCategorical as discrete
 from torch.distributions import kl_divergence
 from scipy.interpolate import RectBivariateSpline
 from scipy.ndimage import binary_dilation
-from transformer.model import EncoderX, EncoderY, DecoderY
-from transformer.functional import subsequent_mask
-from model_map_ae import Encoder as Map_Encoder
-from utils import crop
+from gmm2d import GMM2D
+
+
 ###############################################################################
 
 class Solver(object):
@@ -29,19 +27,27 @@ class Solver(object):
 
         self.args = args
 
-        self.name = '%s_pred_len_%s_d_latent_%s_d_model_%s_d_ff_%s_n_layers_%s_n_head_%s_dropout_%s_klw_%s' % \
-                    (args.dataset_name, args.pred_len, args.latent_dim, args.emb_size,
-                     args.d_ff, args.layers, args.heads, args.dropout, args.kl_weight)
+        # self.name = '%s_pred_len_%s_zS_%s_embedding_dim_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_pool_dim_%s_lr_%s_klw_%s' % \
+        #             (args.dataset_name, args.pred_len, args.zS_dim, 16, args.encoder_h_dim, args.decoder_h_dim, args.mlp_dim, args.pool_dim, args.lr_VAE, args.kl_weight)
+
+        self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_pool_dim_%s_lr_%s_klw_%s' % \
+                    (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
+                     args.decoder_h_dim, args.mlp_dim, 0, args.lr_VAE, args.kl_weight)
+
+        # self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_attn_%s_lr_%s_klw_%s' % \
+        #             (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
+        #              args.decoder_h_dim, args.mlp_dim, args.attention, args.lr_VAE, args.kl_weight)
 
 
+        # to be appended by run_id
+
+        # self.use_cuda = args.cuda and torch.cuda.is_available()
         self.device = args.device
         self.temp=1.99
         self.dt=0.4
         self.kl_weight=args.kl_weight
-        self.emb_size=args.emb_size
 
         self.max_iter = int(args.max_iter)
-        self.map_size = args.map_size
 
         # do it every specified iters
         self.print_iter = args.print_iter
@@ -57,8 +63,7 @@ class Solver(object):
 
         # networks and optimizers
         self.batch_size = args.batch_size
-        self.d_latent = args.latent_dim
-        self.d_latent = args.latent_dim
+        self.zS_dim = args.zS_dim
         self.lr_VAE = args.lr_VAE
         self.beta1_VAE = args.beta1_VAE
         self.beta2_VAE = args.beta2_VAE
@@ -126,38 +131,38 @@ class Solver(object):
 
         self.obs_len = args.obs_len
         self.pred_len = args.pred_len
+        self.num_layers = args.num_layers
+        self.decoder_h_dim = args.decoder_h_dim
 
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
-            self.encoderX = EncoderX(enc_inp_size=2,
-                                     d_latent=args.latent_dim,
-                                     N = args.layers,
-                                     d_model = args.emb_size,
-                                     d_ff = args.d_ff,
-                                     h = args.heads,
-                                     dropout = args.dropout,
-                                     device=self.device).to(self.device)
-            self.encoderY = EncoderY(enc_inp_size=2,
-                                     d_latent=args.latent_dim,
-                                     N = args.layers,
-                                     d_model = args.emb_size,
-                                     d_ff = args.d_ff,
-                                     h = args.heads,
-                                     dropout = args.dropout,
-                                     device=self.device).to(self.device)
-            self.decoderY = DecoderY(dec_inp_size=3,
-                                     dec_out_size=2,
-                                     d_latent=args.latent_dim,
-                                     N = args.layers,
-                                     d_model = args.emb_size,
-                                     d_ff = args.d_ff,
-                                     h = args.heads,
-                                     dropout = args.dropout,
-                                     device=self.device).to(self.device)
-            self.map_encoder = Map_Encoder(
-                fc_hidden_dim=32,
-                output_dim=8,
-                drop_out=0.0).to(self.device)
-
+            self.encoderMx = Encoder(
+                args.zS_dim,
+                enc_h_dim=args.encoder_h_dim,
+                mlp_dim=args.mlp_dim,
+                batch_norm=args.batch_norm,
+                num_layers=args.num_layers,
+                dropout_mlp=args.dropout_mlp,
+                dropout_rnn=args.dropout_rnn).to(self.device)
+            self.encoderMy = EncoderY(
+                args.zS_dim,
+                enc_h_dim=args.encoder_h_dim,
+                mlp_dim=args.mlp_dim,
+                batch_norm=args.batch_norm,
+                num_layers=args.num_layers,
+                dropout_mlp=args.dropout_mlp,
+                dropout_rnn=args.dropout_rnn,
+                device=self.device).to(self.device)
+            self.decoderMy = Decoder(
+                args.pred_len,
+                dec_h_dim=self.decoder_h_dim,
+                enc_h_dim=args.encoder_h_dim,
+                z_dim=args.zS_dim,
+                mlp_dim=args.mlp_dim,
+                num_layers=args.num_layers,
+                device=args.device,
+                dropout_mlp=args.dropout_mlp,
+                dropout_rnn=args.dropout_rnn,
+                batch_norm=args.batch_norm).to(self.device)
 
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
@@ -167,9 +172,9 @@ class Solver(object):
 
         # get VAE parameters
         vae_params = \
-            list(self.encoderX.parameters()) + \
-            list(self.encoderY.parameters()) + \
-            list(self.decoderY.parameters())
+            list(self.encoderMx.parameters()) + \
+            list(self.encoderMy.parameters()) + \
+            list(self.decoderMy.parameters())
 
         # create optimizers
         self.optim_vae = optim.Adam(
@@ -195,6 +200,8 @@ class Solver(object):
                 'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
             )
         print('...done')
+
+
 
     ####
     def train(self):
@@ -224,60 +231,35 @@ class Solver(object):
             # ============================================
 
             # sample a mini-batch
-            (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, seq_start_end, obs_frames, pred_frames, obs_obst, fut_obst, map_path, inv_h_t) = next(iterator)
-            batch_size = obs_traj_rel.size(0) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
-
-            encX_inp = obs_traj_rel
-            encY_inp = torch.cat((obs_traj_rel, fut_traj_rel), dim=1)
-
-            start_of_seq = torch.Tensor([0, 0, 1]).unsqueeze(0).unsqueeze(1).repeat(batch_size, 1, 1).to(self.device)
-            dec_input = fut_traj_rel[:,:-1]
-            dec_inp=torch.cat((dec_input,torch.zeros((dec_input.shape[0],dec_input.shape[1],1)).to(self.device)),-1) # 70, 12, 3( 0이 더붙음)
-            dec_inp = torch.cat((start_of_seq, dec_inp), 1) # 70, 13, 2. : 13 seq중에 맨 앞에 값이 (0,0,1)이게됨. 나머지 12개는 (x,y,0)
+            (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, non_linear_ped,
+             loss_mask, seq_start_end, obs_frames, pred_frames) = next(iterator)
+            batch = obs_traj_rel.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
 
-            # encX_mask = torch.ones((encX_inp.shape[0], 1, encX_inp.shape[1] + 1)).to(self.device) # bs, 1,7의 all 1
-            encX_mask = encY_mask = None
-            dec_mask=subsequent_mask(dec_inp.shape[1]).repeat(dec_inp.shape[0],1,1).to(self.device) # bs, 12,12의 T/F인데, [t,f,f,...,f]부터 [t,t,..,t]까지 12dim의 vec가 12개
+            (encX_h_feat, logitX) \
+                = self.encoderMx(obs_traj, seq_start_end, train=True)
+            (encY_h_feat, logitY) \
+                = self.encoderMy(obs_traj[-1], fut_traj_rel, seq_start_end, encX_h_feat, train=True)
 
-            encX_feat, prior_logit = self.encoderX(encX_inp, encX_mask, obs_obst)
-            encY_feat, posterior_logit = self.encoderY(encY_inp, encY_mask, torch.cat([obs_obst, fut_obst], dim=1))
-
-            p_dist = discrete(logits=prior_logit)
-            q_dist = discrete(logits=posterior_logit)
-            relaxed_q_dist = concrete(logits=posterior_logit, temperature=self.temp)
-
-            cropped_fut_map = []
-            for i, (s, e) in enumerate(seq_start_end):
-                if map_path[i] is None:
-                    seq_cropped_map = torch.zeros(12*(e - s) , 1, 64, 64)
-                    seq_cropped_map[:, 0, 31, 31] = 0.0144
-                    seq_cropped_map[:, 0, 31, 32] = 0.0336
-                    seq_cropped_map[:, 0, 32, 31] = 0.0336
-                    seq_cropped_map[:, 0, 32, 32] = 0.0784
-                else:
-                    seq_map = imageio.imread(map_path[i]) # seq = 한 씬에서 모든 neighbors니까. 같은 데이터셋.
-                    last_obs_and_future_traj = torch.cat((obs_traj[s:e, -1,:2].unsqueeze(1), fut_traj[s:e,:-1,:2]), dim=1)
-                    seq_cropped_map = crop(seq_map, last_obs_and_future_traj.reshape(-1, 2), inv_h_t[i], context_size=self.map_size) # (e-s)*12, 1, 64, 64
-                cropped_fut_map.append(seq_cropped_map)
-            cropped_fut_map = torch.cat(cropped_fut_map).reshape(-1, 12, 1, 64, 64)
+            p_dist = discrete(logits=logitX)
+            q_dist = discrete(logits=logitY)
+            relaxed_q_dist = concrete(logits=logitY, temperature=self.temp)
 
 
-            mu, logvar = self.decoderY(
-                encX_feat, relaxed_q_dist.rsample(), dec_inp,
-                encX_mask, dec_mask, cropped_fut_map
+            # 첫번째 iteration 디코더 인풋 = (obs_traj_rel의 마지막 값, (hidden_state, cell_state))
+            # where hidden_state = "인코더의 마지막 hidden_layer아웃풋과 그것으로 만든 max_pooled값을 concat해서 mlp 통과시켜만든 feature인 noise_input에다 noise까지 추가한값)"
+            fut_rel_pos_dist = self.decoderMy(
+                obs_traj[-1],
+                encX_h_feat,
+                relaxed_q_dist.rsample(),
+                fut_traj
             )
-            fut_rel_pos_dist = Normal(mu, torch.sqrt(torch.exp(logvar)))
 
-            # ade_min, fde_min, \
-            # ade_avg, fde_avg, \
-            # ade_std, fde_std, \
-            # test_loss_recon, test_loss_kl, test_vae_loss = self.evaluate_dist(self.val_loader, 20, loss=True)
 
             ################# validate integration #################
-            # a = integrate_samples(fut_traj_rel, obs_traj[:, -1, :2], self.dt)
+            # a = integrate_samples(fut_traj_rel, obs_traj[-1][:, :2])
             # d = a - fut_traj[:, :, :2]
-            # b = relative_to_abs(fut_traj_rel, obs_traj[:, -1, :2])
+            # b = relative_to_abs(fut_traj_rel, obs_traj[-1][:, :2])
             # e = b - fut_traj[:, :, :2]
             # d==e
             ####################################################################
@@ -288,9 +270,9 @@ class Solver(object):
             # log_p_yt_xz=torch.clamp(fut_rel_pos_dist.log_prob(torch.reshape(fut_traj_rel, [batch, self.pred_len, 2])), max=6)
             # print(">>>max:", log_p_yt_xz.max(), log_p_yt_xz.min(), log_p_yt_xz.mean())
             # loglikelihood = log_p_yt_xz.sum().div(batch)
-            loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_rel).sum().div(batch_size)
+            loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_rel).sum().div(batch)
 
-            loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch_size)
+            loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
             loss_kl = torch.clamp(loss_kl, min=0.07)
             # print('log_likelihood:', loglikelihood.item(), ' kl:', loss_kl.item())
 
@@ -301,6 +283,7 @@ class Solver(object):
             self.optim_vae.zero_grad()
             vae_loss.backward()
             self.optim_vae.step()
+
 
             # save model parameters
             if iteration % self.ckpt_save_iter == 0:
@@ -413,85 +396,35 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, seq_start_end, obs_frames, fut_frames, obs_obst, fut_obst, map_path, inv_h_t) = batch
+                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
+                 fut_obst) = batch
+                batch_size = obs_traj_vel.size(1)
+                total_traj += fut_traj.size(1)
 
-                batch_size = obs_traj_rel.size(0)  # =sum(seq_start_end[:,1] - seq_start_end[:,0])
-
-                encX_inp = obs_traj_rel
-                encX_mask = encY_mask=None
-                encX_feat, prior_logit = self.encoderX(encX_inp, encX_mask, obs_obst)
-
-                p_dist = discrete(logits=prior_logit)
-                relaxed_p_dist = concrete(logits=prior_logit, temperature=self.temp)
+                (encX_h_feat, logitX) \
+                    = self.encoderMx(obs_traj, seq_start_end)
+                p_dist = discrete(logits=logitX)
+                relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
                 if loss:
-                    encY_inp = torch.cat((obs_traj_rel, fut_traj_rel), dim=1)
-                    encY_feat, posterior_logit = self.encoderY(encY_inp, encY_mask, torch.cat([obs_obst, fut_obst], dim=1))
-                    q_dist = discrete(logits=posterior_logit)
+                    (encY_h_feat, logitY) \
+                        = self.encoderMy(obs_traj[-1], fut_traj_vel, seq_start_end, encX_h_feat)
 
-                    start_of_seq = torch.Tensor([0, 0, 1]).unsqueeze(0).unsqueeze(1).repeat(batch_size, 1, 1).to(
-                        self.device)
-                    dec_inp = start_of_seq
-                    cropped_fut_map = []
-                    for j, (s, e) in enumerate(seq_start_end):
-                        if map_path[j] is None:
-                            seq_cropped_map = torch.zeros((e - s), 1, 64, 64)
-                            seq_cropped_map[:, 0, 31, 31] = 0.0144
-                            seq_cropped_map[:, 0, 31, 32] = 0.0336
-                            seq_cropped_map[:, 0, 32, 31] = 0.0336
-                            seq_cropped_map[:, 0, 32, 32] = 0.0784
-                        else:
-                            seq_map = imageio.imread(map_path[j])  # seq = 한 씬에서 모든 neighbors니까. 같은 데이터셋.
-                            seq_cropped_map = crop(seq_map, obs_traj[s:e, -1, :2].unsqueeze(1).reshape(-1, 2), inv_h_t[j],
-                                                   context_size=self.map_size)  # (e-s)*12, 1, 64, 64
-                        cropped_fut_map.append(seq_cropped_map)
-                    cropped_fut_map = torch.cat(cropped_fut_map).reshape(-1, 1, 1, 64, 64)
-
-                    mus = []
-                    stds = []
-                    for i in range(self.pred_len):  # 12
-                        dec_mask = subsequent_mask(dec_inp.shape[1]).repeat(dec_inp.shape[0], 1, 1).to(self.device)
-
-                        mu, logvar = self.decoderY(
-                            encX_feat, relaxed_p_dist.rsample(), dec_inp,
-                            encX_mask, dec_mask, cropped_fut_map
-                        )
-                        mu = mu[:, -1:, :]
-                        std = torch.sqrt(torch.exp(logvar))[:, -1:, :]
-                        mus.append(mu)
-                        stds.append(std)
-                        dec_out = Normal(mu, std).rsample()
-                        pred_fut_traj = integrate_samples(dec_out, obs_traj[:, -1, :2], dt=self.dt)
-
-                        cropped_pred_map = []
-                        for j, (s, e) in enumerate(seq_start_end):
-                            if map_path[j] is None:
-                                seq_cropped_map = torch.zeros((e - s), 1, 64, 64)
-                                seq_cropped_map[:, 0, 31, 31] = 0.0144
-                                seq_cropped_map[:, 0, 31, 32] = 0.0336
-                                seq_cropped_map[:, 0, 32, 31] = 0.0336
-                                seq_cropped_map[:, 0, 32, 32] = 0.0784
-                            else:
-                                seq_map = imageio.imread(map_path[j])  # seq = 한 씬에서 모든 neighbors니까. 같은 데이터셋.
-                                seq_cropped_map = crop(seq_map, pred_fut_traj[s:e].reshape(-1, 2), inv_h_t[j],
-                                                       context_size=self.map_size)  # (e-s)*12, 1, 64, 64
-                            cropped_pred_map.append(seq_cropped_map)
-                        cropped_pred_map = torch.cat(cropped_pred_map).reshape(-1, 1, 1, 64, 64)
-                        cropped_fut_map = torch.cat((cropped_fut_map, cropped_pred_map), 1)
-
-
-                        dec_out = torch.cat((dec_out,
-                                             torch.zeros((dec_out.shape[0], dec_out.shape[1], 1)).to(
-                                                 self.device)), -1)  # 70, i, 3( 0이 더붙음)
-                        dec_inp = torch.cat((dec_inp, dec_out),1)
-
-
-                    mus = torch.cat(mus, dim=1)
-                    stds = torch.cat(stds, dim=1)
-                    fut_rel_pos_dist = Normal(mus, stds)
+                    q_dist = discrete(logits=logitY)
+                    fut_rel_pos_dist = self.decoderMy(
+                        obs_traj[-1],
+                        encX_h_feat,
+                        relaxed_p_dist.rsample()
+                    )
+                    # fut_rel_pos_dist = self.decoderMy(
+                    #     obs_traj[-1],
+                    #     encX_h_feat,
+                    #     relaxed_p_dist.rsample((num_samples,)),
+                    #     num_samples=num_samples
+                    # )
 
                     ################## total loss for vae ####################
-                    loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_rel).sum().div(batch_size)
+                    loglikelihood = fut_rel_pos_dist.log_prob(fut_traj_vel).sum().div(batch_size)
 
                     kld = kl_divergence(q_dist, p_dist).sum().div(batch_size)
                     kld = torch.clamp(kld, min=0.07)
@@ -501,76 +434,22 @@ class Solver(object):
                     loss_kl +=kld
 
                 ade, fde = [], []
-                for _ in range(num_samples): # different relaxed_p_dist.rsample()
-                    mus = []
-                    stds = []
-                    # dec_inp = obs_traj_rel[:, -1].unsqueeze(1)
-                    start_of_seq = torch.Tensor([0, 0, 1]).unsqueeze(0).unsqueeze(1).repeat(batch_size, 1, 1).to(
-                        self.device)
-                    dec_inp = start_of_seq
-                    cropped_fut_map = []
-                    for j, (s, e) in enumerate(seq_start_end):
-                        if map_path[j] is None:
-                            seq_cropped_map = torch.zeros((e - s), 1, 64, 64)
-                            seq_cropped_map[:, 0, 31, 31] = 0.0144
-                            seq_cropped_map[:, 0, 31, 32] = 0.0336
-                            seq_cropped_map[:, 0, 32, 31] = 0.0336
-                            seq_cropped_map[:, 0, 32, 32] = 0.0784
-                        else:
-                            seq_map = imageio.imread(map_path[j])  # seq = 한 씬에서 모든 neighbors니까. 같은 데이터셋.
-                            seq_cropped_map = crop(seq_map, obs_traj[s:e, -1, :2].unsqueeze(1).reshape(-1, 2), inv_h_t[j],
-                                                   context_size=self.map_size)  # (e-s)*12, 1, 64, 64
-                        cropped_fut_map.append(seq_cropped_map)
-                    cropped_fut_map = torch.cat(cropped_fut_map).reshape(-1, 1, 1, 64, 64)
-
-
-                    for i in range(self.pred_len):  # 12
-                        dec_mask = subsequent_mask(dec_inp.shape[1]).repeat(dec_inp.shape[0], 1, 1).to(self.device)
-                        mu, logvar = self.decoderY(
-                            encX_feat, relaxed_p_dist.rsample(), dec_inp,
-                            encX_mask, dec_mask, cropped_fut_map
-                        )
-                        mu = mu[:, -1:, :]
-                        std = torch.sqrt(torch.exp(logvar))[:, -1:, :]
-                        mus.append(mu)
-                        stds.append(std)
-                        dec_out = Normal(mu, std).rsample()
-                        pred_fut_traj = integrate_samples(dec_out, obs_traj[:, -1, :2], dt=self.dt)
-
-                        cropped_pred_map = []
-                        for j, (s, e) in enumerate(seq_start_end):
-                            if map_path[j] is None:
-                                seq_cropped_map = torch.zeros((e - s), 1, 64, 64)
-                                seq_cropped_map[:, 0, 31, 31] = 0.0144
-                                seq_cropped_map[:, 0, 31, 32] = 0.0336
-                                seq_cropped_map[:, 0, 32, 31] = 0.0336
-                                seq_cropped_map[:, 0, 32, 32] = 0.0784
-                            else:
-                                seq_map = imageio.imread(map_path[j])  # seq = 한 씬에서 모든 neighbors니까. 같은 데이터셋.
-                                seq_cropped_map = crop(seq_map, pred_fut_traj[s:e].reshape(-1, 2), inv_h_t[j],
-                                                       context_size=self.map_size)  # (e-s)*12, 1, 64, 64
-                            cropped_pred_map.append(seq_cropped_map)
-                        cropped_pred_map = torch.cat(cropped_pred_map).reshape(-1, 1, 1, 64, 64)
-                        cropped_fut_map = torch.cat((cropped_fut_map, cropped_pred_map), 1)
-
-                        dec_out = torch.cat((dec_out,
-                                             torch.zeros((dec_out.shape[0], dec_out.shape[1], 1)).to(
-                                                 self.device)), -1)  # 70, i, 3( 0이 더붙음)
-                        dec_inp = torch.cat((dec_inp, dec_out),1)
-
-                    mus = torch.cat(mus, dim=1)
-                    stds = torch.cat(stds, dim=1)
-                    fut_rel_pos_dist = Normal(mus, stds)
-
+                for _ in range(num_samples):
+                    fut_rel_pos_dist = self.decoderMy(
+                        obs_traj[-1],
+                        encX_h_feat,
+                        relaxed_p_dist.rsample()
+                    )
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
-                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[:, -1, :2], dt=self.dt)
+
+                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
 
 
                     ade.append(displacement_error(
                         pred_fut_traj, fut_traj[:,:,:2], mode='raw'
                     ))
                     fde.append(final_displacement_error(
-                        pred_fut_traj[:, -1], fut_traj[:, -1, :2], mode='raw'
+                        pred_fut_traj[-1], fut_traj[-1,:,:2], mode='raw'
                     ))
                 all_ade.append(torch.stack(ade))
                 all_fde.append(torch.stack(fde))
@@ -596,61 +475,83 @@ class Solver(object):
                    ade_avg, fde_avg, \
                    ade_std, fde_std
 
-    def evaluate_collision(self, data_loader, num_samples, threshold):
+
+
+
+
+    def evaluate_dtw(self, data_loader, num_samples):
         self.set_mode(train=False)
-        all_coll = []
-        all_coll_ll = []
-        total_pairs = 0
+        all_dist = []
+        from dtaidistance import dtw_ndim
         with torch.no_grad():
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, seq_start_end, obs_frames, fut_frames) = batch
+                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
+                 fut_obst) = batch
+                batch_size = fut_traj.size(1)
 
-                batch_size = obs_traj_rel.size(0)  # =sum(seq_start_end[:,1] - seq_start_end[:,0])
+                (encX_h_feat, logitX) \
+                    = self.encoderMx(obs_traj, seq_start_end)
+                relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
+
+                dist_20samples = [] # (20, # seq, 12)
+                for _ in range(num_samples):
+                    fut_rel_pos_dist = self.decoderMy(
+                        obs_traj[-1],
+                        encX_h_feat,
+                        relaxed_p_dist.rsample()
+                    )
+                    pred_fut_traj_rel = fut_rel_pos_dist.rsample()
+
+                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
+
+                    dtw_dist = []
+                    for i in range(batch_size):
+                        dtw_dist.append(dtw_ndim.distance(pred_fut_traj[:,i].cpu().numpy(), fut_traj[:, i,:2].cpu().numpy()))
+                    dist_20samples.append(dtw_dist)
+                all_dist.append(np.array(dist_20samples))
+
+            all_dist=np.concatenate(all_dist, axis=1) #(20,70,12)
+            print('all_coll: ', all_dist.shape)
+            dtw_min=all_dist.min(axis=0).mean()
+            dtw_avg=all_dist.mean(axis=0).mean()
+            dtw_std=all_dist.std(axis=0).mean()
+        self.set_mode(train=True)
+        return dtw_min, dtw_avg, dtw_std
 
 
-                encX_inp = obs_traj_rel
-                encX_mask = encY_mask=None
-                encX_feat, prior_logit = self.encoderX(encX_inp, encX_mask)
 
-                relaxed_p_dist = concrete(logits=prior_logit, temperature=self.temp)
+    def evaluate_collision(self, data_loader, num_samples, threshold):
+        self.set_mode(train=False)
+        total_traj = 0
+        all_coll = []
+
+        with torch.no_grad():
+            b=0
+            for batch in data_loader:
+                b+=1
+                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
+                 fut_obst) = batch
+                total_traj += fut_traj.size(1)
+
+
+                (encX_h_feat, logitX) \
+                    = self.encoderMx(obs_traj, seq_start_end)
+                relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
                 coll_20samples = [] # (20, # seq, 12)
-                coll_20samples_ll = [] # (20, # seq, 12)
-                for _ in range(num_samples):  # different relaxed_p_dist.rsample()
-                    mus = []
-                    stds = []
-                    start_of_seq = torch.Tensor([0, 0, 1]).unsqueeze(0).unsqueeze(1).repeat(batch_size, 1, 1).to(
-                        self.device)
-                    dec_inp = start_of_seq
-
-                    for i in range(self.pred_len):  # 12
-                        dec_mask = subsequent_mask(dec_inp.shape[1]).repeat(dec_inp.shape[0], 1, 1).to(self.device)
-                        mu, logvar = self.decoderY(
-                            encX_feat, relaxed_p_dist.rsample(), dec_inp,
-                            encX_mask, dec_mask
-                        )
-                        mu = mu[:, -1:, :]
-                        std = torch.sqrt(torch.exp(logvar))[:, -1:, :]
-                        mus.append(mu)
-                        stds.append(std)
-                        dec_out = Normal(mu, std).rsample()
-                        dec_out = torch.cat((dec_out,
-                                             torch.zeros((dec_out.shape[0], dec_out.shape[1], 1)).to(
-                                                 self.device)), -1)  # 70, i, 3( 0이 더붙음)
-                        dec_inp = torch.cat((dec_inp, dec_out), 1)
-
-                    mus = torch.cat(mus, dim=1)
-                    stds = torch.cat(stds, dim=1)
-                    fut_rel_pos_dist = Normal(mus, stds)
-
+                for _ in range(num_samples):
+                    fut_rel_pos_dist = self.decoderMy(
+                        obs_traj[-1],
+                        encX_h_feat,
+                        relaxed_p_dist.rsample()
+                    )
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
-                    pred_fut_traj = integrate_samples(pred_fut_traj_rel, obs_traj[:, -1, :2], dt=self.dt)
-                    likelihood = torch.exp(fut_rel_pos_dist.log_prob(fut_traj_rel))
+
+                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
 
                     seq_coll = [] #64
-                    seq_coll_ll = [] #64
                     for idx, (start, end) in enumerate(seq_start_end):
 
                         start = start.item()
@@ -658,196 +559,39 @@ class Solver(object):
                         num_ped = end - start
                         if num_ped==1:
                             continue
-                        one_frame_slide = pred_fut_traj[start:end] # (pred_len, num_ped, 2)
-                        one_frame_likelihood = likelihood[start:end].prod(2)
+                        one_frame_slide = pred_fut_traj[:,start:end,:] # (pred_len, num_ped, 2)
 
                         frame_coll = [] #num_ped
-                        frame_coll_ll = [] #num_ped
                         for i in range(self.pred_len):
-                            ## distance
-                            curr_frame = one_frame_slide[:,i] # frame of time=i #(num_ped,2)
+                            curr_frame = one_frame_slide[i] # frame of time=i #(num_ped,2)
                             curr1 = curr_frame.repeat(num_ped, 1)
                             curr2 = self.repeat(curr_frame, num_ped)
-                            dist = torch.norm(curr1 - curr2, dim=1).cpu().numpy()
+                            dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
                             dist = dist.reshape(num_ped, num_ped) # all distance between all num_ped*num_ped
-                            ## likelihood
-                            ll1 = one_frame_likelihood[:,i].unsqueeze(1).repeat(num_ped, 1)
-                            ll2 = self.repeat(one_frame_likelihood[:,i].unsqueeze(1), num_ped)
-                            ll_mat = (ll1*ll2).reshape(num_ped, num_ped)
-                            ## check if the distance < threshold for all pairs(num_ped C 2)
                             diff_agent_idx = np.triu_indices(num_ped, k=1) # only distinct distances of num_ped C 2(upper triange except for diag)
-                            total_pairs +=len(diff_agent_idx[0])
                             diff_agent_dist = dist[diff_agent_idx]
-                            diff_agent_ll = ll_mat[diff_agent_idx]
-                            curr_coll_rate_ll = diff_agent_ll[(diff_agent_dist < threshold)].sum().item()
                             curr_coll_rate = (diff_agent_dist < threshold).sum()
 
                             frame_coll.append(curr_coll_rate)
-                            frame_coll_ll.append(curr_coll_rate_ll) # frame 12
-                        seq_coll.append(frame_coll) # all in seq_start_end
-                        seq_coll_ll.append(frame_coll_ll)
-                    coll_20samples.append(seq_coll) # 20 samples
-                    coll_20samples_ll.append(seq_coll_ll)
+                        seq_coll.append(frame_coll)
+                    coll_20samples.append(seq_coll)
 
-                all_coll.append(np.array(coll_20samples)) # all batches
-                all_coll_ll.append(np.array(coll_20samples_ll))
+                all_coll.append(np.array(coll_20samples))
 
             all_coll=np.concatenate(all_coll, axis=1) #(20,70,12)
-            all_coll_ll=np.concatenate(all_coll_ll, axis=1) #(20,70,12)
             print('all_coll: ', all_coll.shape)
-            coll_rate_sum=all_coll.sum()
             coll_rate_min=all_coll.min(axis=0).sum()
             coll_rate_avg=all_coll.mean(axis=0).sum()
             coll_rate_std=all_coll.std(axis=0).mean()
 
+            #non-zero coll
+            non_zero_coll_avg = 0
+            non_zero_coll_min = 0
+            non_zero_coll_std = 0
 
-        return coll_rate_sum, all_coll_ll.sum(), \
-               coll_rate_min, all_coll_ll.min(axis=0).sum(), \
-               coll_rate_avg, all_coll_ll.mean(axis=0).sum(), \
-               coll_rate_std, all_coll_ll.std(axis=0).mean(), total_pairs
-
-
-    def evaluate_collision_total(self, data_loader, num_samples, threshold):
-        self.set_mode(train=False)
-
-        total_pairs = 0
-        with torch.no_grad():
-            b=0
-            all_pred20 = []
-            all_ll20 = []
-            all_seq_start_end = []
-
-            for batch in data_loader:
-                b+=1
-                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, seq_start_end, obs_frames, fut_frames) = batch
-
-                batch_size = obs_traj_rel.size(0)  # =sum(seq_start_end[:,1] - seq_start_end[:,0])
-
-
-                encX_inp = obs_traj_rel
-                encX_mask = encY_mask=None
-                encX_feat, prior_logit = self.encoderX(encX_inp, encX_mask)
-
-                relaxed_p_dist = concrete(logits=prior_logit, temperature=self.temp)
-                pred20 = [] # (20, # seq, 12)
-                ll20 = [] # (20, # seq, 12)
-
-                for _ in range(num_samples):  # different relaxed_p_dist.rsample()
-                    mus = []
-                    stds = []
-                    start_of_seq = torch.Tensor([0, 0, 1]).unsqueeze(0).unsqueeze(1).repeat(batch_size, 1, 1).to(
-                        self.device)
-                    dec_inp = start_of_seq
-
-                    for i in range(self.pred_len):  # 12
-                        dec_mask = subsequent_mask(dec_inp.shape[1]).repeat(dec_inp.shape[0], 1, 1).to(self.device)
-                        mu, logvar = self.decoderY(
-                            encX_feat, relaxed_p_dist.rsample(), dec_inp,
-                            encX_mask, dec_mask
-                        )
-                        mu = mu[:, -1:, :]
-                        std = torch.sqrt(torch.exp(logvar))[:, -1:, :]
-                        mus.append(mu)
-                        stds.append(std)
-                        dec_out = Normal(mu, std).rsample()
-                        dec_out = torch.cat((dec_out,
-                                             torch.zeros((dec_out.shape[0], dec_out.shape[1], 1)).to(
-                                                 self.device)), -1)  # 70, i, 3( 0이 더붙음)
-                        dec_inp = torch.cat((dec_inp, dec_out), 1)
-
-                    mus = torch.cat(mus, dim=1)
-                    stds = torch.cat(stds, dim=1)
-                    fut_rel_pos_dist = Normal(mus, stds)
-
-                    pred_fut_traj_rel = fut_rel_pos_dist.rsample()
-                    pred_fut_traj = integrate_samples(pred_fut_traj_rel, obs_traj[:, -1, :2], dt=self.dt)
-                    likelihood = torch.exp(fut_rel_pos_dist.log_prob(fut_traj_rel))
-
-                    pred20.append(pred_fut_traj) # 20 samples
-                    ll20.append(likelihood)
-
-
-                all_pred20.append(torch.stack(pred20)) # bs, 12, 2 의 list를 stack => 20, bs, 12, 2
-                all_ll20.append(torch.stack(ll20))
-                if len(all_seq_start_end) > 0:
-                    seq_start_end +=all_seq_start_end[-1][-1][1]
-                all_seq_start_end.append(seq_start_end)
-
-            all_pred20 = torch.cat(all_pred20, dim=1)
-            all_ll20 = torch.cat(all_ll20, dim=1)
-            all_seq_start_end = torch.cat(all_seq_start_end, dim=0)
-
-            all_coll = []
-            all_coll_ll = []
-            all_coll2 = []
-            all_coll_ll2 = []
-            all_coll3 = []
-            all_coll_ll3 = []
-            for idx, (start, end) in enumerate(all_seq_start_end):
-                start = start.item()
-                end = end.item()
-                num_ped = end - start
-                if num_ped == 1:
-                    continue
-                one_frame_slide = all_pred20[:, start:end]  # (20, num_ped, 12, 2)
-                one_frame_likelihood = all_ll20[:, start:end].prod(-1)
-
-                one_frame_slide= one_frame_slide.reshape(-1, one_frame_slide.shape[2], one_frame_slide.shape[3])
-                one_frame_likelihood = one_frame_likelihood.reshape(-1, one_frame_likelihood.shape[2])
-
-                frame_coll = []  # num_ped
-                frame_coll_ll = []  # num_ped
-                frame_coll2 = []  # num_ped
-                frame_coll_ll2 = []  # num_ped
-                frame_coll3 = []  # num_ped
-                frame_coll_ll3 = []  # num_ped
-                for i in range(self.pred_len):
-                    ## distance
-                    curr_frame = one_frame_slide[:, i]  # frame of time=i #(num_ped,2)
-                    curr1 = curr_frame.repeat(num_ped * num_samples, 1)
-                    curr2 = self.repeat(curr_frame, num_ped * num_samples)
-                    dist = torch.norm(curr1 - curr2, dim=1).cpu().numpy()
-                    dist = dist.reshape(num_ped * num_samples, num_ped * num_samples)  # all distance between all num_ped*num_ped
-
-                    for i1 in range(num_ped * num_samples):
-                        for i2 in range(i1+1, num_ped * num_samples):
-                            if (i2 - i1 ) % num_ped ==0:
-                                dist[i1,i2] = 9 # make the distance large for the same agent
-                                total_pairs -=1
-
-                    ## likelihood
-                    ll1 = one_frame_likelihood[:, i].unsqueeze(1).repeat(num_ped * num_samples, 1)
-                    ll2 = self.repeat(one_frame_likelihood[:, i].unsqueeze(1), num_ped * num_samples)
-                    ll_mat = (ll1 * ll2).reshape(num_ped * num_samples, num_ped * num_samples)
-                    ## check if the distance < threshold for all pairs(num_ped C 2)
-                    diff_agent_idx = np.triu_indices(num_ped * num_samples, k=1)  # only distinct distances of num_ped C 2(upper triange except for diag)
-                    total_pairs += len(diff_agent_idx[0])
-                    diff_agent_dist = dist[diff_agent_idx]
-                    diff_agent_ll = ll_mat[diff_agent_idx]
-                    frame_coll.append((diff_agent_dist < threshold[0]).sum())
-                    frame_coll_ll.append(diff_agent_ll[(diff_agent_dist < threshold[0])].sum().item())
-
-                    frame_coll2.append((diff_agent_dist < threshold[1]).sum())
-                    frame_coll_ll2.append(diff_agent_ll[(diff_agent_dist < threshold[1])].sum().item())
-
-                    frame_coll3.append((diff_agent_dist < threshold[2]).sum())
-                    frame_coll_ll3.append(diff_agent_ll[(diff_agent_dist < threshold[2])].sum().item())
-
-                all_coll.append(np.array(frame_coll))
-                all_coll_ll.append(np.array(frame_coll_ll))
-
-                all_coll2.append(np.array(frame_coll2))
-                all_coll_ll2.append(np.array(frame_coll_ll2))
-
-                all_coll3.append(np.array(frame_coll3))
-                all_coll_ll3.append(np.array(frame_coll_ll3))
-
-
-            print('all_coll: ', np.stack(all_coll_ll).shape)
-
-        return np.stack(all_coll).sum(), np.stack(all_coll_ll).sum(), \
-               np.stack(all_coll2).sum(), np.stack(all_coll_ll2).sum(), \
-               np.stack(all_coll3).sum(), np.stack(all_coll_ll3).sum(), total_pairs
+        return coll_rate_min, non_zero_coll_min, \
+               coll_rate_avg, non_zero_coll_avg, \
+               coll_rate_std, non_zero_coll_std
 
 
 
@@ -902,7 +646,7 @@ class Solver(object):
                 total_traj += fut_traj.size(1)
 
                 (encX_h_feat, logitX) \
-                    = self.encoderX(obs_traj, seq_start_end, train=False)
+                    = self.encoderMx(obs_traj, seq_start_end, train=False)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
 
@@ -913,7 +657,7 @@ class Solver(object):
 
                     multi_sample_pred = []
                     for _ in range(num_samples):
-                        fut_rel_pos_dist = self.decoderY(
+                        fut_rel_pos_dist = self.decoderMy(
                             obs_traj[-1],
                             encX_h_feat,
                             relaxed_p_dist.rsample()
@@ -1038,7 +782,7 @@ class Solver(object):
 
 
                 (encX_h_feat, logitX) \
-                    = self.encoderX(obs_traj, seq_start_end)
+                    = self.encoderMx(obs_traj, seq_start_end)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
                 # s=seq_start_end.numpy()
@@ -1070,7 +814,7 @@ class Solver(object):
                     multi_sample_pred = []
 
                     for _ in range(num_samples):
-                        fut_rel_pos_dist = self.decoderY(
+                        fut_rel_pos_dist = self.decoderMy(
                             obs_traj[-1],
                             encX_h_feat,
                             relaxed_p_dist.rsample()
@@ -1348,57 +1092,57 @@ class Solver(object):
     def set_mode(self, train=True):
 
         if train:
-            self.encoderX.train()
-            self.encoderY.train()
-            self.decoderY.train()
+            self.encoderMx.train()
+            self.encoderMy.train()
+            self.decoderMy.train()
         else:
-            self.encoderX.eval()
-            self.encoderY.eval()
-            self.decoderY.eval()
+            self.encoderMx.eval()
+            self.encoderMy.eval()
+            self.decoderMy.eval()
 
     ####
     def save_checkpoint(self, iteration):
 
-        encoderX_path = os.path.join(
+        encoderMx_path = os.path.join(
             self.ckpt_dir,
-            'iter_%s_encoderX.pt' % iteration
+            'iter_%s_encoderMx.pt' % iteration
         )
-        encoderY_path = os.path.join(
+        encoderMy_path = os.path.join(
             self.ckpt_dir,
-            'iter_%s_encoderY.pt' % iteration
+            'iter_%s_encoderMy.pt' % iteration
         )
-        decoderY_path = os.path.join(
+        decoderMy_path = os.path.join(
             self.ckpt_dir,
-            'iter_%s_decoderY.pt' % iteration
+            'iter_%s_decoderMy.pt' % iteration
         )
 
 
         mkdirs(self.ckpt_dir)
 
-        torch.save(self.encoderX, encoderX_path)
-        torch.save(self.encoderY, encoderY_path)
-        torch.save(self.decoderY, decoderY_path)
+        torch.save(self.encoderMx, encoderMx_path)
+        torch.save(self.encoderMy, encoderMy_path)
+        torch.save(self.decoderMy, decoderMy_path)
     ####
     def load_checkpoint(self):
 
-        encoderX_path = os.path.join(
+        encoderMx_path = os.path.join(
             self.ckpt_dir,
-            'iter_%s_encoderX.pt' % self.ckpt_load_iter
+            'iter_%s_encoderMx.pt' % self.ckpt_load_iter
         )
-        encoderY_path = os.path.join(
+        encoderMy_path = os.path.join(
             self.ckpt_dir,
-            'iter_%s_encoderY.pt' % self.ckpt_load_iter
+            'iter_%s_encoderMy.pt' % self.ckpt_load_iter
         )
-        decoderY_path = os.path.join(
+        decoderMy_path = os.path.join(
             self.ckpt_dir,
-            'iter_%s_decoderY.pt' % self.ckpt_load_iter
+            'iter_%s_decoderMy.pt' % self.ckpt_load_iter
         )
 
         if self.device == 'cuda':
-            self.encoderX = torch.load(encoderX_path)
-            self.encoderY = torch.load(encoderY_path)
-            self.decoderY = torch.load(decoderY_path)
+            self.encoderMx = torch.load(encoderMx_path)
+            self.encoderMy = torch.load(encoderMy_path)
+            self.decoderMy = torch.load(decoderMy_path)
         else:
-            self.encoderX = torch.load(encoderX_path, map_location='cpu')
-            self.encoderY = torch.load(encoderY_path, map_location='cpu')
-            self.decoderY = torch.load(decoderY_path, map_location='cpu')
+            self.encoderMx = torch.load(encoderMx_path, map_location='cpu')
+            self.encoderMy = torch.load(encoderMy_path, map_location='cpu')
+            self.decoderMy = torch.load(decoderMy_path, map_location='cpu')

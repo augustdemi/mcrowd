@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 def seq_collate(data):
     (obs_seq_list, pred_seq_list, obs_seq_rel_list, pred_seq_rel_list,
-     obs_frames, fut_frames, past_obst, fut_obst, map_path, inv_h_t) = zip(*data)
+     obs_frames, fut_frames, past_obst, fut_obst) = zip(*data)
 
     _len = [len(seq) for seq in obs_seq_list]
     cum_start_idx = [0] + np.cumsum(_len).tolist()
@@ -27,25 +27,23 @@ def seq_collate(data):
 
     # Data format: batch, input_size, seq_len
     # LSTM input format: seq_len, batch, input_size
-    obs_traj = torch.cat(obs_seq_list, dim=0).permute(0, 2, 1)
-    pred_traj = torch.cat(pred_seq_list, dim=0).permute(0, 2, 1)
-    obs_traj_rel = torch.cat(obs_seq_rel_list, dim=0).permute(0, 2, 1)
-    pred_traj_rel = torch.cat(pred_seq_rel_list, dim=0).permute(0, 2, 1)
+    obs_traj = torch.cat(obs_seq_list, dim=0).permute(2, 0, 1)
+    pred_traj = torch.cat(pred_seq_list, dim=0).permute(2, 0, 1)
+    obs_traj_rel = torch.cat(obs_seq_rel_list, dim=0).permute(2, 0, 1)
+    pred_traj_rel = torch.cat(pred_seq_rel_list, dim=0).permute(2, 0, 1)
     seq_start_end = torch.LongTensor(seq_start_end)
 
     obs_frames = np.concatenate(obs_frames, 0)
     fut_frames = np.concatenate(fut_frames, 0)
 
-    map_path = np.array(map_path)
-    inv_h_t = np.array(inv_h_t)
-
-    past_obst = torch.cat(past_obst, 0)
-    fut_obst = torch.cat(fut_obst, 0)
+    past_obst = torch.cat(past_obst, 0).permute((1, 0, 2, 3, 4))
+    fut_obst = torch.cat(fut_obst, 0).permute((1, 0, 2, 3, 4))
 
 
     out = [
-        obs_traj, pred_traj, obs_traj_rel, pred_traj_rel, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst, map_path, inv_h_t
+        obs_traj, pred_traj, obs_traj_rel, pred_traj_rel, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst
     ]
+
     return tuple(out)
 
 
@@ -329,18 +327,35 @@ class TrajectoryDataset(Dataset):
     def __getitem__(self, index):
         start, end = self.seq_start_end[index]
         map_file_name = self.map_file_name[index]
-
         if map_file_name is not '':
-            map_path = os.path.join(self.map_dir, map_file_name + '_map.png')
-            map = imageio.imread(map_path)
+            map = imageio.imread(os.path.join(self.map_dir, map_file_name + '_map.png'))
             h = np.loadtxt(os.path.join(self.map_dir, map_file_name + '_H.txt'))
+
             inv_h_t = np.linalg.pinv(np.transpose(h))
+            if 'hotel' in map_file_name:
+                pixel_distance = 5
+            else:
+                pixel_distance = 3
+
             past_map_obst = []
             past_obst = self.past_obst[start:end]
             for i in range(len(past_obst)):  # len(past_obst) = batch
                 seq_map = []
                 for t in range(self.obs_len):
                     cp_map = map.copy()
+                    # gt_real = past_obst[i][t]
+                    # # mark the obstacle pedestrians
+                    # if len(gt_real) > 0:
+                    #     gt_pixel = np.matmul(np.concatenate([gt_real, np.ones((len(gt_real), 1))], axis=1), inv_h_t)
+                    #     gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
+                    #     # mark all pixel size
+                    #     for p in np.round(gt_pixel)[:, :2].astype(int):
+                    #         x = range(max(p[0] - pixel_distance, 0), min(p[0] + pixel_distance + 1, map.shape[0]))
+                    #         y = range(max(p[1] - pixel_distance, 0), min(p[1] + pixel_distance + 1, map.shape[1]))
+                    #         idx = np.transpose([np.tile(x, len(y)), np.repeat(y, len(x))])
+                    #         within_dist_idx = idx[np.linalg.norm(np.ones_like(idx)*p - idx, ord=2, axis=1) < pixel_distance]
+                    #         cp_map[within_dist_idx[:,0], within_dist_idx[:,1]] = 255
+                    # crop the map near the target pedestrian
                     cp_map = crop(cp_map, self.obs_traj[start:end][i,:2,t], inv_h_t, self.context_size)
                     cp_map = transform(cp_map, self.resize) / 255.0
                     seq_map.append(cp_map)
@@ -355,6 +370,18 @@ class TrajectoryDataset(Dataset):
                 seq_map = []
                 for t in range(self.pred_len):
                     cp_map = map.copy()
+                    # gt_real = fut_obst[i][t]
+                    # if len(gt_real) > 0:
+                    #     gt_pixel = np.matmul(np.concatenate([gt_real, np.ones((len(gt_real), 1))], axis=1), inv_h_t)
+                    #     gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
+                    #     for p in np.round(gt_pixel)[:, :2].astype(int):
+                    #         x = range(max(p[0] - pixel_distance, 0), min(p[0] + pixel_distance + 1, map.shape[0]))
+                    #         y = range(max(p[1] - pixel_distance, 0), min(p[1] + pixel_distance + 1, map.shape[1]))
+                    #         idx = np.transpose([np.tile(x, len(y)), np.repeat(y, len(x))])
+                    #         within_dist_idx = idx[
+                    #             np.linalg.norm(np.ones_like(idx) * p - idx, ord=2, axis=1) < pixel_distance]
+                    #         cp_map[within_dist_idx[:, 0], within_dist_idx[:, 1]] = 255
+                    #         # crop the map near the target pedestrian
                     cp_map = crop(cp_map, self.pred_traj[start:end][i, :2, t], inv_h_t, self.context_size)
                     cp_map = transform(cp_map, self.resize) / 255.0
                     seq_map.append(cp_map)
@@ -362,7 +389,6 @@ class TrajectoryDataset(Dataset):
             fut_map_obst = np.stack(fut_map_obst)  # (batch(start-end), 8, 1, 128,128)
             fut_map_obst = torch.from_numpy(fut_map_obst)
         else: # map is not available
-            map_path = inv_h_t = None
             past_map_obst = torch.zeros(end - start, self.obs_len, 1, self.resize, self.resize)
             past_map_obst[:, :, 0, 31,31] =0.0144
             past_map_obst[:, :, 0, 31,32] =0.0336
@@ -375,11 +401,34 @@ class TrajectoryDataset(Dataset):
             fut_map_obst[:, :, 0, 32, 32] = 0.0784
 
 
+        # image = transforms.Compose([
+        #     transforms.ToTensor()
+        # ])(image)
+
+
+        ## real frame img
+        # import cv2
+        # fig, ax = plt.subplots()
+        # cap = cv2.VideoCapture(
+        #     'D:\crowd\ewap_dataset\seq_eth\seq_eth.avi')
+        # cap.set(1, self.obs_frame_num[start:end][i][t])
+        # _, frame = cap.read()
+        # ax.imshow(frame)
+        #
+        # # plt.imshow(cp_map)
+        # # fake=np.array([[-2.37,  6.54]])
+        # fake = np.expand_dims(self.obs_traj[start:end][i,:,t],0)
+        # fake = np.concatenate([fake, np.ones((len(fake), 1))], axis=1)
+        # fake_pixel = np.matmul(fake, self.inv_h_t)
+        # fake_pixel /= np.expand_dims(fake_pixel[:, 2], 1)
+        # plt.scatter(fake_pixel[0,1], fake_pixel[0,0], c='r', s=1)
+        # np.linalg.norm(gt_pixel-fake_pixel,2) #  2.5415
+
 
         out = [
             self.obs_traj[start:end, :].to(self.device) , self.pred_traj[start:end, :].to(self.device),
             self.obs_traj_rel[start:end, :].to(self.device), self.pred_traj_rel[start:end, :].to(self.device),
             self.obs_frame_num[start:end], self.fut_frame_num[start:end],
-            past_map_obst.to(self.device), fut_map_obst.to(self.device), map_path, inv_h_t
+            past_map_obst.to(self.device), fut_map_obst.to(self.device)
         ]
         return out

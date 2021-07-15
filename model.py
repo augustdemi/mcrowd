@@ -49,150 +49,6 @@ def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0.0):
 ###############################################################################
 # -----------------------------------------------------------------------
 
-
-
-class PoolHiddenNet(nn.Module):
-    """Pooling module as proposed in our paper"""
-    def __init__(
-        self, embedding_dim=64, h_dim=64, pool_dim=1024,
-        activation='relu', batch_norm=True, dropout=0.0
-    ):
-        super(PoolHiddenNet, self).__init__()
-
-        self.mlp_dim = 1024
-        self.h_dim = h_dim
-        self.pool_dim = pool_dim
-        self.embedding_dim = embedding_dim
-
-        mlp_pre_dim = embedding_dim + h_dim
-        mlp_pre_pool_dims = [mlp_pre_dim, 512, pool_dim]
-
-        self.spatial_embedding = nn.Linear(2, embedding_dim)
-        self.mlp_pre_pool = make_mlp(
-            mlp_pre_pool_dims,
-            activation=activation,
-            batch_norm=batch_norm,
-            dropout=dropout)
-
-    def repeat(self, tensor, num_reps):
-        """
-        Inputs:
-        -tensor: 2D tensor of any shape
-        -num_reps: Number of times to repeat each row
-        Outpus:
-        -repeat_tensor: Repeat each row such that: R1, R1, R2, R2
-        """
-        col_len = tensor.size(1)
-        tensor = tensor.unsqueeze(dim=1).repeat(1, num_reps, 1)
-        tensor = tensor.view(-1, col_len)
-        return tensor
-
-    def forward(self, h_states, seq_start_end, end_pos):
-        """
-        Inputs:
-        - h_states: Tensor of shape (num_layers, batch, h_dim)
-        - seq_start_end: A list of tuples which delimit sequences within batch
-        - end_pos: Tensor of shape (batch, 2)
-        Output:
-        - pool_h: Tensor of shape (batch, pool_dim)
-        """
-        pool_h = []
-        for _, (start, end) in enumerate(seq_start_end):
-            start = start.item()
-            end = end.item()
-            num_ped = end - start
-            curr_hidden = h_states.view(-1, self.h_dim)[start:end] # (num_layer, batchsize, hidden_size) -> (num_layer*batchsize, hidden_size) -> (num_ped, hidden_size)
-            curr_end_pos = end_pos[start:end]
-            # Repeat -> H1, H2, H1, H2
-            curr_hidden_1 = curr_hidden.repeat(num_ped, 1) #(num_ped*num_ped, hidden_size)
-            # Repeat position -> P1, P2, P1, P2
-            curr_end_pos_1 = curr_end_pos.repeat(num_ped, 1)
-            # Repeat position -> P1, P1, P2, P2
-            curr_end_pos_2 = self.repeat(curr_end_pos, num_ped) #(num_ped*num_ped, hidden_size)
-            curr_rel_pos = curr_end_pos_1 - curr_end_pos_2 # 다른 agent와의 relative거리 (a1-a1, a2-a1, a3-a1, a1-a2, a2-a2, a3-a2, a1-a3, a2-a3, a3-a3))이런식으로 상대거리
-
-            curr_rel_embedding = self.spatial_embedding(curr_rel_pos) # 다른 agent와의 relative거리의 embedding: (repeated data, 64)
-            mlp_h_input = torch.cat([curr_rel_embedding, curr_hidden_1], dim=1) #(repeated data, 64+128)
-            curr_pool_h = self.mlp_pre_pool(mlp_h_input) # 64+128 -> 512 -> (repeated data, bottleneck_dim)
-            curr_pool_h = curr_pool_h.view(num_ped, num_ped, -1).max(1)[0] # (sqrt(repeated data), sqrt(repeated data), 1024) 로 바꾼후, 각 agent별로 상대와의 거리가 가장 큰걸 골라냄. (argmax말로 value를)
-            pool_h.append(curr_pool_h)
-        pool_h = torch.cat(pool_h, dim=0)
-        return pool_h
-
-
-
-class AttentionHiddenNet(nn.Module):
-    """Pooling module as proposed in our paper"""
-    def __init__(
-        self, embedding_dim=64, h_dim=64, pool_dim=1024,
-        activation='relu', batch_norm=True, dropout=0.0
-    ):
-        super(AttentionHiddenNet, self).__init__()
-
-        self.mlp_dim = 1024
-        self.h_dim = h_dim
-        self.pool_dim = pool_dim
-        self.embedding_dim = embedding_dim
-
-        mlp_pre_dim = embedding_dim + h_dim
-        mlp_pre_pool_dims = [mlp_pre_dim, 512, pool_dim]
-
-        self.spatial_embedding = nn.Linear(2, embedding_dim)
-        self.mlp_pre_pool = make_mlp(
-            mlp_pre_pool_dims,
-            activation=activation,
-            batch_norm=batch_norm,
-            dropout=dropout)
-
-    def repeat(self, tensor, num_reps):
-        """
-        Inputs:
-        -tensor: 2D tensor of any shape
-        -num_reps: Number of times to repeat each row
-        Outpus:
-        -repeat_tensor: Repeat each row such that: R1, R1, R2, R2
-        """
-        col_len = tensor.size(1)
-        tensor = tensor.unsqueeze(dim=1).repeat(1, num_reps, 1)
-        tensor = tensor.view(-1, col_len)
-        return tensor
-
-    def forward(self, h_states, seq_start_end, end_pos):
-        """
-        Inputs:
-        - h_states: Tensor of shape (num_layers, batch, h_dim)
-        - seq_start_end: A list of tuples which delimit sequences within batch
-        - end_pos: Tensor of shape (batch, 2)
-        Output:
-        - context_mat: Tensor of shape (batch, pool_dim)
-        """
-        context_mat = []
-        for _, (start, end) in enumerate(seq_start_end):
-            start = start.item()
-            end = end.item()
-            num_ped = end - start
-            curr_hidden = h_states.view(-1, self.h_dim)[start:end] #num_ped, latent
-            score=torch.matmul(curr_hidden, curr_hidden.transpose(1,0)) #num_ped, num_ped
-            attn_dist = torch.softmax(score, dim=1) #(num_ped, num_ped)
-            curr_context_mat= []
-            for i in range(num_ped):
-                curr_attn = attn_dist[i].repeat(curr_hidden.size(1), 1).transpose(1, 0)
-                context_vec = torch.sum(curr_attn * curr_hidden, dim=0)
-                curr_context_mat.append(context_vec)
-            # for i in range(num_ped):
-            #     context_vec = torch.zeros(curr_hidden.size(1)).to(self.device)
-            #     for j in range(num_ped):
-            #         context_vec += attn_dist[i][j] * curr_hidden[j] #(latent)
-            #     curr_context_mat.append(context_vec)
-            context_mat.append(torch.stack(curr_context_mat))
-
-
-
-        context_mat = torch.cat(context_mat, dim=0)
-        return context_mat
-
-
-
 class Encoder(nn.Module):
     """Encoder:spatial emb -> lstm -> pooling -> fc for posterior / conditional prior"""
     def __init__(
@@ -212,22 +68,7 @@ class Encoder(nn.Module):
             input_size=n_state, hidden_size=enc_h_dim
         )
 
-        # if pooling_type=='pool':
-        #     self.pool_net = PoolHiddenNet(
-        #         embedding_dim=self.embedding_dim,
-        #         h_dim=enc_h_dim,
-        #         pool_dim=pool_dim,
-        #         batch_norm=batch_norm
-        #     )
-        # elif pooling_type=='attn':
-        #     self.pool_net = AttentionHiddenNet(
-        #         embedding_dim=self.embedding_dim,
-        #         h_dim=enc_h_dim,
-        #         pool_dim=pool_dim,
-        #         batch_norm=batch_norm
-        #     )
-
-        input_dim = enc_h_dim + pool_dim
+        input_dim = enc_h_dim
 
         self.fc1 = make_mlp(
             [input_dim, mlp_dim],
@@ -248,20 +89,16 @@ class Encoder(nn.Module):
         # Encode observed Trajectory
         # batch = rel_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
+        # map_feat = self.map_encoder(src.reshape(-1, src.shape[2]), map.reshape(-1, map.shape[2], map.shape[3], map.shape[4]), train=False)
+        # map_feat = map_feat.reshape((-1, 8, map_feat.shape[-1]))
+
         _, (final_encoder_h, _) = self.rnn_encoder(rel_traj) # [8, 656, 16], 두개의 [1, 656, 32]
 
         final_encoder_h = F.dropout(final_encoder_h,
                             p=self.dropout_rnn,
                             training=train)  # [bs, max_time, enc_rnn_dim]
 
-        # pooling
-        if self.pooling_type:
-            end_pos = rel_traj[-1, :, :] # 656, 2
-            pool_h = self.pool_net(final_encoder_h, seq_start_end, end_pos) # 656, 32
-            # Construct input hidden states for decoder
-            dist_fc_input = torch.cat([final_encoder_h.squeeze(0), pool_h], dim=1) # [656, 64]
-        else:
-            dist_fc_input = final_encoder_h.view(-1, self.enc_h_dim)
+        dist_fc_input = final_encoder_h.view(-1, self.enc_h_dim)
 
 
         # final distribution
@@ -291,21 +128,6 @@ class EncoderY(nn.Module):
         self.rnn_encoder = nn.LSTM(
             input_size=n_pred_state, hidden_size=enc_h_dim, num_layers=1, bidirectional=True
         )
-
-        if pooling_type=='pool':
-            self.pool_net = PoolHiddenNet(
-                embedding_dim=n_pred_state,
-                h_dim=enc_h_dim,
-                pool_dim=pool_dim,
-                batch_norm=batch_norm
-            )
-        elif pooling_type=='attn':
-            self.pool_net = AttentionHiddenNet(
-                embedding_dim=n_pred_state,
-                h_dim=enc_h_dim,
-                pool_dim=pool_dim,
-                batch_norm=batch_norm
-            )
 
         input_dim = enc_h_dim*4 + mlp_dim
 
