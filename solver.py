@@ -157,7 +157,8 @@ class Solver(object):
                 num_layers=args.num_layers,
                 dropout_mlp=args.dropout_mlp,
                 dropout_rnn=args.dropout_rnn,
-                device=self.device).to(self.device)
+                device=self.device,
+                rnn_input_dim=args.rnn_input_dim).to(self.device)
             self.encoderMy = EncoderY(
                 args.zS_dim,
                 enc_h_dim=args.encoder_h_dim,
@@ -166,7 +167,8 @@ class Solver(object):
                 num_layers=args.num_layers,
                 dropout_mlp=args.dropout_mlp,
                 dropout_rnn=args.dropout_rnn,
-                device=self.device).to(self.device)
+                device=self.device,
+                rnn_input_dim=args.rnn_input_dim).to(self.device)
             self.decoderMy = Decoder(
                 args.pred_len,
                 dec_h_dim=self.decoder_h_dim,
@@ -178,7 +180,8 @@ class Solver(object):
                 dropout_mlp=args.dropout_mlp,
                 dropout_rnn=args.dropout_rnn,
                 batch_norm=args.batch_norm,
-                map_size=args.map_size).to(self.device)
+                map_size=args.map_size,
+                rnn_input_dim=args.rnn_input_dim).to(self.device)
 
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
@@ -201,7 +204,7 @@ class Solver(object):
 
         # prepare dataloader (iterable)
         print('Start loading data...')
-        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
+        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'train')
         val_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
 
         # long_dtype, float_dtype = get_dtypes(args)
