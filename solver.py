@@ -14,8 +14,9 @@ from torch.distributions import OneHotCategorical as discrete
 from torch.distributions import kl_divergence
 from scipy.interpolate import RectBivariateSpline
 from scipy.ndimage import binary_dilation
-from gmm2d import GMM2D
-
+from model_map_ae import Encoder as Map_Encoder
+from utils import crop
+import numpy as np
 
 ###############################################################################
 
@@ -59,6 +60,8 @@ class Solver(object):
         self.kl_weight=args.kl_weight
 
         self.max_iter = int(args.max_iter)
+        self.map_size = args.map_size
+
 
         # do it every specified iters
         self.print_iter = args.print_iter
@@ -153,7 +156,8 @@ class Solver(object):
                 batch_norm=args.batch_norm,
                 num_layers=args.num_layers,
                 dropout_mlp=args.dropout_mlp,
-                dropout_rnn=args.dropout_rnn).to(self.device)
+                dropout_rnn=args.dropout_rnn,
+                device=self.device).to(self.device)
             self.encoderMy = EncoderY(
                 args.zS_dim,
                 enc_h_dim=args.encoder_h_dim,
@@ -173,7 +177,8 @@ class Solver(object):
                 device=args.device,
                 dropout_mlp=args.dropout_mlp,
                 dropout_rnn=args.dropout_rnn,
-                batch_norm=args.batch_norm).to(self.device)
+                batch_norm=args.batch_norm,
+                map_size=args.map_size).to(self.device)
 
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
@@ -196,7 +201,7 @@ class Solver(object):
 
         # prepare dataloader (iterable)
         print('Start loading data...')
-        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'train')
+        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
         val_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
 
         # long_dtype, float_dtype = get_dtypes(args)
@@ -242,14 +247,15 @@ class Solver(object):
             # ============================================
 
             # sample a mini-batch
-            (obs_traj, fut_traj, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, pred_frames) = next(iterator)
+            (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
+             obs_frames, pred_frames, obs_obst, fut_obst, map_path, inv_h_t) = next(iterator)
             batch = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
 
             (encX_h_feat, logitX) \
-                = self.encoderMx(obs_traj_st, seq_start_end, train=True)
+                = self.encoderMx(obs_traj_st, seq_start_end, obs_obst, train=True)
             (encY_h_feat, logitY) \
-                = self.encoderMy(obs_traj_st[-1], fut_traj_vel_st, seq_start_end, encX_h_feat, train=True)
+                = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, encX_h_feat, fut_obst, train=True)
 
             p_dist = discrete(logits=logitX)
             q_dist = discrete(logits=logitY)
@@ -262,6 +268,7 @@ class Solver(object):
                 obs_traj_st[-1],
                 encX_h_feat,
                 relaxed_q_dist.rsample(),
+                torch.cat((obs_obst[-1].unsqueeze(0), fut_obst), dim=0),
                 fut_traj
             )
 
@@ -406,24 +413,27 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_st, fut_traj_vel_st, seq_start_end, obs_frames, fut_frames) = batch
+                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
+                 obs_frames, fut_frames, obs_obst, fut_obst, map_path, inv_h_t) = batch
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
                 (encX_h_feat, logitX) \
-                    = self.encoderMx(obs_traj_st, seq_start_end)
+                    = self.encoderMx(obs_traj_st, seq_start_end, obs_obst)
                 p_dist = discrete(logits=logitX)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
                 if loss:
                     (encY_h_feat, logitY) \
-                        = self.encoderMy(obs_traj_st[-1], fut_traj_vel_st, seq_start_end, encX_h_feat)
+                        = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, encX_h_feat, fut_obst)
 
                     q_dist = discrete(logits=logitY)
                     fut_rel_pos_dist = self.decoderMy(
                         obs_traj_st[-1],
                         encX_h_feat,
-                        relaxed_p_dist.rsample()
+                        relaxed_p_dist.rsample(),
+                        obs_obst[-1].unsqueeze(0),
+                        map_info=[seq_start_end, map_path, inv_h_t, lambda x: integrate_samples(x, obs_traj[-1, :, :2], dt=self.dt)]
                     )
                     # fut_rel_pos_dist = self.decoderMy(
                     #     obs_traj[-1],
@@ -447,7 +457,9 @@ class Solver(object):
                     fut_rel_pos_dist = self.decoderMy(
                         obs_traj_st[-1],
                         encX_h_feat,
-                        relaxed_p_dist.rsample()
+                        relaxed_p_dist.rsample(),
+                        obs_obst[-1].unsqueeze(0),
+                        map_info=[seq_start_end, map_path, inv_h_t, lambda x: integrate_samples(x, obs_traj[-1, :, :2], dt=self.dt)]
                     )
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
 
@@ -513,7 +525,7 @@ class Solver(object):
                     )
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
 
-                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
+                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[-1, :, :2], dt=self.dt)
 
                     dtw_dist = []
                     for i in range(batch_size):
