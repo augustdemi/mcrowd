@@ -42,9 +42,9 @@ class Solver(object):
         # self.name = '%s_pred_len_%s_zS_%s_embedding_dim_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_pool_dim_%s_lr_%s_klw_%s' % \
         #             (args.dataset_name, args.pred_len, args.zS_dim, 16, args.encoder_h_dim, args.decoder_h_dim, args.mlp_dim, args.pool_dim, args.lr_VAE, args.kl_weight)
 
-        self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_pool_dim_%s_lr_%s_klw_%s_d_rnn_inp_%s' % \
+        self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_pool_dim_%s_lr_%s_klw_%s' % \
                     (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
-                     args.decoder_h_dim, args.mlp_dim, 0, args.lr_VAE, args.kl_weight, args.rnn_input_dim)
+                     args.decoder_h_dim, args.mlp_dim, 0, args.lr_VAE, args.kl_weight)
 
         # self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_attn_%s_lr_%s_klw_%s' % \
         #             (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
@@ -157,8 +157,7 @@ class Solver(object):
                 num_layers=args.num_layers,
                 dropout_mlp=args.dropout_mlp,
                 dropout_rnn=args.dropout_rnn,
-                device=self.device,
-                rnn_input_dim=args.rnn_input_dim).to(self.device)
+                device=self.device).to(self.device)
             self.encoderMy = EncoderY(
                 args.zS_dim,
                 enc_h_dim=args.encoder_h_dim,
@@ -167,8 +166,7 @@ class Solver(object):
                 num_layers=args.num_layers,
                 dropout_mlp=args.dropout_mlp,
                 dropout_rnn=args.dropout_rnn,
-                device=self.device,
-                rnn_input_dim=args.rnn_input_dim).to(self.device)
+                device=self.device).to(self.device)
             self.decoderMy = Decoder(
                 args.pred_len,
                 dec_h_dim=self.decoder_h_dim,
@@ -180,8 +178,7 @@ class Solver(object):
                 dropout_mlp=args.dropout_mlp,
                 dropout_rnn=args.dropout_rnn,
                 batch_norm=args.batch_norm,
-                map_size=args.map_size,
-                rnn_input_dim=args.rnn_input_dim).to(self.device)
+                map_size=args.map_size).to(self.device)
 
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)

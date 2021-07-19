@@ -64,7 +64,7 @@ def load_map_encoder(device):
 class Encoder(nn.Module):
     """Encoder:spatial emb -> lstm -> pooling -> fc for posterior / conditional prior"""
     def __init__(
-        self, zS_dim, enc_h_dim=64, mlp_dim=32, rnn_input_dim=4,
+        self, zS_dim, enc_h_dim=64, mlp_dim=32, pool_dim=32,
             batch_norm=False, num_layers=1, dropout_mlp=0.0, dropout_rnn=0.0,  activation='relu', pooling_type='pool', device='cpu'
     ):
         super(Encoder, self).__init__()
@@ -74,12 +74,10 @@ class Encoder(nn.Module):
         self.num_layers = num_layers
         self.pooling_type = pooling_type
         self.dropout_rnn=dropout_rnn
-        n_state=6
-        d_map_feat=8
+        n_state=6+8
 
-        self.traj_map_emb = nn.Linear(n_state + d_map_feat, rnn_input_dim)
         self.rnn_encoder = nn.LSTM(
-            input_size=rnn_input_dim, hidden_size=enc_h_dim
+            input_size=n_state, hidden_size=enc_h_dim
         )
 
         input_dim = enc_h_dim
@@ -104,7 +102,7 @@ class Encoder(nn.Module):
         map_feat = self.map_encoder(map.reshape(-1, map.shape[2], map.shape[3], map.shape[4]), train=False)
         map_feat = map_feat.reshape((8, -1, map_feat.shape[-1]))
 
-        rnn_input = self.traj_map_emb(torch.cat((obs_traj_st, map_feat), dim=-1))
+        rnn_input = torch.cat((obs_traj_st, map_feat), dim=-1)
         _, (final_encoder_h, _) = self.rnn_encoder(rnn_input) # [8, 656, 16], 두개의 [1, 656, 32]
 
         final_encoder_h = F.dropout(final_encoder_h,
@@ -124,7 +122,7 @@ class Encoder(nn.Module):
 class EncoderY(nn.Module):
     """Encoder:spatial emb -> lstm -> pooling -> fc for posterior / conditional prior"""
     def __init__(
-        self, zS_dim, enc_h_dim=64, mlp_dim=32, rnn_input_dim=4,
+        self, zS_dim, enc_h_dim=64, mlp_dim=32, pool_dim=32,
             batch_norm=False, num_layers=1,  dropout_mlp=0.0, dropout_rnn=0.0, activation='relu', pooling_type='pool', device='cpu'
     ):
         super(EncoderY, self).__init__()
@@ -135,13 +133,11 @@ class EncoderY(nn.Module):
         self.pooling_type = pooling_type
         self.device = device
         n_state=6
-        n_pred_state=2
-        d_map_feat = 8
+        n_pred_state=2+8
         self.dropout_rnn=dropout_rnn
 
-        self.traj_map_emb = nn.Linear(n_pred_state + d_map_feat, rnn_input_dim)
         self.rnn_encoder = nn.LSTM(
-            input_size=rnn_input_dim, hidden_size=enc_h_dim, num_layers=1, bidirectional=True
+            input_size=n_pred_state, hidden_size=enc_h_dim, num_layers=1, bidirectional=True
         )
 
         input_dim = enc_h_dim*4 + mlp_dim
@@ -179,7 +175,7 @@ class EncoderY(nn.Module):
         map_feat = self.map_encoder(map.reshape(-1, map.shape[2], map.shape[3], map.shape[4]), train=False)
         map_feat = map_feat.reshape((12, -1, map_feat.shape[-1]))
 
-        rnn_input = self.traj_map_emb(torch.cat((fut_vel_st, map_feat), dim=-1))
+        rnn_input = torch.cat((fut_vel_st, map_feat), dim=-1)
         _, state = self.rnn_encoder(rnn_input, state_tuple)
 
         state = torch.cat(state, dim=0).permute(1, 0, 2)  # 2,81,32두개 -> 4, 81,32 -> 81,4,32
@@ -208,7 +204,7 @@ class Decoder(nn.Module):
     def __init__(
         self, seq_len, dec_h_dim=128, mlp_dim=1024, num_layers=1,
         dropout_mlp=0.0, dropout_rnn=0.0, enc_h_dim=32, z_dim=32,
-        activation='relu', batch_norm=False, device='cpu', map_size=180, rnn_input_dim=4
+        activation='relu', batch_norm=False, device='cpu', map_size=180
     ):
         super(Decoder, self).__init__()
         n_state=6
@@ -225,10 +221,8 @@ class Decoder(nn.Module):
         self.dec_hidden = nn.Linear(mlp_dim + z_dim, dec_h_dim)
         self.to_vel = nn.Linear(n_state, n_pred_state)
 
-        self.traj_map_emb = nn.Linear(n_pred_state + d_map_feat, rnn_input_dim)
-
         self.rnn_decoder = nn.GRUCell(
-            input_size=mlp_dim + z_dim + rnn_input_dim, hidden_size=dec_h_dim
+            input_size=mlp_dim + z_dim + n_pred_state + d_map_feat, hidden_size=dec_h_dim
         )
 
         # self.mlp = make_mlp(
@@ -270,9 +264,8 @@ class Decoder(nn.Module):
         map = last_obs_and_fut_map[0]
         for i in range(self.seq_len):
             map_feat = self.map_encoder(map, train=False)
-            rnn_input = self.traj_map_emb(torch.cat((a, map_feat), dim=-1))
 
-            decoder_h= self.rnn_decoder(torch.cat([zx, rnn_input], dim=1), decoder_h) #493, 128
+            decoder_h= self.rnn_decoder(torch.cat([zx, a, map_feat], dim=1), decoder_h) #493, 128
             mu= self.fc_mu(decoder_h)
             logVar = self.fc_std(decoder_h)
             std = torch.sqrt(torch.exp(logVar))
@@ -299,7 +292,7 @@ class Decoder(nn.Module):
                         seq_cropped_map = crop(seq_map, pred_fut_traj[s:e], inv_h_t[j],
                                                context_size=self.map_size)  # (e-s), 1, 64, 64
                     map.append(seq_cropped_map)
-                map = torch.cat(map).to(self.device)
+                map = torch.cat(map)
                 ####
 
         mus = torch.stack(mus, dim=0)
