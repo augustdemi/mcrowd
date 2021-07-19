@@ -49,7 +49,9 @@ def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0.0):
 
 
 def load_map_encoder(device):
-    map_encoder_path = 'ckpts/nmap_map_size_180_drop_out0.0_run_25/iter_6500_encoder.pt'
+    # map_encoder_path = 'ckpts/nmap_map_size_180_drop_out0.0_run_25/iter_6500_encoder.pt'
+    map_encoder_path = 'ckpts/nmap_map_size_180_drop_out0.0_run_23/iter_9500_encoder.pt'
+
     if device == 'cuda':
         map_encoder = torch.load(map_encoder_path)
     else:
@@ -92,14 +94,14 @@ class Encoder(nn.Module):
         self.map_encoder = load_map_encoder(device)
 
 
-    def forward(self, obs_traj_st, seq_start_end, map, train=False):
+    def forward(self, obs_traj_st, seq_start_end, map, obs_vel, train=False):
         """
         Inputs:
         - obs_traj: Tensor of shape (obs_len, batch, 2)
         Output:
         - final_h: Tensor of shape (self.num_layers, batch, self.h_dim)
         """
-        map_feat = self.map_encoder(map.reshape(-1, map.shape[2], map.shape[3], map.shape[4]), train=False)
+        map_feat = self.map_encoder(obs_vel.reshape(-1, 2), map.reshape(-1, map.shape[2], map.shape[3], map.shape[4]), train=False)
         map_feat = map_feat.reshape((8, -1, map_feat.shape[-1]))
 
         rnn_input = torch.cat((obs_traj_st, map_feat), dim=-1)
@@ -156,7 +158,7 @@ class EncoderY(nn.Module):
         self.map_encoder = load_map_encoder(device)
 
 
-    def forward(self, last_obs_traj_st, fut_vel_st, seq_start_end, obs_enc_feat, map, train=False):
+    def forward(self, last_obs_traj_st, fut_vel_st, seq_start_end, obs_enc_feat, map, fut_vel, train=False):
         """
         Inputs:
         - obs_traj: Tensor of shape (obs_len, batch, 2)
@@ -172,7 +174,7 @@ class EncoderY(nn.Module):
         initial_c = torch.stack([initial_c, torch.zeros_like(initial_c, device=self.device)], dim=0)
         state_tuple=(initial_h, initial_c)
 
-        map_feat = self.map_encoder(map.reshape(-1, map.shape[2], map.shape[3], map.shape[4]), train=False)
+        map_feat = self.map_encoder(fut_vel.reshape(-1, 2), map.reshape(-1, map.shape[2], map.shape[3], map.shape[4]), train=False)
         map_feat = map_feat.reshape((12, -1, map_feat.shape[-1]))
 
         rnn_input = torch.cat((fut_vel_st, map_feat), dim=-1)
@@ -263,7 +265,7 @@ class Decoder(nn.Module):
         stds = []
         map = last_obs_and_fut_map[0]
         for i in range(self.seq_len):
-            map_feat = self.map_encoder(map, train=False)
+            map_feat = self.map_encoder(a, map, train=False)
 
             decoder_h= self.rnn_decoder(torch.cat([zx, a, map_feat], dim=1), decoder_h) #493, 128
             mu= self.fc_mu(decoder_h)
