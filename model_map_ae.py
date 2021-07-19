@@ -60,7 +60,7 @@ class Encoder(nn.Module):
         self.conv2 = nn.Conv2d(4, 16, 3, stride=1, bias=False)
         self.conv3 = nn.Conv2d(16, 32, 3, stride=1, bias=False)
         self.conv4 = nn.Conv2d(32, 32, 3, stride=1, bias=False)
-        self.fc1 = nn.Linear(32 * 5 * 5 + 2, fc_hidden_dim, bias=False)
+        self.fc1 = nn.Linear(32 * 4 * 4 + 2, fc_hidden_dim, bias=False)
         self.fc2 = nn.Linear(fc_hidden_dim, output_dim, bias=False)
 
     def forward(self, vel, map, train=False):
@@ -70,11 +70,16 @@ class Encoder(nn.Module):
         Output:
         - final_h: Tensor of shape (self.num_layers, batch, self.h_dim)
         """
-        x = F.relu(self.conv1(map)) # 32->29->14
-        x = self.pool(F.relu(self.conv2(x)))  # 29 ->12->6
-        x = F.relu(self.conv3(x))  # 29 ->12->6
-        x = self.pool(F.relu(self.conv4(x)))  # 29 ->12->6
-        x = x.view(-1, 32 * 5 * 5)
+        x = F.relu(self.conv1(map)) # 14
+        x = F.relu(self.conv2(x))  # 12
+        if self.drop_out > 0:
+            x = F.dropout(x,
+                          p=self.drop_out,
+                          training=train)
+
+        x = F.relu(self.conv3(x))  # 10
+        x = self.pool(F.relu(self.conv4(x))) # 8->4
+        x = x.view(-1, 32 * 4 * 4)
         x = torch.cat((x, vel), -1)
         x = F.relu(self.fc1(x))
         obst_feat = self.fc2(x)
@@ -82,7 +87,6 @@ class Encoder(nn.Module):
             obst_feat = F.dropout(obst_feat,
                                 p=self.drop_out,
                                 training=train)
-
         return obst_feat
 
 
@@ -92,12 +96,14 @@ class Decoder(nn.Module):
     def __init__(self, fc_hidden_dim, input_dim):
         super(Decoder, self).__init__()
         self.fc1 = nn.Linear(input_dim, fc_hidden_dim, bias=False)
-        self.fc2 = nn.Linear(fc_hidden_dim, 32 * 5 * 5 + 2, bias=False)
-        # self.upsample1 = nn.Upsample(22)
-        self.deconv1 = nn.ConvTranspose2d(32, 32, 4, stride=2, bias=False)
-        self.deconv2 = nn.ConvTranspose2d(32, 16, 4, stride=2, bias=False)
-        self.deconv3 = nn.ConvTranspose2d(16, 1, 4, stride=1, bias=False)
-        self.deconv4 = nn.ConvTranspose2d(1, 1, 4, stride=1, bias=False)
+        self.fc2 = nn.Linear(fc_hidden_dim, 32 * 4 * 4 + 2, bias=False)
+        self.upsample1 = nn.Upsample(22)
+        self.deconv1 = nn.ConvTranspose2d(32, 32, 3, stride=1, bias=False)
+        self.deconv2 = nn.ConvTranspose2d(32, 16, 3, stride=1, bias=False)
+        self.deconv3 = nn.ConvTranspose2d(16, 4, 3, stride=1, bias=False)
+        self.deconv4 = nn.ConvTranspose2d(4, 1, 3, stride=1, bias=False)
+        self.deconv5 = nn.ConvTranspose2d(1, 1, 3, stride=1, bias=False)
+        self.deconv6 = nn.ConvTranspose2d(1, 1, 3, stride=1, bias=False)
 
     def forward(self, obst_feat):
         """
@@ -113,10 +119,10 @@ class Decoder(nn.Module):
         x= self.fc1(obst_feat)
         x= self.fc2(F.relu(x))
         v = x[:,-2:]
-        x = x[:,:-2].view(-1, 32, 5, 5)
-        y = self.deconv1(F.relu(x)) # 32, 32
-        y = self.deconv2(F.relu(y))
-        y = self.deconv3(F.relu(y))
-        y = self.deconv4(F.relu(y))
+        x = x[:,:-2].view(-1, 32, 4, 4)
+        y = nn.Upsample(10)(self.deconv1(F.relu(x))) # 6
+        y = self.deconv2(F.relu(y)) #12
+        y = self.deconv3(F.relu(y)) #14
+        y = self.deconv4(F.relu(y)) #16
         return F.sigmoid(y), v
 
