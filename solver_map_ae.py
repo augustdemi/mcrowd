@@ -57,7 +57,7 @@ class Solver(object):
         self.viz_on = args.viz_on
         if self.viz_on:
             self.win_id = dict(
-                map_loss='win_map_loss', test_map_loss='win_test_map_loss',  vel_loss='win_vel_loss', test_vel_loss='win_test_map_loss'
+                map_loss='win_map_loss', test_map_loss='win_test_map_loss',  vel_loss='win_vel_loss', test_vel_loss='win_test_vel_loss'
             )
             self.line_gather = DataGather(
                 'iter', 'loss', 'test_loss'
@@ -251,27 +251,22 @@ class Solver(object):
 
                 (obs_traj, fut_traj, seq_start_end, obs_frames, fut_frames, past_obst,
                  fut_obst) = abatch
-                batch = fut_traj.size(1)
-
                 state = torch.cat([obs_traj[:, :, 2:4], fut_traj[:, :, 2:4]], dim=0)
                 state = state.view(-1, state.shape[2])
                 map = torch.cat([past_obst, fut_obst], dim=0)
                 map = map.view(-1, map.shape[2], map.shape[3], map.shape[4])
 
                 obst_feat = self.encoder(state, map, train=True)
-
-                recon_map, pred_vel = self.decoder(
-                    obst_feat
-                )
+                recon_map, pred_vel = self.decoder(obst_feat)
 
                 recon_map_loss = - (torch.log(recon_map + self.eps) * map +
                                torch.log(1 - recon_map + self.eps) * (1 - map)).sum()
 
                 recon_vel = F.mse_loss(pred_vel, state, reduction='sum')
 
-                loss = recon_map_loss.div(state.shape[0]) + recon_vel.div(state.shape[0])
+                loss += recon_map_loss.div(state.shape[0]) + recon_vel.div(state.shape[0])
         self.set_mode(train=True)
-        return loss.div(b)
+        return recon_map_loss.div(b), recon_vel.div(b)
 
     ####
 
@@ -366,10 +361,10 @@ class Solver(object):
         # prepare data to plot
         data = self.line_gather.data
         iters = torch.Tensor(data['iter'])
-        test_map_loss = torch.Tensor(data['test_loss'][0])
-        test_vel_loss = torch.Tensor(data['test_loss'][1])
-        map_loss = torch.Tensor(data['loss'][0])
-        vel_loss = torch.Tensor(data['loss'][1])
+        test_map_loss = torch.Tensor(np.array(data['test_loss'])[:,0])
+        test_vel_loss = torch.Tensor(np.array(data['test_loss'])[:,1])
+        map_loss = torch.Tensor(np.array(data['loss'])[:,0])
+        vel_loss = torch.Tensor(np.array(data['loss'])[:,1])
 
         self.viz.line(
             X=iters, Y=map_loss, env=self.name + '/lines',
