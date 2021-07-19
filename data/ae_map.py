@@ -173,8 +173,8 @@ class TrajectoryDataset(Dataset):
         self.delim = delim
         self.device = device
         n_state=6
-        # root_dir = '/dresden/users/ml1323/crowd/baseline/HTP-benchmark/A2E Data'
-        root_dir = 'C:\dataset\HTP-benchmark\A2E Data'
+        root_dir = '/dresden/users/ml1323/crowd/baseline/HTP-benchmark/A2E Data'
+        # root_dir = 'C:\dataset\HTP-benchmark\A2E Data'
 
         self.context_size=context_size
 
@@ -189,8 +189,8 @@ class TrajectoryDataset(Dataset):
         for path in all_files:
             path = os.path.join(root_dir, path.rstrip().replace('\\', '/'))
             print('data path:', path)
-            if 'Pathfinding' not in path:
-                continue
+            # if 'Pathfinding' not in path:
+            #     continue
             map_file_name = path.replace('.txt', '.png')
             print('map path: ', map_file_name)
 
