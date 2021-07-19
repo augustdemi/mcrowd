@@ -100,6 +100,32 @@ def crop(map, target_pos, inv_h_t, context_size=198):
     expanded_obs_img = np.full((map.shape[0] + context_size, map.shape[1] + context_size), False, dtype=np.float32)
     expanded_obs_img[context_size//2:-context_size//2, context_size//2:-context_size//2] = map.astype(np.float32) # 99~-99
 
+    #### TEST
+    # zara1 data points
+    # pts = [[4.1068, 7.5457], [3.90560103932, 7.51993162917], [3.70418592941, 7.493917711], [3.52529058623, 7.48795121601], [3.34639524305, 7.48198472102],  [3.16749989986, 7.47601822602],
+    #        [2.98860455668,	7.47005173103], [2.95282548805,	7.41921719369], [2.91704641941, 7.36838265635], [2.98860455668, 7.47005173103], [2.95282548805, 7.41921719369]]
+    # pts = [[3.71976034752, 3.09875883948], [3.26957547803, 3.12095420085], [2.81918014343, 3.14314956223], [2.36899527394,3.1653449236], [2.03098830789,	3.18754028497], [1.76790692085,	3.20997430615],
+    #        [1.50482553382,	3.23240832732], [1.34087321342,	3.2483985339], [1.32571972553, 3.25484234849]]
+    # pts = [[11.5907345173, 5.95718726065], [11.1112949976, 5.86434859856], [10.6356438498, 5.81518467982], [10.1688322367, 5.86721251616], [9.70181015841, 5.91947901229], [9.23436714993, 5.97890530242],
+    #        [8.76250437415, 6.10229241887], [8.29085206348, 6.22567953533], [7.82109393879, 6.32734861]]
+    # import cv2
+    # cap = cv2.VideoCapture('D:\crowd/ucy_original\data/crowds_zara01.avi')
+    # cap.set(1, 4390)
+    # _, frame = cap.read()
+    # plt.imshow(frame)
+    #
+    # target_pixel = np.matmul(np.concatenate([pts, np.ones((len(pts), 1))], axis=1), inv_h_t)
+    # target_pixel /= np.expand_dims(target_pixel[:, 2], 1)
+    # target_pixel = target_pixel[:,:2]
+    # img_pts = context_size//2 + np.round(target_pixel).astype(int)
+    #
+    # plt.imshow(expanded_obs_img)
+    # for p in range(len(img_pts)):
+    #     plt.scatter(img_pts[p][1], img_pts[p][0], c='r', s=1)
+    #     expanded_obs_img[img_pts[p][0], img_pts[p][1]] = 255
+    # plt.show()
+    #########
+
     target_pos = np.expand_dims(target_pos, 0)
     target_pixel = np.matmul(np.concatenate([target_pos, np.ones((len(target_pos), 1))], axis=1), inv_h_t)
     target_pixel /= np.expand_dims(target_pixel[:, 2], 1)
@@ -187,7 +213,7 @@ class TrajectoryDataset(Dataset):
         for path in all_files:
             print('data path:', path)
             # if 'zara' in path or 'eth' in path or 'hotel' in path:
-            # if 'zara02' not in path:
+            # if 'zara01' not in path:
             #     continue
             if 'zara01' in path.split(deli)[-1]:
                 map_file_name = 'zara01'
