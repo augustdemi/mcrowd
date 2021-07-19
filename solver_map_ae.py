@@ -291,9 +291,9 @@ class Solver(object):
             maxx = 0
             for abatch in data_loader:
 
-                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
+                (obs_traj, fut_traj, seq_start_end, obs_frames, fut_frames, past_obst,
                  fut_obst) = abatch
-                state = torch.cat([obs_traj, fut_traj], dim=0)
+                state = torch.cat([obs_traj[:,:,2:4], fut_traj[:,:,2:4]], dim=0)
                 state = state.view(-1, state.shape[2])
                 map = torch.cat([past_obst, fut_obst], dim=0)
                 map = map.view(-1, map.shape[2], map.shape[3], map.shape[4])
@@ -317,7 +317,7 @@ class Solver(object):
                 data.append(data_loader.dataset.__getitem__(idx))
 
 
-            (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
+            (obs_traj, fut_traj, seq_start_end, obs_frames, fut_frames, past_obst,
              fut_obst) = seq_collate(data)
             # out_dir = os.path.join('./output',self.name, dset + str(self.ckpt_load_iter))
             # mkdirs(out_dir)
