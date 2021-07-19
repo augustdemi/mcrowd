@@ -169,6 +169,8 @@ class TrajectoryDataset(Dataset):
         self.device = device
         n_state=6
         root_dir = '/dresden/users/ml1323/crowd/baseline/HTP-benchmark/A2E Data'
+        # root_dir = 'C:\dataset\HTP-benchmark\A2E Data'
+
         self.context_size=context_size
 
         with open(self.data_dir) as f:
@@ -180,7 +182,7 @@ class TrajectoryDataset(Dataset):
         fut_frame_num = []
         map_file_names=[]
         for path in all_files:
-            path = os.path.join(root_dir, path.rstrip())
+            path = os.path.join(root_dir, path.rstrip().replace('\\', '/'))
             print('data path:', path)
             # if 'Pathfinding' not in path:
             #     continue

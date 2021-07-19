@@ -137,8 +137,8 @@ class Solver(object):
 
         # prepare dataloader (iterable)
         print('Start loading data...')
-        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'train.txt')
-        val_path = os.path.join(self.dataset_dir, self.dataset_name, 'val.txt')
+        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'Train.txt')
+        val_path = os.path.join(self.dataset_dir, self.dataset_name, 'Val.txt')
 
         # long_dtype, float_dtype = get_dtypes(args)
 
