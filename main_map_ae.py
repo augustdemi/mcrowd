@@ -62,7 +62,8 @@ def create_parser():
 
 
     # saving directories and checkpoint/sample iterations
-    parser.add_argument( '--ckpt_load_iter', default=9500, type=int,
+    parser.add_argument( '--ckpt_load_iter', default=0, type=int,
+
       help='iter# to load the previously saved model ' +
         '(default=0 to start from the scratch)' )
     parser.add_argument( '--max_iter', default=9500, type=float,
@@ -92,15 +93,15 @@ def create_parser():
 
 
     # Dataset options
-    parser.add_argument('--delim', default='tab', type=str)
+    parser.add_argument('--delim', default=',', type=str)
     parser.add_argument('--loader_num_workers', default=4, type=int)
     parser.add_argument('--obs_len', default=8, type=int)
     parser.add_argument('--pred_len', default=12, type=int)
     parser.add_argument('--skip', default=1, type=int)
     # dataset
-    parser.add_argument( '--dataset_dir', default='../datasets', type=str,
+    parser.add_argument( '--dataset_dir', default='C:\dataset\HTP-benchmark\Splits\A2E', type=str,
       help='dataset directory' )
-    parser.add_argument( '--dataset_name', default='nmap', type=str,
+    parser.add_argument( '--dataset_name', default='Complete 60-20-20', type=str,
       help='dataset name' )
     parser.add_argument( '--num_workers', default=0, type=int,
       help='dataloader num_workers' )
@@ -109,15 +110,7 @@ def create_parser():
 
 
     # model hyperparameters
-    parser.add_argument( '--zS_dim', default=64, type=int,
-      help='dimension of the shared latent representation' )
-    # Encoder
-    parser.add_argument('--encoder_h_dim', default=32, type=int)
-    parser.add_argument('--decoder_h_dim', default=128, type=int)
-    parser.add_argument('--emb_dim', default=16, type=int)
-    parser.add_argument('--num_layers', default=1, type=int)
-    parser.add_argument('--dropout_mlp', default=0.1, type=float)
-    parser.add_argument('--dropout_rnn', default=0.25, type=float)
+
     parser.add_argument('--dropout_map', default=0.0, type=float)
     # Decoder
     parser.add_argument('--mlp_dim', default=32, type=int)
@@ -125,7 +118,9 @@ def create_parser():
 
     parser.add_argument( '--kl_weight', default=10.0, type=float,
       help='kl weight' )
-    parser.add_argument('--map_size', default=180, type=int)
+    parser.add_argument('--map_size', default=32, type=int)
+    parser.add_argument('--latent_dim', default=8, type=int)
+    parser.add_argument('--hidden_dim', default=32, type=int)
     parser.add_argument( '--gamma', default=0.0, type=float,
       help='focal loss' )
     parser.add_argument( '--alpha', default=0.5, type=float,

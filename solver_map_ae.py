@@ -20,24 +20,8 @@ class Solver(object):
     def __init__(self, args):
 
         self.args = args
-
-        # self.name = '%s_pred_len_%s_zS_%s_embedding_dim_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_pool_dim_%s_lr_%s_klw_%s' % \
-        #             (args.dataset_name, args.pred_len, args.zS_dim, 16, args.encoder_h_dim, args.decoder_h_dim, args.mlp_dim, args.pool_dim, args.lr_VAE, args.kl_weight)
-
-        # self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_pool_dim_%s_lr_%s_klw_%s' % \
-        #             (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
-        #              args.decoder_h_dim, args.mlp_dim, 0, args.lr_VAE, args.kl_weight)
-
-        if args.gamma==0:
-            self.name = '%s_map_size_%s_drop_out%s' % \
-                        (args.dataset_name, args.map_size, args.dropout_map)
-        else:
-            if args.alpha==0.5:
-                self.name = '%s_map_size_%s_drop_out%s_gamma%s' % \
-                            (args.dataset_name, args.map_size, args.dropout_map, args.gamma)
-            else:
-                self.name = '%s_map_size_%s_drop_out%s_gamma%s_alpha%s' % \
-                            (args.dataset_name, args.map_size, args.dropout_map, args.gamma, args.alpha)
+        self.name = '%s_map_size_%s_drop_out%s' % \
+                    (args.dataset_name, args.map_size, args.dropout_map)
 
         # to be appended by run_id
 
@@ -66,7 +50,6 @@ class Solver(object):
 
         # networks and optimizers
         self.batch_size = args.batch_size
-        self.zS_dim = args.zS_dim
         self.lr_VAE = args.lr_VAE
         self.beta1_VAE = args.beta1_VAE
         self.beta2_VAE = args.beta2_VAE
@@ -118,10 +101,6 @@ class Solver(object):
 
         # outputs
         self.output_dir_recon = os.path.join("outputs", self.name + '_recon')
-        # dir for reconstructed images
-        self.output_dir_synth = os.path.join("outputs", self.name + '_synth')
-        # dir for synthesized images
-        self.output_dir_trvsl = os.path.join("outputs", self.name + '_trvsl')
 
         #### create a new model or load a previously saved model
 
@@ -129,18 +108,16 @@ class Solver(object):
 
         self.obs_len = args.obs_len
         self.pred_len = args.pred_len
-        self.num_layers = args.num_layers
-        self.decoder_h_dim = args.decoder_h_dim
 
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
             self.encoder = Encoder(
-                fc_hidden_dim=32,
-                output_dim=8,
+                fc_hidden_dim=args.hidden_dim,
+                output_dim=args.latent_dim,
                 drop_out=args.dropout_map).to(self.device)
 
             self.decoder = Decoder(
-                fc_hidden_dim=32,
-                input_dim=8).to(self.device)
+                fc_hidden_dim=args.hidden_dim,
+                input_dim=args.latent_dim).to(self.device)
 
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
@@ -162,8 +139,8 @@ class Solver(object):
 
         # prepare dataloader (iterable)
         print('Start loading data...')
-        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'train')
-        val_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
+        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'train.txt')
+        val_path = os.path.join(self.dataset_dir, self.dataset_name, 'val.txt')
 
         # long_dtype, float_dtype = get_dtypes(args)
 
@@ -207,8 +184,8 @@ class Solver(object):
             # ============================================
 
             # sample a mini-batch
-            (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst)  = next(iterator)
-            state = torch.cat([obs_traj, fut_traj], dim=0)
+            (obs_traj, fut_traj, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst)  = next(iterator)
+            state = torch.cat([obs_traj[:,:,2:4], fut_traj[:,:,2:4]], dim=0)
             state = state.view(-1, state.shape[2])
             map = torch.cat([past_obst, fut_obst], dim=0)
             map = map.view(-1, map.shape[2], map.shape[3], map.shape[4])
@@ -223,15 +200,12 @@ class Solver(object):
                 obst_feat
             )
 
-            focal_loss = self.alpha * map * torch.log(recon_map + self.eps) * ((1-recon_map) ** self.gamma) \
-                         + (1-self.alpha) * (1 - map) * torch.log(1 - recon_map + self.eps) * (recon_map ** self.gamma)
+            recon_map = - (torch.log(recon_map + self.eps) * map +
+                      torch.log(1 - recon_map + self.eps) * (1 - map)).sum()
 
             recon_vel = F.mse_loss(pred_vel, state[:,2:4], reduction='sum')
 
-            loss =  - focal_loss.sum().div(state.shape[0]) + recon_vel.div(state.shape[0])
-
-            # loss = - (torch.log(recon_map + self.eps) * map +
-            #           torch.log(1 - recon_map + self.eps) * (1 - map)).sum().div(batch)
+            loss =  recon_map.div(state.shape[0]) + recon_vel.div(state.shape[0])
 
             self.optim_vae.zero_grad()
             loss.backward()
@@ -277,11 +251,11 @@ class Solver(object):
             for abatch in self.val_loader:
                 b += 1
 
-                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
+                (obs_traj, fut_traj, seq_start_end, obs_frames, fut_frames, past_obst,
                  fut_obst) = abatch
                 batch = fut_traj.size(1)
 
-                state = torch.cat([obs_traj, fut_traj], dim=0)
+                state = torch.cat([obs_traj[:, :, 2:4], fut_traj[:, :, 2:4]], dim=0)
                 state = state.view(-1, state.shape[2])
                 map = torch.cat([past_obst, fut_obst], dim=0)
                 map = map.view(-1, map.shape[2], map.shape[3], map.shape[4])
@@ -362,7 +336,7 @@ class Solver(object):
             state = obs_traj[0]
             map = past_obst[0]
 
-            obst_feat = self.encoder(state, map)
+            obst_feat = self.encoder(state[:,2:4], map)
 
             recon_map, _ = self.decoder(
                 obst_feat

@@ -10,7 +10,7 @@ def data_loader(args, path, shuffle=True, map_ae=False):
         skip=args.skip,
         delim=args.delim,
         device=args.device,
-        resize=args.map_size,
+        context_size=args.map_size,
         map_ae=map_ae)
 
     loader = DataLoader(
