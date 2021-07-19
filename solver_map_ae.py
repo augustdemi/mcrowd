@@ -201,7 +201,7 @@ class Solver(object):
             recon_map_loss = - (torch.log(recon_map + self.eps) * map +
                       torch.log(1 - recon_map + self.eps) * (1 - map)).sum()
 
-            recon_vel = F.mse_loss(pred_vel, state[:,2:4], reduction='sum')
+            recon_vel = F.mse_loss(pred_vel, state, reduction='sum')
 
             loss =  recon_map_loss.div(state.shape[0]) + recon_vel.div(state.shape[0])
 
@@ -267,7 +267,7 @@ class Solver(object):
                 recon_map_loss = - (torch.log(recon_map + self.eps) * map +
                                torch.log(1 - recon_map + self.eps) * (1 - map)).sum()
 
-                recon_vel = F.mse_loss(pred_vel, state[:, 2:4], reduction='sum')
+                recon_vel = F.mse_loss(pred_vel, state, reduction='sum')
 
                 loss = recon_map_loss.div(state.shape[0]) + recon_vel.div(state.shape[0])
         self.set_mode(train=True)
