@@ -20,8 +20,8 @@ class Solver(object):
     def __init__(self, args):
 
         self.args = args
-        self.name = '%s_map_size_%s_drop_out%s' % \
-                    (args.dataset_name, args.map_size, args.dropout_map)
+        self.name = '%s_map_size_%s_drop_out%s_hidden_d%s_latent_d%s' % \
+                    (args.dataset_name, args.map_size, args.dropout_map, args.hidden_dim, args.latent_dim)
 
         # to be appended by run_id
 
@@ -30,8 +30,6 @@ class Solver(object):
         self.temp=0.66
         self.dt=0.4
         self.eps=1e-9
-        self.gamma = args.gamma
-        self.alpha = args.alpha
         self.kl_weight=args.kl_weight
 
         self.max_iter = int(args.max_iter)
@@ -59,7 +57,7 @@ class Solver(object):
         self.viz_on = args.viz_on
         if self.viz_on:
             self.win_id = dict(
-                loss='win_loss', test_loss='win_test_loss',
+                map_loss='win_map_loss', test_map_loss='win_test_map_loss',  vel_loss='win_vel_loss', test_vel_loss='win_test_map_loss'
             )
             self.line_gather = DataGather(
                 'iter', 'loss', 'test_loss'
@@ -200,12 +198,12 @@ class Solver(object):
                 obst_feat
             )
 
-            recon_map = - (torch.log(recon_map + self.eps) * map +
+            recon_map_loss = - (torch.log(recon_map + self.eps) * map +
                       torch.log(1 - recon_map + self.eps) * (1 - map)).sum()
 
             recon_vel = F.mse_loss(pred_vel, state[:,2:4], reduction='sum')
 
-            loss =  recon_map.div(state.shape[0]) + recon_vel.div(state.shape[0])
+            loss =  recon_map_loss.div(state.shape[0]) + recon_vel.div(state.shape[0])
 
             self.optim_vae.zero_grad()
             loss.backward()
@@ -219,10 +217,10 @@ class Solver(object):
 
             # (visdom) insert current line stats
             if self.viz_on and (iteration % self.viz_ll_iter == 0):
-                test_loss = self.test()
+                test_recon_map_loss, test_recon_vel = self.test()
                 self.line_gather.insert(iter=iteration,
-                                        loss=loss.item(),
-                                        test_loss=test_loss.item(),
+                                        loss=[recon_map_loss.item(), recon_vel.item()],
+                                        test_loss= [test_recon_map_loss.item(), test_recon_vel.item()],
                                         )
                 prn_str = ('[iter_%d (epoch_%d)] loss: %.3f \n'
                           ) % \
@@ -266,13 +264,12 @@ class Solver(object):
                     obst_feat
                 )
 
-                focal_loss = self.alpha * map * torch.log(recon_map + self.eps) * ((1 - recon_map) ** self.gamma) \
-                             + (1 - self.alpha) * (1 - map) * torch.log(1 - recon_map + self.eps) * (
-                recon_map ** self.gamma)
+                recon_map_loss = - (torch.log(recon_map + self.eps) * map +
+                               torch.log(1 - recon_map + self.eps) * (1 - map)).sum()
 
                 recon_vel = F.mse_loss(pred_vel, state[:, 2:4], reduction='sum')
 
-                loss = - focal_loss.sum().div(state.shape[0]) + recon_vel.div(state.shape[0])
+                loss = recon_map_loss.div(state.shape[0]) + recon_vel.div(state.shape[0])
         self.set_mode(train=True)
         return loss.div(b)
 
@@ -358,8 +355,10 @@ class Solver(object):
 
     ####
     def viz_init(self):
-        self.viz.close(env=self.name + '/lines', win=self.win_id['test_loss'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['loss'])
+        self.viz.close(env=self.name + '/lines', win=self.win_id['test_map_loss'])
+        self.viz.close(env=self.name + '/lines', win=self.win_id['test_vel_loss'])
+        self.viz.close(env=self.name + '/lines', win=self.win_id['map_loss'])
+        self.viz.close(env=self.name + '/lines', win=self.win_id['vel_loss'])
 
     ####
     def visualize_line(self):
@@ -367,23 +366,39 @@ class Solver(object):
         # prepare data to plot
         data = self.line_gather.data
         iters = torch.Tensor(data['iter'])
-        test_loss = torch.Tensor(data['test_loss'])
-        loss = torch.Tensor(data['loss'])
+        test_map_loss = torch.Tensor(data['test_loss'][0])
+        test_vel_loss = torch.Tensor(data['test_loss'][1])
+        map_loss = torch.Tensor(data['loss'][0])
+        vel_loss = torch.Tensor(data['loss'][1])
 
         self.viz.line(
-            X=iters, Y=loss, env=self.name + '/lines',
-            win=self.win_id['loss'], update='append',
+            X=iters, Y=map_loss, env=self.name + '/lines',
+            win=self.win_id['map_loss'], update='append',
             opts=dict(xlabel='iter', ylabel='loss',
-                      title='Recon. loss')
+                      title='Recon. map loss')
         )
 
         self.viz.line(
-            X=iters, Y=test_loss, env=self.name + '/lines',
-            win=self.win_id['test_loss'], update='append',
-            opts=dict(xlabel='iter', ylabel='test_loss',
-                      title='Recon. loss - Test'),
+            X=iters, Y=vel_loss, env=self.name + '/lines',
+            win=self.win_id['vel_loss'], update='append',
+            opts=dict(xlabel='iter', ylabel='loss',
+                      title='Recon. vel loss')
         )
 
+        self.viz.line(
+            X=iters, Y=test_map_loss, env=self.name + '/lines',
+            win=self.win_id['test_map_loss'], update='append',
+            opts=dict(xlabel='iter', ylabel='test_loss',
+                      title='Recon. map loss - Test'),
+        )
+
+
+        self.viz.line(
+            X=iters, Y=test_vel_loss, env=self.name + '/lines',
+            win=self.win_id['test_vel_loss'], update='append',
+            opts=dict(xlabel='iter', ylabel='test_loss',
+                      title='Recon. vel loss - Test'),
+        )
 
 
     def set_mode(self, train=True):
