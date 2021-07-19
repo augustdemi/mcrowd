@@ -65,7 +65,7 @@ def create_parser():
     parser.add_argument( '--ckpt_load_iter', default=0, type=int,
       help='iter# to load the previously saved model ' +
         '(default=0 to start from the scratch)' )
-    parser.add_argument( '--max_iter', default=0, type=float,
+    parser.add_argument( '--max_iter', default=10, type=float,
       help='maximum number of batch iterations' )
     parser.add_argument( '--ckpt_save_iter', default=100, type=int,
       help='checkpoint saved every # iters' )
@@ -127,7 +127,6 @@ def create_parser():
     parser.add_argument( '--kl_weight', default=100.0, type=float,
       help='kl weight' )
     parser.add_argument('--map_size', default=180, type=int)
-    parser.add_argument('--rnn_input_dim', default=4, type=int)
 
     parser.add_argument( '--desc', default='data', type=str,
       help='run description' )
@@ -214,9 +213,8 @@ def main(args):
             args.batch_size=364
             _, test_loader = data_loader(args, test_path,shuffle=False)
 
-            # solver.plot_traj_var2(test_loader)
+            solver.plot_traj_var2(test_loader)
 
-            '''
             coll_rate_min, non_zero_coll_min, \
             coll_rate_avg, non_zero_coll_avg, \
             coll_rate_std, non_zero_coll_std = solver.evaluate_collision(test_loader, 20, threshold)
@@ -234,7 +232,7 @@ def main(args):
             # solver.plot_traj_var(test_loader)
             # solver.draw_traj(test_loader, 20)
             # solver.check_dist_stat(test_loader)
-            '''
+
 
 
 
