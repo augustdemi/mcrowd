@@ -88,12 +88,17 @@ def crop(map, target_pos, inv_h_t, context_size=198):
     target_pixel = target_pixel[:,:2]
 
     # plt.imshow(map)
-    # plt.scatter(target_pixel[0][1], target_pixel[0][0], c='r', s=1)
+    # for i in range(len(target_pixel)):
+    #     plt.scatter(target_pixel[i][0], target_pixel[i][1], c='r', s=1)
+    # plt.show()
 
     ######## TEST #########
+    # trajectories/17.txt
+    # pts = [[90.18498,61.6496], [90.29415,65.84846], [90.31033,66.44829], [90.3265,67.04811], [90.34267,67.64793],[90.34,73.03415]]
+
     # trajectories/0.txt
     # pts = [[63.73397, 46.06736], [64.28874, 45.84676], [64.84896, 45.64536], [65.41486, 45.47386],
-    #        [65.98319,45.29537], [66.55249,45.11207],[67.12218,44.92652],[67.69204,44.73989], [68.26196,44.55278]]
+    #        [65.98319,45.29537], [66.55249,45.11207],[67.12218,44.92652],[67.69204,44.73989], [68.26196,44.55278], [73.98132,42.76708],[74.57302,42.68015]]
     # # zara1 data points
     # pts = [[4.1068, 7.5457], [3.90560103932, 7.51993162917], [3.70418592941, 7.493917711], [3.52529058623, 7.48795121601], [3.34639524305, 7.48198472102],  [3.16749989986, 7.47601822602],
     #        [2.98860455668,	7.47005173103], [2.95282548805,	7.41921719369], [2.91704641941, 7.36838265635], [2.98860455668, 7.47005173103], [2.95282548805, 7.41921719369]]
@@ -119,8 +124,8 @@ def crop(map, target_pos, inv_h_t, context_size=198):
     #
     # plt.imshow(expanded_obs_img)
     # for p in range(len(img_pts)):
-    #     plt.scatter(img_pts[p][1], img_pts[p][0], c='r', s=1)
-    #     expanded_obs_img[img_pts[p][0], img_pts[p][1]] = 0
+    #     plt.scatter(img_pts[p][0], img_pts[p][1], c='r', s=1)
+    #     expanded_obs_img[img_pts[p][1], img_pts[p][0]] = 0
     # plt.show()
     #########
     # plt.imshow(expanded_obs_img)
@@ -130,8 +135,8 @@ def crop(map, target_pos, inv_h_t, context_size=198):
     img_pts = context_size//2 + np.round(target_pixel).astype(int)
 
     nearby_area = context_size//2
-    cropped_img = np.stack([expanded_obs_img[img_pts[i, 0] - nearby_area : img_pts[i, 0] + nearby_area,
-                                      img_pts[i, 1] - nearby_area : img_pts[i, 1] + nearby_area]
+    cropped_img = np.stack([expanded_obs_img[img_pts[i, 1] - nearby_area : img_pts[i, 1] + nearby_area,
+                                      img_pts[i, 0] - nearby_area : img_pts[i, 0] + nearby_area]
                       for i in range(target_pos.shape[0])], axis=0)
 
     cropped_img[:, nearby_area, nearby_area] = 0
@@ -168,8 +173,8 @@ class TrajectoryDataset(Dataset):
         self.delim = delim
         self.device = device
         n_state=6
-        root_dir = '/dresden/users/ml1323/crowd/baseline/HTP-benchmark/A2E Data'
-        # root_dir = 'C:\dataset\HTP-benchmark\A2E Data'
+        # root_dir = '/dresden/users/ml1323/crowd/baseline/HTP-benchmark/A2E Data'
+        root_dir = 'C:\dataset\HTP-benchmark\A2E Data'
 
         self.context_size=context_size
 
@@ -184,8 +189,8 @@ class TrajectoryDataset(Dataset):
         for path in all_files:
             path = os.path.join(root_dir, path.rstrip().replace('\\', '/'))
             print('data path:', path)
-            # if 'Pathfinding' not in path:
-            #     continue
+            if 'Pathfinding' not in path:
+                continue
             map_file_name = path.replace('.txt', '.png')
             print('map path: ', map_file_name)
 
@@ -283,11 +288,13 @@ class TrajectoryDataset(Dataset):
             cropped_maps = crop(cp_map, current_obs_traj[i, :2].transpose(1,0), inv_h_t, self.context_size)
             for t in range(self.obs_len):
                 cropped_map = transforms.Compose([
+                    # transforms.Resize(32),
                     transforms.ToTensor()
                 ])(Image.fromarray(cropped_maps[t]))
                 seq_map.append(cropped_map / 255.0)
             past_map_obst.append(np.stack(seq_map))
         past_map_obst = np.stack(past_map_obst) # (batch(start-end), 8, 1, map_size,map_size)
+        # past_map_obst[:,:,:,self.context_size, self.context_size] = 0
         past_map_obst = torch.from_numpy(past_map_obst)
 
         fut_map_obst = []
@@ -297,11 +304,13 @@ class TrajectoryDataset(Dataset):
             cropped_maps = crop(cp_map, current_fut_traj[i, :2].transpose(1, 0), inv_h_t, self.context_size)
             for t in range(self.pred_len):
                 cropped_map = transforms.Compose([
+                    # transforms.Resize(32),
                     transforms.ToTensor()
                 ])(Image.fromarray(cropped_maps[t]))
                 seq_map.append(cropped_map / 255.0)
             fut_map_obst.append(np.stack(seq_map))
         fut_map_obst = np.stack(fut_map_obst)  # (batch(start-end), 12, 1, 128,128)
+        # fut_map_obst[:,:,:,self.context_size//2, self.context_size//2] = 0
         fut_map_obst = torch.from_numpy(fut_map_obst)
 
 
