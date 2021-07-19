@@ -292,7 +292,7 @@ class Decoder(nn.Module):
                         seq_cropped_map = crop(seq_map, pred_fut_traj[s:e], inv_h_t[j],
                                                context_size=self.map_size)  # (e-s), 1, 64, 64
                     map.append(seq_cropped_map)
-                map = torch.cat(map)
+                map = torch.cat(map).to(self.device)
                 ####
 
         mus = torch.stack(mus, dim=0)
