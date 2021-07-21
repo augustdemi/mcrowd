@@ -3,9 +3,12 @@ import torch.nn as nn
 import torch.nn.init as init
 import torch.nn.functional as F
 import imageio
-from utils import crop
-
+import numpy as np
 from torch.distributions.normal import Normal
+
+from torchvision import transforms
+from PIL import Image
+import matplotlib.pyplot as plt
 
 ###############################################################################
 
@@ -48,10 +51,9 @@ def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0.0):
 
 
 
-def load_map_encoder(device):
+def load_map_encoder(device, map_feat_dim):
     # map_encoder_path = 'ckpts/nmap_map_size_180_drop_out0.0_run_25/iter_6500_encoder.pt'
-    map_encoder_path = 'ckpts/nmap_map_size_180_drop_out0.0_run_23/iter_9500_encoder.pt'
-
+    map_encoder_path = 'ckpts/A2E_map_size_16_drop_out0.1_hidden_d256_latent_d' + str(map_feat_dim)+'_run_4/iter_20000_encoder.pt'
     if device == 'cuda':
         map_encoder = torch.load(map_encoder_path)
     else:
@@ -60,13 +62,53 @@ def load_map_encoder(device):
         p.requires_grad = False
     return map_encoder
 
+
+def crop(map, target_pos, inv_h_t, context_size=198):
+    # context_size=32
+    expanded_obs_img = np.full((map.shape[0] + context_size, map.shape[1] + context_size), False, dtype=np.float32)
+    expanded_obs_img[context_size//2:-context_size//2, context_size//2:-context_size//2] = map.astype(np.float32) # 99~-99
+
+
+    target_pixel = np.matmul(np.concatenate([target_pos, np.ones((len(target_pos), 1))], axis=1), inv_h_t)
+    target_pixel /= np.expand_dims(target_pixel[:, 2], 1)
+    target_pixel = target_pixel[:,:2]
+
+    # plt.imshow(map)
+    # for i in range(len(target_pixel)):
+    #     plt.scatter(target_pixel[i][0], target_pixel[i][1], c='r', s=1)
+    # plt.show()
+
+    img_pts = context_size//2 + np.round(target_pixel).astype(int)
+
+    # if (img_pts[i][0] < context_size // 2)
+
+    nearby_area = context_size//2
+    cropped_img = []
+    for i in range(target_pos.shape[0]):
+        im = expanded_obs_img[img_pts[i, 1] - nearby_area: img_pts[i, 1] + nearby_area,
+        img_pts[i, 0] - nearby_area: img_pts[i, 0] + nearby_area]
+        if np.prod(im.shape) != context_size**2:
+            im = np.ones((context_size, context_size))
+        cropped_img.append(transforms.Compose([
+            # transforms.Resize(32),
+            transforms.ToTensor()
+        ])(Image.fromarray(im)))
+    cropped_img = torch.stack(cropped_img, axis=0)
+
+    cropped_img[:,: , nearby_area, nearby_area] = 0
+
+    # plt.imshow(cropped_img[0,0])
+    # plt.show()
+
+    return cropped_img
+
 ###############################################################################
 # -----------------------------------------------------------------------
 
 class Encoder(nn.Module):
     """Encoder:spatial emb -> lstm -> pooling -> fc for posterior / conditional prior"""
     def __init__(
-        self, zS_dim, enc_h_dim=64, mlp_dim=32, pool_dim=32,
+        self, zS_dim, enc_h_dim=64, mlp_dim=32, map_feat_dim=32,
             batch_norm=False, num_layers=1, dropout_mlp=0.0, dropout_rnn=0.0,  activation='relu', pooling_type='pool', device='cpu'
     ):
         super(Encoder, self).__init__()
@@ -76,10 +118,10 @@ class Encoder(nn.Module):
         self.num_layers = num_layers
         self.pooling_type = pooling_type
         self.dropout_rnn=dropout_rnn
-        n_state=6+8
+        n_state=6
 
         self.rnn_encoder = nn.LSTM(
-            input_size=n_state, hidden_size=enc_h_dim
+            input_size=n_state + map_feat_dim, hidden_size=enc_h_dim
         )
 
         input_dim = enc_h_dim
@@ -91,7 +133,7 @@ class Encoder(nn.Module):
             dropout=dropout_mlp
         )
         self.fc2 = nn.Linear(mlp_dim, zS_dim)
-        self.map_encoder = load_map_encoder(device)
+        self.map_encoder = load_map_encoder(device, map_feat_dim)
 
 
     def forward(self, obs_traj_st, seq_start_end, map, obs_vel, train=False):
@@ -124,7 +166,7 @@ class Encoder(nn.Module):
 class EncoderY(nn.Module):
     """Encoder:spatial emb -> lstm -> pooling -> fc for posterior / conditional prior"""
     def __init__(
-        self, zS_dim, enc_h_dim=64, mlp_dim=32, pool_dim=32,
+        self, zS_dim, enc_h_dim=64, mlp_dim=32, map_feat_dim=32,
             batch_norm=False, num_layers=1,  dropout_mlp=0.0, dropout_rnn=0.0, activation='relu', pooling_type='pool', device='cpu'
     ):
         super(EncoderY, self).__init__()
@@ -135,11 +177,11 @@ class EncoderY(nn.Module):
         self.pooling_type = pooling_type
         self.device = device
         n_state=6
-        n_pred_state=2+8
+        n_pred_state=2
         self.dropout_rnn=dropout_rnn
 
         self.rnn_encoder = nn.LSTM(
-            input_size=n_pred_state, hidden_size=enc_h_dim, num_layers=1, bidirectional=True
+            input_size=n_pred_state + map_feat_dim, hidden_size=enc_h_dim, num_layers=1, bidirectional=True
         )
 
         input_dim = enc_h_dim*4 + mlp_dim
@@ -155,7 +197,7 @@ class EncoderY(nn.Module):
 
         self.initial_h_model = nn.Linear(n_state, enc_h_dim)
         self.initial_c_model = nn.Linear(n_state, enc_h_dim)
-        self.map_encoder = load_map_encoder(device)
+        self.map_encoder = load_map_encoder(device, map_feat_dim)
 
 
     def forward(self, last_obs_traj_st, fut_vel_st, seq_start_end, obs_enc_feat, map, fut_vel, train=False):
@@ -205,13 +247,13 @@ class Decoder(nn.Module):
     """Decoder is part of TrajectoryGenerator"""
     def __init__(
         self, seq_len, dec_h_dim=128, mlp_dim=1024, num_layers=1,
-        dropout_mlp=0.0, dropout_rnn=0.0, enc_h_dim=32, z_dim=32,
+        map_feat_dim=32, dropout_rnn=0.0, enc_h_dim=32, z_dim=32,
         activation='relu', batch_norm=False, device='cpu', map_size=180
     ):
         super(Decoder, self).__init__()
         n_state=6
         n_pred_state=2
-        d_map_feat=8
+        d_map_feat=map_feat_dim
         self.seq_len = seq_len
         self.mlp_dim = mlp_dim
         self.dec_h_dim = dec_h_dim
@@ -236,7 +278,7 @@ class Decoder(nn.Module):
 
         self.fc_mu = nn.Linear(dec_h_dim, n_pred_state)
         self.fc_std = nn.Linear(dec_h_dim, n_pred_state)
-        self.map_encoder = load_map_encoder(device)
+        self.map_encoder = load_map_encoder(device, map_feat_dim)
 
 
     def forward(self, last_obs_traj_st, enc_h_feat, z, last_obs_and_fut_map, fut_traj=None, map_info=None):
@@ -283,16 +325,9 @@ class Decoder(nn.Module):
                 pred_fut_traj = integrate_fn(a.unsqueeze(0)).squeeze(0)
                 map = []
                 for j, (s, e) in enumerate(seq_start_end):
-                    if map_path[j] is None:
-                        seq_cropped_map = torch.zeros((e - s), 1, 64, 64)
-                        seq_cropped_map[:, 0, 31, 31] = 0.0144
-                        seq_cropped_map[:, 0, 31, 32] = 0.0336
-                        seq_cropped_map[:, 0, 32, 31] = 0.0336
-                        seq_cropped_map[:, 0, 32, 32] = 0.0784
-                    else:
-                        seq_map = imageio.imread(map_path[j])  # seq = 한 씬에서 모든 neighbors니까. 같은 데이터셋.
-                        seq_cropped_map = crop(seq_map, pred_fut_traj[s:e], inv_h_t[j],
-                                               context_size=self.map_size)  # (e-s), 1, 64, 64
+                    seq_map = imageio.imread(map_path[j])  # seq = 한 씬에서 모든 neighbors니까. 같은 데이터셋.
+                    seq_cropped_map = crop(seq_map, pred_fut_traj[s:e], inv_h_t[j],
+                                           context_size=self.map_size)  # (e-s), 1, 64, 64
                     map.append(seq_cropped_map)
                 map = torch.cat(map).to(self.device)
                 ####
