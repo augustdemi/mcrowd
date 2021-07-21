@@ -69,7 +69,7 @@ def crop(map, target_pos, inv_h_t, context_size=198):
     expanded_obs_img[context_size//2:-context_size//2, context_size//2:-context_size//2] = map.astype(np.float32) # 99~-99
 
 
-    target_pixel = np.matmul(np.concatenate([target_pos, np.ones((len(target_pos), 1))], axis=1), inv_h_t)
+    target_pixel = np.matmul(np.concatenate([target_pos.detach().cpu().numpy(), np.ones((len(target_pos), 1))], axis=1), inv_h_t)
     target_pixel /= np.expand_dims(target_pixel[:, 2], 1)
     target_pixel = target_pixel[:,:2]
 
