@@ -121,13 +121,23 @@ class Encoder(nn.Module):
         n_state=6
 
         self.rnn_encoder = nn.LSTM(
-            input_size=n_state + map_feat_dim, hidden_size=enc_h_dim
+            input_size=n_state, hidden_size=enc_h_dim
         )
 
-        input_dim = enc_h_dim
+        self.rnn_map_encoder = nn.LSTM(
+            input_size=map_feat_dim, hidden_size=enc_h_dim
+        )
+
 
         self.fc1 = make_mlp(
-            [input_dim, mlp_dim],
+            [enc_h_dim, mlp_dim//2],
+            activation=activation,
+            batch_norm=batch_norm,
+            dropout=dropout_mlp
+        )
+
+        self.fc1_map = make_mlp(
+            [enc_h_dim, mlp_dim//2],
             activation=activation,
             batch_norm=batch_norm,
             dropout=dropout_mlp
@@ -146,18 +156,21 @@ class Encoder(nn.Module):
         map_feat = self.map_encoder(obs_vel.reshape(-1, 2), map.reshape(-1, map.shape[2], map.shape[3], map.shape[4]), train=False)
         map_feat = map_feat.reshape((8, -1, map_feat.shape[-1]))
 
-        rnn_input = torch.cat((obs_traj_st, map_feat), dim=-1)
-        _, (final_encoder_h, _) = self.rnn_encoder(rnn_input) # [8, 656, 16], 두개의 [1, 656, 32]
+        _, (final_encoder_h, _) = self.rnn_encoder(obs_traj_st) # [8, 656, 16], 두개의 [1, 656, 32]
+        _, (final_map_encoder_h, _) = self.rnn_map_encoder(map_feat) # [8, 656, 16], 두개의 [1, 656, 32]
 
         final_encoder_h = F.dropout(final_encoder_h,
                             p=self.dropout_rnn,
                             training=train)  # [bs, max_time, enc_rnn_dim]
-
-        dist_fc_input = final_encoder_h.view(-1, self.enc_h_dim)
-
+        final_map_encoder_h = F.dropout(final_map_encoder_h,
+                            p=self.dropout_rnn,
+                            training=train)  # [bs, max_time, enc_rnn_dim]
 
         # final distribution
-        dist_fc_input = self.fc1(dist_fc_input)
+        final_encoder_h = self.fc1(final_encoder_h.view(-1, self.enc_h_dim))
+        final_map_encoder_h = self.fc1_map(final_map_encoder_h.view(-1, self.enc_h_dim))
+        dist_fc_input = torch.cat((final_encoder_h, final_map_encoder_h), dim=-1)
+
         stats = self.fc2(dist_fc_input) # 64(32 without attn) to z dim
 
         return dist_fc_input, stats
