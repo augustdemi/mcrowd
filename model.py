@@ -206,14 +206,14 @@ class EncoderY(nn.Module):
 
 
         self.fc1 = make_mlp(
-            [enc_h_dim, mlp_dim//2],
+            [4*enc_h_dim, mlp_dim//2],
             activation=activation,
             batch_norm=batch_norm,
             dropout=dropout_mlp
         )
 
         self.fc1_map = make_mlp(
-            [enc_h_dim, mlp_dim//2],
+            [4*enc_h_dim, mlp_dim//2],
             activation=activation,
             batch_norm=batch_norm,
             dropout=dropout_mlp
