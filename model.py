@@ -206,18 +206,18 @@ class EncoderY(nn.Module):
 
 
         self.fc1 = make_mlp(
-            [4*enc_h_dim, mlp_dim//2],
+            [8*enc_h_dim, mlp_dim],
             activation=activation,
             batch_norm=batch_norm,
             dropout=dropout_mlp
         )
 
-        self.fc1_map = make_mlp(
-            [4*enc_h_dim, mlp_dim//2],
-            activation=activation,
-            batch_norm=batch_norm,
-            dropout=dropout_mlp
-        )
+        # self.fc1_map = make_mlp(
+        #     [4*enc_h_dim, mlp_dim//2],
+        #     activation=activation,
+        #     batch_norm=batch_norm,
+        #     dropout=dropout_mlp
+        # )
         self.fc2 = nn.Linear( 2 * mlp_dim, zS_dim)
 
         self.map_encoder = load_map_encoder(device, map_feat_dim)
@@ -256,10 +256,9 @@ class EncoderY(nn.Module):
                                         training=train)  # [bs, max_time, enc_rnn_dim]
 
         # final distribution
-        final_encoder_h = self.fc1(final_encoder_h.reshape(-1, 4 * self.enc_h_dim))
-        final_map_encoder_h = self.fc1_map(final_map_encoder_h.reshape(-1, 4 * self.enc_h_dim))
+        final_encoder_h = self.fc1(torch.cat((final_encoder_h.reshape(-1, 4 * self.enc_h_dim), final_map_encoder_h.reshape(-1, 4 * self.enc_h_dim)), dim=-1))
 
-        dist_fc_input = torch.cat((final_encoder_h, final_map_encoder_h, obs_enc_feat), dim=-1)
+        dist_fc_input = torch.cat((final_encoder_h, obs_enc_feat), dim=-1)
 
         stats = self.fc2(dist_fc_input)
 
