@@ -142,7 +142,7 @@ class Encoder(nn.Module):
             batch_norm=batch_norm,
             dropout=dropout_mlp
         )
-        self.fc2 = nn.Linear(mlp_dim, zS_dim)
+        self.fc2 = nn.Linear(mlp_dim // 2, zS_dim)
         self.map_encoder = load_map_encoder(device, map_feat_dim)
 
 
@@ -171,56 +171,45 @@ class Encoder(nn.Module):
         final_map_encoder_h = self.fc1_map(final_map_encoder_h.view(-1, self.enc_h_dim))
         dist_fc_input = torch.cat((final_encoder_h, final_map_encoder_h), dim=-1)
 
-        stats = self.fc2(dist_fc_input) # 64(32 without attn) to z dim
+        stats = self.fc2(final_encoder_h) # 64(32 without attn) to z dim
 
         return dist_fc_input, stats
 
-
 class EncoderY(nn.Module):
     """Encoder:spatial emb -> lstm -> pooling -> fc for posterior / conditional prior"""
-
     def __init__(
-            self, zS_dim, enc_h_dim=64, mlp_dim=32, map_feat_dim=32,
-            batch_norm=False, num_layers=1, dropout_mlp=0.0, dropout_rnn=0.0, activation='relu', pooling_type='pool',
-            device='cpu'
+        self, zS_dim, enc_h_dim=64, mlp_dim=32, map_feat_dim=32,
+            batch_norm=False, num_layers=1,  dropout_mlp=0.0, dropout_rnn=0.0, activation='relu', pooling_type='pool', device='cpu'
     ):
         super(EncoderY, self).__init__()
 
-        self.zS_dim = zS_dim
+        self.zS_dim=zS_dim
         self.enc_h_dim = enc_h_dim
         self.num_layers = num_layers
         self.pooling_type = pooling_type
         self.device = device
-        n_state = 6
-        n_pred_state = 2
-        self.dropout_rnn = dropout_rnn
+        n_state=6
+        n_pred_state=2
+        self.dropout_rnn=dropout_rnn
 
-        self.initial_h_model = nn.Linear(n_state, enc_h_dim)
-        self.initial_c_model = nn.Linear(n_state, enc_h_dim)
         self.rnn_encoder = nn.LSTM(
             input_size=n_pred_state, hidden_size=enc_h_dim, num_layers=1, bidirectional=True
         )
-        self.rnn_map_encoder = nn.LSTM(
-            input_size=map_feat_dim, hidden_size=enc_h_dim, num_layers=1, bidirectional=True
-        )
+
+        input_dim = enc_h_dim*4 + mlp_dim
 
 
-        self.fc1 = make_mlp(
-            [4*enc_h_dim, mlp_dim//2],
-            activation=activation,
-            batch_norm=batch_norm,
-            dropout=dropout_mlp
-        )
+        # self.fc1 = make_mlp(
+        #     [input_dim, mlp_dim],
+        #     activation=activation,
+        #     batch_norm=batch_norm,
+        #     dropout=dropout_mlp
+        # )
+        self.fc2 = nn.Linear(input_dim, zS_dim)
 
-        self.fc1_map = make_mlp(
-            [4*enc_h_dim, mlp_dim//2],
-            activation=activation,
-            batch_norm=batch_norm,
-            dropout=dropout_mlp
-        )
-        self.fc2 = nn.Linear( 2 * mlp_dim, zS_dim)
+        self.initial_h_model = nn.Linear(n_state, enc_h_dim)
+        self.initial_c_model = nn.Linear(n_state, enc_h_dim)
 
-        self.map_encoder = load_map_encoder(device, map_feat_dim)
 
     def forward(self, last_obs_traj_st, fut_vel_st, seq_start_end, obs_enc_feat, map, fut_vel, train=False):
         """
@@ -231,39 +220,33 @@ class EncoderY(nn.Module):
         """
         # Encode observed Trajectory
 
-        initial_h = self.initial_h_model(last_obs_traj_st)  # 81, 32
-        initial_h = torch.stack([initial_h, torch.zeros_like(initial_h, device=self.device)], dim=0)  # 2, 81, 32
+        initial_h = self.initial_h_model(last_obs_traj_st) # 81, 32
+        initial_h = torch.stack([initial_h, torch.zeros_like(initial_h, device=self.device)], dim=0) # 2, 81, 32
 
         initial_c = self.initial_c_model(last_obs_traj_st)
         initial_c = torch.stack([initial_c, torch.zeros_like(initial_c, device=self.device)], dim=0)
-        state_tuple = (initial_h, initial_c)
-
-        map_feat = self.map_encoder(fut_vel.reshape(-1, 2), map.reshape(-1, map.shape[2], map.shape[3], map.shape[4]),
-                                    train=False)
-        map_feat = map_feat.reshape((12, -1, map_feat.shape[-1]))
+        state_tuple=(initial_h, initial_c)
 
         _, state = self.rnn_encoder(fut_vel_st, state_tuple)
-        _, map_state = self.rnn_map_encoder(map_feat)  # [8, 656, 16], 두개의 [1, 656, 32]
 
-        final_encoder_h = torch.cat(state, dim=0).permute(1, 0, 2)  # 2,81,32두개 -> 4, 81,32 -> 81,4,32
+        state = torch.cat(state, dim=0).permute(1, 0, 2)  # 2,81,32두개 -> 4, 81,32 -> 81,4,32
+        state_size = state.size()
+        final_encoder_h = torch.reshape(state, (-1, state_size[1] * state_size[2]))  # [81, 128]
+
         final_encoder_h = F.dropout(final_encoder_h,
-                                    p=self.dropout_rnn,
-                                    training=train)  # [bs, max_time, enc_rnn_dim]
+                            p=self.dropout_rnn,
+                            training=train)  # [bs, max_time, enc_rnn_dim]
 
-        final_map_encoder_h = torch.cat(map_state, dim=0).permute(1, 0, 2)  # 2,81,32두개 -> 4, 81,32 -> 81,4,32
-        final_map_encoder_h = F.dropout(final_map_encoder_h,
-                                        p=self.dropout_rnn,
-                                        training=train)  # [bs, max_time, enc_rnn_dim]
+        dist_fc_input = torch.cat([final_encoder_h, obs_enc_feat], dim=1)
+
 
         # final distribution
-        final_encoder_h = self.fc1(final_encoder_h.reshape(-1, 4 * self.enc_h_dim))
-        final_map_encoder_h = self.fc1_map(final_map_encoder_h.reshape(-1, 4 * self.enc_h_dim))
-
-        dist_fc_input = torch.cat((final_encoder_h, final_map_encoder_h, obs_enc_feat), dim=-1)
-
+        # dist_fc_input = self.fc1(dist_fc_input)
         stats = self.fc2(dist_fc_input)
 
         return dist_fc_input, stats
+
+
 
 
 class Decoder(nn.Module):
