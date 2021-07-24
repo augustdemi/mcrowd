@@ -201,7 +201,9 @@ class Solver(object):
         vae_params = \
             list(self.encoderMx.parameters()) + \
             list(self.encoderMy.parameters()) + \
-            list(self.decoderMy.parameters())
+            list(self.decoderMy.parameters()) + \
+            list(self.map_encoder.parameters()) + \
+            list(self.map_decoder.parameters())
 
         # create optimizers
         self.optim_vae = optim.Adam(
@@ -1265,6 +1267,7 @@ class Solver(object):
         if self.device == 'cuda':
             self.encoderMx = torch.load(encoderMx_path)
             self.encoderMy = torch.load(encoderMy_path)
+            self.decoderMy = torch.load(decoderMy_path)
             self.decoderMy = torch.load(decoderMy_path)
         else:
             self.encoderMx = torch.load(encoderMx_path, map_location='cpu')
