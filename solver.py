@@ -1232,6 +1232,10 @@ class Solver(object):
             self.ckpt_dir,
             'iter_%s_map_dec.pt' % iteration
         )
+        map_enc_path = os.path.join(
+            self.ckpt_dir,
+            'iter_%s_map_enc.pt' % iteration
+        )
 
         mkdirs(self.ckpt_dir)
 
@@ -1239,7 +1243,7 @@ class Solver(object):
         torch.save(self.encoderMy, encoderMy_path)
         torch.save(self.decoderMy, decoderMy_path)
         torch.save(self.map_decoder, map_dec_path)
-        torch.save(self.map_decoder, map_dec_path)
+        torch.save(self.map_encoder, map_enc_path)
     ####
     def load_checkpoint(self):
 
