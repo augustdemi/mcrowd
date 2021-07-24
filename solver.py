@@ -14,8 +14,8 @@ from torch.distributions import OneHotCategorical as discrete
 from torch.distributions import kl_divergence
 from scipy.interpolate import RectBivariateSpline
 from scipy.ndimage import binary_dilation
-from model_map_ae import Encoder as Map_Encoder
-from utils import crop
+# from model_map_ae import Decoder as Map_Decoder
+
 import numpy as np
 
 ###############################################################################
@@ -57,6 +57,8 @@ class Solver(object):
         self.device = args.device
         self.temp=1.99
         self.dt=0.4
+        self.eps=1e-9
+
         self.kl_weight=args.kl_weight
 
         self.max_iter = int(args.max_iter)
@@ -87,15 +89,17 @@ class Solver(object):
         self.viz_on = args.viz_on
         if self.viz_on:
             self.win_id = dict(
-                recon='win_recon', loss_kl='win_loss_kl', loss_recon='win_loss_recon', total_loss='win_total_loss'
-                , ade_min='win_ade_min', fde_min='win_fde_min', ade_avg='win_ade_avg', fde_avg='win_fde_avg',
+                recon='win_recon', loss_kl='win_loss_kl', loss_recon='win_loss_recon', total_loss='win_total_loss',
+                loss_map='win_loss_map', loss_vel='win_loss_vel', test_loss_map='win_test_loss_map', test_loss_vel='win_test_loss_vel',
+                ade_min='win_ade_min', fde_min='win_fde_min', ade_avg='win_ade_avg', fde_avg='win_fde_avg',
                 ade_std='win_ade_std', fde_std='win_fde_std',
                 test_loss_recon='win_test_loss_recon', test_loss_kl='win_test_loss_kl', test_total_loss='win_test_total_loss'
             )
             self.line_gather = DataGather(
                 'iter', 'loss_recon', 'loss_kl', 'total_loss', 'ade_min', 'fde_min',
                 'ade_avg', 'fde_avg', 'ade_std', 'fde_std',
-                'test_loss_recon', 'test_loss_kl', 'test_total_loss'
+                'test_loss_recon', 'test_loss_kl', 'test_total_loss',
+                'test_loss_map', 'test_loss_vel', 'loss_map', 'loss_vel'
             )
 
             import visdom
@@ -181,6 +185,13 @@ class Solver(object):
                 map_feat_dim=args.map_feat_dim,
                 batch_norm=args.batch_norm,
                 map_size=args.map_size).to(self.device)
+            map_decoder_path = 'ckpts/A2E_map_size_16_drop_out0.1_hidden_d256_latent_d32_run_4/iter_20000_decoder.pt'
+
+            if self.device == 'cuda':
+                self.map_decoder = torch.load(map_decoder_path)
+            else:
+                self.map_decoder = torch.load(map_decoder_path, map_location='cpu')
+
 
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
@@ -252,17 +263,23 @@ class Solver(object):
             (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
              obs_frames, pred_frames, obs_obst, fut_obst, map_path, inv_h_t) = next(iterator)
             batch = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
+            # ade_min, fde_min, \
+            # ade_avg, fde_avg, \
+            # ade_std, fde_std, \
+            # test_loss_recon, test_loss_kl, test_loss, test_loss_map, test_loss_vel = self.evaluate_dist(self.val_loader,
+            #                                                                                             20, loss=True)
 
-
-            (encX_h_feat, logitX) \
+            (encX_h_feat, logitX, map_featX) \
                 = self.encoderMx(obs_traj_st, seq_start_end, obs_obst, obs_traj[:,:,2:4], train=True)
-            (encY_h_feat, logitY) \
+            (_, logitY, map_featY) \
                 = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, encX_h_feat, fut_obst, fut_traj[:,:,2:4],train=True)
 
             p_dist = discrete(logits=logitX)
             q_dist = discrete(logits=logitY)
             relaxed_q_dist = concrete(logits=logitY, temperature=self.temp)
 
+            recon_mapX, pred_velX = self.map_decoder(map_featX)
+            recon_mapY, pred_velY = self.map_decoder(map_featY)
 
             # 첫번째 iteration 디코더 인풋 = (obs_traj_rel의 마지막 값, (hidden_state, cell_state))
             # where hidden_state = "인코더의 마지막 hidden_layer아웃풋과 그것으로 만든 max_pooled값을 concat해서 mlp 통과시켜만든 feature인 noise_input에다 noise까지 추가한값)"
@@ -299,8 +316,25 @@ class Solver(object):
             vae_loss = -elbo
 
 
+            ## map AE
+            obs_obst = obs_obst.reshape(-1, obs_obst.shape[2], obs_obst.shape[3], obs_obst.shape[4])
+            recon_map_lossX = - (torch.log(recon_mapX + self.eps) *  obs_obst +
+                      torch.log(1 - recon_mapX + self.eps) * (1 - obs_obst)).sum().div(recon_mapX.shape[0])
+            recon_velX = F.mse_loss(pred_velX, obs_traj[:,:,2:4].reshape(-1,2), reduction='sum').div(recon_mapX.shape[0])
+
+            ## map AE
+            fut_obst = fut_obst.reshape(-1, fut_obst.shape[2], fut_obst.shape[3], fut_obst.shape[4])
+            recon_map_lossY = - (torch.log(recon_mapY + self.eps) *  fut_obst +
+                      torch.log(1 - recon_mapY + self.eps) * (1 - fut_obst)).sum().div(recon_mapY.shape[0])
+            recon_velY = F.mse_loss(pred_velY, fut_traj[:,:,2:4].reshape(-1,2), reduction='sum').div(recon_mapY.shape[0])
+
+            loss = vae_loss + (recon_map_lossX + recon_velX) + (recon_map_lossY + recon_velY)
+            loss_map = recon_map_lossX + recon_map_lossY
+            loss_vel = recon_velX + recon_velY
+
+
             self.optim_vae.zero_grad()
-            vae_loss.backward()
+            loss.backward()
             self.optim_vae.step()
 
 
@@ -314,10 +348,12 @@ class Solver(object):
                 ade_min, fde_min, \
                 ade_avg, fde_avg, \
                 ade_std, fde_std, \
-                test_loss_recon, test_loss_kl, test_vae_loss = self.evaluate_dist(self.val_loader, 20, loss=True)
+                test_loss_recon, test_loss_kl, test_loss, test_loss_map, test_loss_vel = self.evaluate_dist(self.val_loader, 20, loss=True)
                 self.line_gather.insert(iter=iteration,
                                         loss_recon=-loglikelihood.item(),
                                         loss_kl=loss_kl.item(),
+                                        loss_map=loss_map.item(),
+                                        loss_vel=loss_vel.item(),
                                         total_loss=vae_loss.item(),
                                         ade_min=ade_min,
                                         fde_min=fde_min,
@@ -327,7 +363,9 @@ class Solver(object):
                                         fde_std=fde_std,
                                         test_loss_recon=-test_loss_recon.item(),
                                         test_loss_kl=test_loss_kl.item(),
-                                        test_total_loss=test_vae_loss.item(),
+                                        test_total_loss=test_loss.item(),
+                                        test_loss_map=test_loss_map.item(),
+                                        test_loss_vel=test_loss_vel.item()
                                         )
                 prn_str = ('[iter_%d (epoch_%d)] vae_loss: %.3f ' + \
                               '(recon: %.3f, kl: %.3f)\n' + \
@@ -407,7 +445,8 @@ class Solver(object):
         self.set_mode(train=False)
         total_traj = 0
 
-        loss_recon = loss_kl = vae_loss = 0
+        loss_recon = loss_kl = total_loss = 0
+        loss_map_recon = loss_vel = 0
 
         all_ade =[]
         all_fde =[]
@@ -420,13 +459,13 @@ class Solver(object):
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
-                (encX_h_feat, logitX) \
+                (encX_h_feat, logitX, map_featX) \
                     = self.encoderMx(obs_traj_st, seq_start_end, obs_obst, obs_traj[:,:,2:4])
                 p_dist = discrete(logits=logitX)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
                 if loss:
-                    (encY_h_feat, logitY) \
+                    (encY_h_feat, logitY, map_featY) \
                         = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, encX_h_feat, fut_obst, fut_traj[:,:,2:4])
 
                     q_dist = discrete(logits=logitY)
@@ -443,16 +482,36 @@ class Solver(object):
                     #     relaxed_p_dist.rsample((num_samples,)),
                     #     num_samples=num_samples
                     # )
-
+                    recon_mapX, pred_velX = self.map_decoder(map_featX)
+                    recon_mapY, pred_velY = self.map_decoder(map_featY)
                     ################## total loss for vae ####################
                     loglikelihood = fut_rel_pos_dist.log_prob(fut_traj[:, :, 2:4]).sum().div(batch_size)
 
                     kld = kl_divergence(q_dist, p_dist).sum().div(batch_size)
                     kld = torch.clamp(kld, min=0.07)
                     elbo = loglikelihood - self.kl_weight * kld
-                    vae_loss -=elbo
                     loss_recon +=loglikelihood
                     loss_kl +=kld
+
+                    ## map AE
+                    reshaped_obs_obst = obs_obst.reshape(-1, obs_obst.shape[2], obs_obst.shape[3], obs_obst.shape[4])
+                    recon_map_lossX = - (torch.log(recon_mapX + self.eps) * reshaped_obs_obst +
+                                         torch.log(1 - recon_mapX + self.eps) * (1 - reshaped_obs_obst)).sum().div(
+                        recon_mapX.shape[0])
+                    recon_velX = F.mse_loss(pred_velX, obs_traj[:, :, 2:4].reshape(-1, 2), reduction='sum').div(
+                        recon_mapX.shape[0])
+
+                    ## map AE
+                    reshaped_fut_obst = fut_obst.reshape(-1, fut_obst.shape[2], fut_obst.shape[3], fut_obst.shape[4])
+                    recon_map_lossY = - (torch.log(recon_mapY + self.eps) * reshaped_fut_obst +
+                                         torch.log(1 - recon_mapY + self.eps) * (1 - reshaped_fut_obst)).sum().div(
+                        recon_mapY.shape[0])
+                    recon_velY = F.mse_loss(pred_velY, fut_traj[:, :, 2:4].reshape(-1, 2), reduction='sum').div(
+                        recon_mapY.shape[0])
+
+                    total_loss += (-elbo + (recon_map_lossX + recon_velX) + (recon_map_lossY + recon_velY))
+                    loss_map_recon += (recon_map_lossX + recon_map_lossY)
+                    loss_vel += (recon_velX + recon_velY)
 
                 ade, fde = [], []
                 for _ in range(num_samples):
@@ -492,7 +551,7 @@ class Solver(object):
             return ade_min, fde_min, \
                    ade_avg, fde_avg, \
                    ade_std, fde_std, \
-                   loss_recon/b, loss_kl/b, vae_loss/b
+                   loss_recon/b, loss_kl/b, loss/b, loss_map_recon/b, loss_vel/b
         else:
             return ade_min, fde_min, \
                    ade_avg, fde_avg, \
@@ -998,9 +1057,13 @@ class Solver(object):
     def viz_init(self):
         self.viz.close(env=self.name + '/lines', win=self.win_id['loss_recon'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['loss_kl'])
+        self.viz.close(env=self.name + '/lines', win=self.win_id['loss_map'])
+        self.viz.close(env=self.name + '/lines', win=self.win_id['loss_vel'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['total_loss'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['test_loss_recon'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['test_loss_kl'])
+        self.viz.close(env=self.name + '/lines', win=self.win_id['test_loss_map'])
+        self.viz.close(env=self.name + '/lines', win=self.win_id['test_loss_vel'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['test_total_loss'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['ade_min'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['fde_min'])
@@ -1017,6 +1080,8 @@ class Solver(object):
         iters = torch.Tensor(data['iter'])
         loss_recon = torch.Tensor(data['loss_recon'])
         loss_kl = torch.Tensor(data['loss_kl'])
+        loss_map = torch.Tensor(data['loss_map'])
+        loss_vel = torch.Tensor(data['loss_vel'])
         total_loss = torch.Tensor(data['total_loss'])
         ade_min = torch.Tensor(data['ade_min'])
         fde_min = torch.Tensor(data['fde_min'])
@@ -1027,7 +1092,8 @@ class Solver(object):
         test_loss_recon = torch.Tensor(data['test_loss_recon'])
         test_loss_kl = torch.Tensor(data['test_loss_kl'])
         test_total_loss = torch.Tensor(data['test_total_loss'])
-
+        test_loss_map = torch.Tensor(data['test_loss_map'])
+        test_loss_vel = torch.Tensor(data['test_loss_vel'])
 
         self.viz.line(
             X=iters, Y=loss_recon, env=self.name + '/lines',
@@ -1044,10 +1110,24 @@ class Solver(object):
         )
 
         self.viz.line(
+            X=iters, Y=loss_map, env=self.name + '/lines',
+            win=self.win_id['loss_map'], update='append',
+            opts=dict(xlabel='iter', ylabel='loss',
+                      title='Map recon loss'),
+        )
+
+        self.viz.line(
+            X=iters, Y=loss_vel, env=self.name + '/lines',
+            win=self.win_id['loss_vel'], update='append',
+            opts=dict(xlabel='iter', ylabel='loss',
+                      title='Velocity loss'),
+        )
+
+        self.viz.line(
             X=iters, Y=total_loss, env=self.name + '/lines',
             win=self.win_id['total_loss'], update='append',
-            opts=dict(xlabel='iter', ylabel='vae loss',
-                      title='VAE loss'),
+            opts=dict(xlabel='iter', ylabel='total loss',
+                      title='Total loss'),
         )
 
         self.viz.line(
@@ -1067,9 +1147,25 @@ class Solver(object):
         self.viz.line(
             X=iters, Y=test_total_loss, env=self.name + '/lines',
             win=self.win_id['test_total_loss'], update='append',
-            opts=dict(xlabel='iter', ylabel='vae loss',
-                      title='Test VAE loss'),
+            opts=dict(xlabel='iter', ylabel='total loss',
+                      title='Test Total loss'),
         )
+
+        self.viz.line(
+            X=iters, Y=test_loss_map, env=self.name + '/lines',
+            win=self.win_id['test_loss_map'], update='append',
+            opts=dict(xlabel='iter', ylabel='loss',
+                      title='Test MAP recon loss'),
+        )
+
+        self.viz.line(
+            X=iters, Y=test_loss_vel, env=self.name + '/lines',
+            win=self.win_id['test_loss_vel'], update='append',
+            opts=dict(xlabel='iter', ylabel='loss',
+                      title='Test Velocity loss'),
+        )
+
+
 
         self.viz.line(
             X=iters, Y=ade_min, env=self.name + '/lines',
@@ -1161,11 +1257,16 @@ class Solver(object):
             'iter_%s_decoderMy.pt' % self.ckpt_load_iter
         )
 
+        map_decoder_path = 'ckpts/A2E_map_size_16_drop_out0.1_hidden_d256_latent_d32_run_4/iter_20000_decoder.pt'
+
         if self.device == 'cuda':
             self.encoderMx = torch.load(encoderMx_path)
             self.encoderMy = torch.load(encoderMy_path)
             self.decoderMy = torch.load(decoderMy_path)
+            self.map_decoder = torch.load(map_decoder_path)
         else:
             self.encoderMx = torch.load(encoderMx_path, map_location='cpu')
             self.encoderMy = torch.load(encoderMy_path, map_location='cpu')
             self.decoderMy = torch.load(decoderMy_path, map_location='cpu')
+            self.map_decoder = torch.load(map_decoder_path, map_location='cpu')
+

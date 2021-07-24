@@ -58,8 +58,8 @@ def load_map_encoder(device, map_feat_dim):
         map_encoder = torch.load(map_encoder_path)
     else:
         map_encoder = torch.load(map_encoder_path, map_location='cpu')
-    for p in map_encoder.parameters():
-        p.requires_grad = False
+    # for p in map_encoder.parameters():
+    #     p.requires_grad = False
     return map_encoder
 
 
@@ -153,11 +153,10 @@ class Encoder(nn.Module):
         Output:
         - final_h: Tensor of shape (self.num_layers, batch, self.h_dim)
         """
-        map_feat = self.map_encoder(obs_vel.reshape(-1, 2), map.reshape(-1, map.shape[2], map.shape[3], map.shape[4]), train=False)
-        map_feat = map_feat.reshape((8, -1, map_feat.shape[-1]))
+        map_feat = self.map_encoder(obs_vel.reshape(-1, 2), map.reshape(-1, map.shape[2], map.shape[3], map.shape[4]), train=True)
 
         _, (final_encoder_h, _) = self.rnn_encoder(obs_traj_st) # [8, 656, 16], 두개의 [1, 656, 32]
-        _, (final_map_encoder_h, _) = self.rnn_map_encoder(map_feat) # [8, 656, 16], 두개의 [1, 656, 32]
+        _, (final_map_encoder_h, _) = self.rnn_map_encoder(map_feat.reshape((8, -1, map_feat.shape[-1]))) # [8, 656, 16], 두개의 [1, 656, 32]
 
         final_encoder_h = F.dropout(final_encoder_h,
                             p=self.dropout_rnn,
@@ -173,7 +172,7 @@ class Encoder(nn.Module):
 
         stats = self.fc2(dist_fc_input) # 64(32 without attn) to z dim
 
-        return dist_fc_input, stats
+        return dist_fc_input, stats, map_feat
 
 
 class EncoderY(nn.Module):
@@ -239,11 +238,10 @@ class EncoderY(nn.Module):
         state_tuple = (initial_h, initial_c)
 
         map_feat = self.map_encoder(fut_vel.reshape(-1, 2), map.reshape(-1, map.shape[2], map.shape[3], map.shape[4]),
-                                    train=False)
-        map_feat = map_feat.reshape((12, -1, map_feat.shape[-1]))
+                                    train=True)
 
         _, state = self.rnn_encoder(fut_vel_st, state_tuple)
-        _, map_state = self.rnn_map_encoder(map_feat)  # [8, 656, 16], 두개의 [1, 656, 32]
+        _, map_state = self.rnn_map_encoder(map_feat.reshape((12, -1, map_feat.shape[-1])))  # [8, 656, 16], 두개의 [1, 656, 32]
 
         final_encoder_h = torch.cat(state, dim=0).permute(1, 0, 2)  # 2,81,32두개 -> 4, 81,32 -> 81,4,32
         final_encoder_h = F.dropout(final_encoder_h,
@@ -263,7 +261,7 @@ class EncoderY(nn.Module):
 
         stats = self.fc2(dist_fc_input)
 
-        return dist_fc_input, stats
+        return dist_fc_input, stats, map_feat
 
 
 class Decoder(nn.Module):
@@ -289,7 +287,7 @@ class Decoder(nn.Module):
         self.to_vel = nn.Linear(n_state, n_pred_state)
 
         self.rnn_decoder = nn.GRUCell(
-            input_size=mlp_dim + z_dim + n_pred_state, hidden_size=dec_h_dim
+            input_size=mlp_dim + z_dim + n_pred_state + d_map_feat, hidden_size=dec_h_dim
         )
 
         # self.mlp = make_mlp(
@@ -301,6 +299,7 @@ class Decoder(nn.Module):
 
         self.fc_mu = nn.Linear(dec_h_dim, n_pred_state)
         self.fc_std = nn.Linear(dec_h_dim, n_pred_state)
+        self.map_encoder = load_map_encoder(device, map_feat_dim)
 
 
     def forward(self, last_obs_traj_st, enc_h_feat, z, last_obs_and_fut_map, fut_traj=None, map_info=None):
@@ -322,12 +321,16 @@ class Decoder(nn.Module):
         a = self.to_vel(last_obs_traj_st)
         # a = self.to_vel(torch.cat((last_obs_traj_st, map[0]), dim=-1)) # map[0] = last observed map
 
+        if fut_traj is None:
+            seq_start_end, map_path, inv_h_t, integrate_fn = map_info[0], map_info[1], map_info[2], map_info[3]
+
         mus = []
         stds = []
+        map = last_obs_and_fut_map[0]
         for i in range(self.seq_len):
-            # map_feat = self.map_encoder(a, map, train=False)
+            map_feat = self.map_encoder(a, map, train=False)
 
-            decoder_h= self.rnn_decoder(torch.cat([zx, a], dim=1), decoder_h) #493, 128
+            decoder_h= self.rnn_decoder(torch.cat([zx, a, map_feat], dim=1), decoder_h) #493, 128
             mu= self.fc_mu(decoder_h)
             logVar = self.fc_std(decoder_h)
             std = torch.sqrt(torch.exp(logVar))
@@ -336,9 +339,19 @@ class Decoder(nn.Module):
 
             if fut_traj is not None:
                 a = fut_traj[i,:,2:4]
+                map = last_obs_and_fut_map[i+1]
             else:
                 a = Normal(mu, std).rsample()
-
+                ####
+                pred_fut_traj = integrate_fn(a.unsqueeze(0)).squeeze(0)
+                map = []
+                for j, (s, e) in enumerate(seq_start_end):
+                    seq_map = imageio.imread(map_path[j])  # seq = 한 씬에서 모든 neighbors니까. 같은 데이터셋.
+                    seq_cropped_map = crop(seq_map, pred_fut_traj[s:e], inv_h_t[j],
+                                           context_size=self.map_size)  # (e-s), 1, 64, 64
+                    map.append(seq_cropped_map)
+                map = torch.cat(map).to(self.device)
+                ####
 
         mus = torch.stack(mus, dim=0)
         stds = torch.stack(stds, dim=0)
