@@ -152,8 +152,10 @@ class Solver(object):
         self.num_layers = args.num_layers
         self.decoder_h_dim = args.decoder_h_dim
 
+        self.load_map_encoder()
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
             self.encoderMx = Encoder(
+                self.map_encoder,
                 args.zS_dim,
                 enc_h_dim=args.encoder_h_dim,
                 mlp_dim=args.mlp_dim,
@@ -164,6 +166,7 @@ class Solver(object):
                 map_feat_dim=args.map_feat_dim,
                 device=self.device).to(self.device)
             self.encoderMy = EncoderY(
+                self.map_encoder,
                 args.zS_dim,
                 enc_h_dim=args.encoder_h_dim,
                 mlp_dim=args.mlp_dim,
@@ -174,6 +177,7 @@ class Solver(object):
                 map_feat_dim=args.map_feat_dim,
                 device=self.device).to(self.device)
             self.decoderMy = Decoder(
+                self.map_encoder,
                 args.pred_len,
                 dec_h_dim=self.decoder_h_dim,
                 enc_h_dim=args.encoder_h_dim,
@@ -186,12 +190,6 @@ class Solver(object):
                 batch_norm=args.batch_norm,
                 map_size=args.map_size).to(self.device)
             map_decoder_path = 'ckpts/A2E_map_size_16_drop_out0.1_hidden_d256_latent_d32_run_4/iter_20000_decoder.pt'
-
-            if self.device == 'cuda':
-                self.map_decoder = torch.load(map_decoder_path)
-            else:
-                self.map_decoder = torch.load(map_decoder_path, map_location='cpu')
-
 
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
@@ -263,11 +261,7 @@ class Solver(object):
             (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
              obs_frames, pred_frames, obs_obst, fut_obst, map_path, inv_h_t) = next(iterator)
             batch = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
-            # ade_min, fde_min, \
-            # ade_avg, fde_avg, \
-            # ade_std, fde_std, \
-            # test_loss_recon, test_loss_kl, test_loss, test_loss_map, test_loss_vel = self.evaluate_dist(self.val_loader,
-            #                                                                                             20, loss=True)
+
 
             (encX_h_feat, logitX, map_featX) \
                 = self.encoderMx(obs_traj_st, seq_start_end, obs_obst, obs_traj[:,:,2:4], train=True)
@@ -551,7 +545,7 @@ class Solver(object):
             return ade_min, fde_min, \
                    ade_avg, fde_avg, \
                    ade_std, fde_std, \
-                   loss_recon/b, loss_kl/b, loss/b, loss_map_recon/b, loss_vel/b
+                   loss_recon/b, loss_kl/b, total_loss/b, loss_map_recon/b, loss_vel/b
         else:
             return ade_min, fde_min, \
                    ade_avg, fde_avg, \
@@ -1234,13 +1228,18 @@ class Solver(object):
             self.ckpt_dir,
             'iter_%s_decoderMy.pt' % iteration
         )
-
+        map_dec_path = os.path.join(
+            self.ckpt_dir,
+            'iter_%s_map_dec.pt' % iteration
+        )
 
         mkdirs(self.ckpt_dir)
 
         torch.save(self.encoderMx, encoderMx_path)
         torch.save(self.encoderMy, encoderMy_path)
         torch.save(self.decoderMy, decoderMy_path)
+        torch.save(self.map_decoder, map_dec_path)
+        torch.save(self.map_decoder, map_dec_path)
     ####
     def load_checkpoint(self):
 
@@ -1263,10 +1262,21 @@ class Solver(object):
             self.encoderMx = torch.load(encoderMx_path)
             self.encoderMy = torch.load(encoderMy_path)
             self.decoderMy = torch.load(decoderMy_path)
-            self.map_decoder = torch.load(map_decoder_path)
         else:
             self.encoderMx = torch.load(encoderMx_path, map_location='cpu')
             self.encoderMy = torch.load(encoderMy_path, map_location='cpu')
             self.decoderMy = torch.load(decoderMy_path, map_location='cpu')
             self.map_decoder = torch.load(map_decoder_path, map_location='cpu')
 
+
+
+    def load_map_encoder(self):
+        map_encoder_path = 'ckpts/A2E_map_size_16_drop_out0.1_hidden_d256_latent_d32_run_4/iter_20000_encoder.pt'
+        map_decoder_path = 'ckpts/A2E_map_size_16_drop_out0.1_hidden_d256_latent_d32_run_4/iter_20000_decoder.pt'
+        if self.device == 'cuda':
+            self.map_encoder = torch.load(map_encoder_path)
+            self.map_decoder = torch.load(map_decoder_path)
+
+        else:
+            self.map_encoder = torch.load(map_encoder_path, map_location='cpu')
+            self.map_decoder = torch.load(map_decoder_path, map_location='cpu')
