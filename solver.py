@@ -14,8 +14,8 @@ from torch.distributions import OneHotCategorical as discrete
 from torch.distributions import kl_divergence
 from scipy.interpolate import RectBivariateSpline
 from scipy.ndimage import binary_dilation
-# from model_map_ae import Decoder as Map_Decoder
-
+from model_map_ae import Encoder as Map_Encoder
+from utils import crop
 import numpy as np
 
 ###############################################################################
@@ -57,8 +57,6 @@ class Solver(object):
         self.device = args.device
         self.temp=1.99
         self.dt=0.4
-        self.eps=1e-9
-
         self.kl_weight=args.kl_weight
 
         self.max_iter = int(args.max_iter)
@@ -89,17 +87,15 @@ class Solver(object):
         self.viz_on = args.viz_on
         if self.viz_on:
             self.win_id = dict(
-                recon='win_recon', loss_kl='win_loss_kl', loss_recon='win_loss_recon', total_loss='win_total_loss',
-                loss_map='win_loss_map', loss_vel='win_loss_vel', test_loss_map='win_test_loss_map', test_loss_vel='win_test_loss_vel',
-                ade_min='win_ade_min', fde_min='win_fde_min', ade_avg='win_ade_avg', fde_avg='win_fde_avg',
+                recon='win_recon', loss_kl='win_loss_kl', loss_recon='win_loss_recon', total_loss='win_total_loss'
+                , ade_min='win_ade_min', fde_min='win_fde_min', ade_avg='win_ade_avg', fde_avg='win_fde_avg',
                 ade_std='win_ade_std', fde_std='win_fde_std',
                 test_loss_recon='win_test_loss_recon', test_loss_kl='win_test_loss_kl', test_total_loss='win_test_total_loss'
             )
             self.line_gather = DataGather(
                 'iter', 'loss_recon', 'loss_kl', 'total_loss', 'ade_min', 'fde_min',
                 'ade_avg', 'fde_avg', 'ade_std', 'fde_std',
-                'test_loss_recon', 'test_loss_kl', 'test_total_loss',
-                'test_loss_map', 'test_loss_vel', 'loss_map', 'loss_vel'
+                'test_loss_recon', 'test_loss_kl', 'test_total_loss'
             )
 
             import visdom
@@ -154,7 +150,6 @@ class Solver(object):
 
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
             self.encoderMx = Encoder(
-                self.map_encoder,
                 args.zS_dim,
                 enc_h_dim=args.encoder_h_dim,
                 mlp_dim=args.mlp_dim,
@@ -165,7 +160,6 @@ class Solver(object):
                 map_feat_dim=args.map_feat_dim,
                 device=self.device).to(self.device)
             self.encoderMy = EncoderY(
-                self.map_encoder,
                 args.zS_dim,
                 enc_h_dim=args.encoder_h_dim,
                 mlp_dim=args.mlp_dim,
@@ -176,7 +170,6 @@ class Solver(object):
                 map_feat_dim=args.map_feat_dim,
                 device=self.device).to(self.device)
             self.decoderMy = Decoder(
-                self.map_encoder,
                 args.pred_len,
                 dec_h_dim=self.decoder_h_dim,
                 enc_h_dim=args.encoder_h_dim,
@@ -188,7 +181,6 @@ class Solver(object):
                 map_feat_dim=args.map_feat_dim,
                 batch_norm=args.batch_norm,
                 map_size=args.map_size).to(self.device)
-            self.load_map_encoder()
 
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
@@ -200,9 +192,7 @@ class Solver(object):
         vae_params = \
             list(self.encoderMx.parameters()) + \
             list(self.encoderMy.parameters()) + \
-            list(self.decoderMy.parameters()) + \
-            list(self.map_encoder.parameters()) + \
-            list(self.map_decoder.parameters())
+            list(self.decoderMy.parameters())
 
         # create optimizers
         self.optim_vae = optim.Adam(
@@ -264,17 +254,15 @@ class Solver(object):
             batch = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
 
-            (encX_h_feat, logitX, map_featX) \
+            (encX_h_feat, logitX) \
                 = self.encoderMx(obs_traj_st, seq_start_end, obs_obst, obs_traj[:,:,2:4], train=True)
-            (_, logitY, map_featY) \
+            (encY_h_feat, logitY) \
                 = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, encX_h_feat, fut_obst, fut_traj[:,:,2:4],train=True)
 
             p_dist = discrete(logits=logitX)
             q_dist = discrete(logits=logitY)
             relaxed_q_dist = concrete(logits=logitY, temperature=self.temp)
 
-            recon_mapX, pred_velX = self.map_decoder(map_featX)
-            recon_mapY, pred_velY = self.map_decoder(map_featY)
 
             # 첫번째 iteration 디코더 인풋 = (obs_traj_rel의 마지막 값, (hidden_state, cell_state))
             # where hidden_state = "인코더의 마지막 hidden_layer아웃풋과 그것으로 만든 max_pooled값을 concat해서 mlp 통과시켜만든 feature인 noise_input에다 noise까지 추가한값)"
@@ -311,25 +299,8 @@ class Solver(object):
             vae_loss = -elbo
 
 
-            ## map AE
-            obs_obst = obs_obst.reshape(-1, obs_obst.shape[2], obs_obst.shape[3], obs_obst.shape[4])
-            recon_map_lossX = - (torch.log(recon_mapX + self.eps) *  obs_obst +
-                      torch.log(1 - recon_mapX + self.eps) * (1 - obs_obst)).sum().div(recon_mapX.shape[0])
-            recon_velX = F.mse_loss(pred_velX, obs_traj[:,:,2:4].reshape(-1,2), reduction='sum').div(recon_mapX.shape[0])
-
-            ## map AE
-            fut_obst = fut_obst.reshape(-1, fut_obst.shape[2], fut_obst.shape[3], fut_obst.shape[4])
-            recon_map_lossY = - (torch.log(recon_mapY + self.eps) *  fut_obst +
-                      torch.log(1 - recon_mapY + self.eps) * (1 - fut_obst)).sum().div(recon_mapY.shape[0])
-            recon_velY = F.mse_loss(pred_velY, fut_traj[:,:,2:4].reshape(-1,2), reduction='sum').div(recon_mapY.shape[0])
-
-            loss = vae_loss + (recon_map_lossX + recon_velX) + (recon_map_lossY + recon_velY)
-            loss_map = recon_map_lossX + recon_map_lossY
-            loss_vel = recon_velX + recon_velY
-
-
             self.optim_vae.zero_grad()
-            loss.backward()
+            vae_loss.backward()
             self.optim_vae.step()
 
 
@@ -343,12 +314,10 @@ class Solver(object):
                 ade_min, fde_min, \
                 ade_avg, fde_avg, \
                 ade_std, fde_std, \
-                test_loss_recon, test_loss_kl, test_loss, test_loss_map, test_loss_vel = self.evaluate_dist(self.val_loader, 20, loss=True)
+                test_loss_recon, test_loss_kl, test_vae_loss = self.evaluate_dist(self.val_loader, 20, loss=True)
                 self.line_gather.insert(iter=iteration,
                                         loss_recon=-loglikelihood.item(),
                                         loss_kl=loss_kl.item(),
-                                        loss_map=loss_map.item(),
-                                        loss_vel=loss_vel.item(),
                                         total_loss=vae_loss.item(),
                                         ade_min=ade_min,
                                         fde_min=fde_min,
@@ -358,9 +327,7 @@ class Solver(object):
                                         fde_std=fde_std,
                                         test_loss_recon=-test_loss_recon.item(),
                                         test_loss_kl=test_loss_kl.item(),
-                                        test_total_loss=test_loss.item(),
-                                        test_loss_map=test_loss_map.item(),
-                                        test_loss_vel=test_loss_vel.item()
+                                        test_total_loss=test_vae_loss.item(),
                                         )
                 prn_str = ('[iter_%d (epoch_%d)] vae_loss: %.3f ' + \
                               '(recon: %.3f, kl: %.3f)\n' + \
@@ -440,8 +407,7 @@ class Solver(object):
         self.set_mode(train=False)
         total_traj = 0
 
-        loss_recon = loss_kl = total_loss = 0
-        loss_map_recon = loss_vel = 0
+        loss_recon = loss_kl = vae_loss = 0
 
         all_ade =[]
         all_fde =[]
@@ -454,13 +420,13 @@ class Solver(object):
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
-                (encX_h_feat, logitX, map_featX) \
+                (encX_h_feat, logitX) \
                     = self.encoderMx(obs_traj_st, seq_start_end, obs_obst, obs_traj[:,:,2:4])
                 p_dist = discrete(logits=logitX)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
                 if loss:
-                    (encY_h_feat, logitY, map_featY) \
+                    (encY_h_feat, logitY) \
                         = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, encX_h_feat, fut_obst, fut_traj[:,:,2:4])
 
                     q_dist = discrete(logits=logitY)
@@ -477,36 +443,16 @@ class Solver(object):
                     #     relaxed_p_dist.rsample((num_samples,)),
                     #     num_samples=num_samples
                     # )
-                    recon_mapX, pred_velX = self.map_decoder(map_featX)
-                    recon_mapY, pred_velY = self.map_decoder(map_featY)
+
                     ################## total loss for vae ####################
                     loglikelihood = fut_rel_pos_dist.log_prob(fut_traj[:, :, 2:4]).sum().div(batch_size)
 
                     kld = kl_divergence(q_dist, p_dist).sum().div(batch_size)
                     kld = torch.clamp(kld, min=0.07)
                     elbo = loglikelihood - self.kl_weight * kld
+                    vae_loss -=elbo
                     loss_recon +=loglikelihood
                     loss_kl +=kld
-
-                    ## map AE
-                    reshaped_obs_obst = obs_obst.reshape(-1, obs_obst.shape[2], obs_obst.shape[3], obs_obst.shape[4])
-                    recon_map_lossX = - (torch.log(recon_mapX + self.eps) * reshaped_obs_obst +
-                                         torch.log(1 - recon_mapX + self.eps) * (1 - reshaped_obs_obst)).sum().div(
-                        recon_mapX.shape[0])
-                    recon_velX = F.mse_loss(pred_velX, obs_traj[:, :, 2:4].reshape(-1, 2), reduction='sum').div(
-                        recon_mapX.shape[0])
-
-                    ## map AE
-                    reshaped_fut_obst = fut_obst.reshape(-1, fut_obst.shape[2], fut_obst.shape[3], fut_obst.shape[4])
-                    recon_map_lossY = - (torch.log(recon_mapY + self.eps) * reshaped_fut_obst +
-                                         torch.log(1 - recon_mapY + self.eps) * (1 - reshaped_fut_obst)).sum().div(
-                        recon_mapY.shape[0])
-                    recon_velY = F.mse_loss(pred_velY, fut_traj[:, :, 2:4].reshape(-1, 2), reduction='sum').div(
-                        recon_mapY.shape[0])
-
-                    total_loss += (-elbo + (recon_map_lossX + recon_velX) + (recon_map_lossY + recon_velY))
-                    loss_map_recon += (recon_map_lossX + recon_map_lossY)
-                    loss_vel += (recon_velX + recon_velY)
 
                 ade, fde = [], []
                 for _ in range(num_samples):
@@ -546,7 +492,7 @@ class Solver(object):
             return ade_min, fde_min, \
                    ade_avg, fde_avg, \
                    ade_std, fde_std, \
-                   loss_recon/b, loss_kl/b, total_loss/b, loss_map_recon/b, loss_vel/b
+                   loss_recon/b, loss_kl/b, vae_loss/b
         else:
             return ade_min, fde_min, \
                    ade_avg, fde_avg, \
@@ -819,18 +765,24 @@ class Solver(object):
     def plot_traj_var(self, data_loader, num_samples=20):
         import matplotlib.pyplot as plt
         from matplotlib.animation import FuncAnimation
+        import cv2
         gif_path = "D:\crowd\\fig\\runid" + str(self.run_id)
         mkdirs(gif_path)
+        # read video
+        cap = cv2.VideoCapture('D:\crowd\ewap_dataset\seq_'+self.dataset_name+'\seq_'+self.dataset_name+'.avi')
 
         colors = ['r', 'g', 'y', 'm', 'c', 'k', 'w', 'b']
+        h = np.loadtxt('D:\crowd\ewap_dataset\seq_'+self.dataset_name+'\H.txt')
+        inv_h_t = np.linalg.pinv(np.transpose(h))
 
         total_traj = 0
         with torch.no_grad():
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-                 obs_frames, pred_frames, obs_obst, fut_obst, map_path, inv_h_t) = batch
+                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, non_linear_ped,
+                 loss_mask, seq_start_end, obs_frames, pred_frames) = batch
+                batch_size = obs_traj_rel.size(1)
                 total_traj += fut_traj.size(1)
 
                 # path = '../datasets\hotel\\test\\biwi_hotel.txt'
@@ -852,32 +804,46 @@ class Solver(object):
                 #     ax.text(gt_pixel[i][1], gt_pixel[i][0], str(int(d[:,1][i])), fontsize=10)
 
 
-
-                (encX_h_feat, logitX, map_featX) \
-                    = self.encoderMx(obs_traj_st, seq_start_end, obs_obst, obs_traj[:,:,2:4])
+                (encX_h_feat, logitX) \
+                    = self.encoderMx(obs_traj, seq_start_end)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
-                # s+=1
-                # e+=1
-                # j+=1
+                # s=seq_start_end.numpy()
+                # np.where(s[:,0]==63)
 
-                for j, (s, e) in enumerate(seq_start_end):
+                def init():
+                    ax.imshow(frame)
+
+                def update_dot(num_t):
+                    print(num_t)
+                    cap.set(1, frame_numbers[num_t])
+                    _, frame = cap.read()
+                    ax.imshow(frame)
+
+                    for i in range(n_agent):
+                        ln_gt[i].set_data(gt_data[i, :num_t, 0], gt_data[i, :num_t, 1])
+
+                        for j in range(20):
+                            all_ln_pred[i][j].set_data(multi_sample_pred[j][i, :num_t, 0],
+                                                       multi_sample_pred[j][i, :num_t, 1])
+
+                for s, e in seq_start_end:
                     agent_rng = range(s, e)
-                    seq_map = imageio.imread(map_path[j])  # seq = 한 씬에서 모든 neighbors니까. 같은 데이터셋.
 
+                    frame_numbers = np.concatenate([obs_frames[agent_rng[0]], pred_frames[agent_rng[0]]])
+                    frame_number = frame_numbers[0]
+                    cap.set(1, frame_number)
+                    ret, frame = cap.read()
                     multi_sample_pred = []
 
                     for _ in range(num_samples):
                         fut_rel_pos_dist = self.decoderMy(
-                            obs_traj_st[-1],
+                            obs_traj[-1],
                             encX_h_feat,
-                            relaxed_p_dist.rsample(),
-                            obs_obst[-1].unsqueeze(0),
-                            map_info=[seq_start_end, map_path, inv_h_t,
-                                      lambda x: integrate_samples(x, obs_traj[-1, :, :2], dt=self.dt)]
+                            relaxed_p_dist.rsample()
                         )
                         pred_fut_traj_rel = fut_rel_pos_dist.rsample()
-                        pred_fut_traj = integrate_samples(pred_fut_traj_rel, obs_traj[-1, :, :2], dt=self.dt)
+                        pred_fut_traj = integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
 
                         gt_data, pred_data = [], []
 
@@ -885,17 +851,17 @@ class Solver(object):
                             one_ped = agent_rng[idx]
                             obs_real = obs_traj[:, one_ped,:2]
                             obs_real = np.concatenate([obs_real, np.ones((self.obs_len, 1))], axis=1)
-                            obs_pixel = np.matmul(obs_real, inv_h_t[j])
+                            obs_pixel = np.matmul(obs_real, inv_h_t)
                             obs_pixel /= np.expand_dims(obs_pixel[:, 2], 1)
 
                             gt_real = fut_traj[:, one_ped, :2]
                             gt_real = np.concatenate([gt_real, np.ones((self.pred_len, 1))], axis=1)
-                            gt_pixel = np.matmul(gt_real, inv_h_t[j])
+                            gt_pixel = np.matmul(gt_real, inv_h_t)
                             gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
 
                             pred_real = pred_fut_traj[:, one_ped].numpy()
                             pred_pixel = np.concatenate([pred_real, np.ones((self.pred_len, 1))], axis=1)
-                            pred_pixel = np.matmul(pred_pixel, inv_h_t[j])
+                            pred_pixel = np.matmul(pred_pixel, inv_h_t)
                             pred_pixel /= np.expand_dims(pred_pixel[:, 2], 1)
 
                             gt_data.append(np.concatenate([obs_pixel, gt_pixel], 0)) # (20, 3)
@@ -905,29 +871,18 @@ class Solver(object):
                         pred_data = np.stack(pred_data)
 
                         # if self.dataset_name == 'eth':
-                        # gt_data[:,:, [0,1]] = gt_data[:,:,[1,0]]
-                        # pred_data[:,:,[0,1]] = pred_data[:,:,[1,0]]
+                        gt_data[:,:, [0,1]] = gt_data[:,:,[1,0]]
+                        pred_data[:,:,[0,1]] = pred_data[:,:,[1,0]]
 
                         multi_sample_pred.append(pred_data)
 
-                    def init():
-                        ax.imshow(seq_map)
 
-                    def update_dot(num_t):
-                        print(num_t)
-                        ax.imshow(seq_map)
-
-                        for i in range(n_agent):
-                            ln_gt[i].set_data(gt_data[i, :num_t, 0], gt_data[i, :num_t, 1])
-
-                            for j in range(20):
-                                all_ln_pred[i][j].set_data(multi_sample_pred[j][i, :num_t, 0],
-                                                           multi_sample_pred[j][i, :num_t, 1])
                     n_agent = gt_data.shape[0]
                     n_frame = gt_data.shape[1]
 
                     fig, ax = plt.subplots()
-                    title = map_path[j].split('.')[0].split('\\')[-1].replace('/', '_')
+                    title = ",".join([str(int(elt)) for elt in frame_numbers[:8]]) + ' -->\n'
+                    title += ",".join([str(int(elt)) for elt in frame_numbers[8:]])
                     ax.set_title(title, fontsize=9)
                     fig.tight_layout()
 
@@ -948,20 +903,104 @@ class Solver(object):
 
                     # writer = PillowWriter(fps=3000)
 
-                    ani.save(gif_path + "/" +self.dataset_name+ "_" + title + "_agent" + str(agent_rng[0]) +"to" +str(agent_rng[-1]) +".gif", fps=4)
+                    ani.save(gif_path + "/" +self.dataset_name+ "_f" + str(int(frame_numbers[0])) + "_agent" + str(agent_rng[0]) +"to" +str(agent_rng[-1]) +".gif", fps=4)
 
+    def plot_traj_var2(self, data_loader, num_samples=20):
+        import matplotlib.pyplot as plt
+        from matplotlib.animation import FuncAnimation
+        import cv2
+        gif_path = "D:\crowd\\fig\\runid" + str(self.run_id)
+        mkdirs(gif_path)
+        # read video
+        # cap = cv2.VideoCapture('D:\crowd\ewap_dataset\seq_' + self.dataset_name + '\seq_' + self.dataset_name + '.avi')
+        # cap = cv2.VideoCapture('D:\crowd/ucy_original\data/crowds_zara01.avi')
+        cap = cv2.VideoCapture('D:\crowd/ucy_original\data/crowds_zara01.avi')
+
+        colors = ['r', 'g', 'y', 'm', 'c', 'k', 'w', 'b']
+        h = np.loadtxt('D:\crowd\ewap_dataset\seq_' + self.dataset_name + '\H.txt')
+        # h = np.loadtxt('D:\crowd\datasets/nmap\map/zara01_H.txt')
+        inv_h_t = np.linalg.pinv(np.transpose(h))
+
+        total_traj = 0
+        with torch.no_grad():
+            b = 0
+            for batch in data_loader:
+                b += 1
+                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst) = batch
+
+
+                total_traj += fut_traj.size(1)
+
+
+                def init():
+                    ax.imshow(frame)
+
+                def update_dot(num_t):
+                    print(num_t)
+                    cap.set(1, frame_numbers[num_t])
+                    _, frame = cap.read()
+                    ax.imshow(frame)
+
+                    for i in range(n_agent):
+                        ln_gt[i].set_data(gt_data[i, :num_t, 0], gt_data[i, :num_t, 1])
+
+                for s, e in seq_start_end:
+                    agent_rng = range(s, e)
+
+                    frame_numbers = np.concatenate([fut_frames[agent_rng[0]]])
+                    frame_number = frame_numbers[0]
+                    cap.set(1, frame_number)
+                    ret, frame = cap.read()
+                    gt_data = []
+
+                    for idx in range(len(agent_rng)):
+                        one_ped = agent_rng[idx]
+
+                        gt_real = fut_traj[:, one_ped, :2]
+                        gt_real = np.concatenate([gt_real, np.ones((self.pred_len, 1))], axis=1)
+                        gt_pixel = np.matmul(gt_real, inv_h_t)
+                        gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
+                        gt_data.append(gt_pixel)  # (20, 3)
+
+                    gt_data = np.stack(gt_data)
+                    # if self.dataset_name == 'eth':
+                    gt_data[:, :, [0, 1]] = gt_data[:, :, [1, 0]]
+
+                    n_agent = gt_data.shape[0]
+                    n_frame = gt_data.shape[1]
+
+                    fig, ax = plt.subplots()
+                    # title = ",".join([str(int(elt)) for elt in frame_numbers[:8]]) + ' -->\n'
+                    # title += ",".join([str(int(elt)) for elt in frame_numbers[8:]])
+                    # ax.set_title(title, fontsize=9)
+                    ax.axis('off')
+                    fig.tight_layout()
+
+                    ln_gt = []
+
+                    colors = ['r', 'g', 'y', 'm', 'c', 'blue']
+
+                    ax.imshow(frame)
+                    for i in range(n_agent):
+                        plt.plot(gt_data[i,:,0], gt_data[i,:,1], c=colors[i])
+                        plt.scatter(gt_data[i,-1,0], gt_data[i,-1,1], c=colors[i])
+
+                    for i in range(n_agent):
+                        ln_gt.append(ax.plot([], [], colors[i])[0])
+
+                    ani = FuncAnimation(fig, update_dot, frames=n_frame, interval=1, init_func=init())
+
+                    ani.save(gif_path + "/" + self.dataset_name + "_f" + str(
+                        int(frame_numbers[0])) + "_agent" + str(agent_rng[0]) + "to" + str(
+                        agent_rng[-1]) + ".gif", fps=4)
 
     ####
     def viz_init(self):
         self.viz.close(env=self.name + '/lines', win=self.win_id['loss_recon'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['loss_kl'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['loss_map'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['loss_vel'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['total_loss'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['test_loss_recon'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['test_loss_kl'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['test_loss_map'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['test_loss_vel'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['test_total_loss'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['ade_min'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['fde_min'])
@@ -978,8 +1017,6 @@ class Solver(object):
         iters = torch.Tensor(data['iter'])
         loss_recon = torch.Tensor(data['loss_recon'])
         loss_kl = torch.Tensor(data['loss_kl'])
-        loss_map = torch.Tensor(data['loss_map'])
-        loss_vel = torch.Tensor(data['loss_vel'])
         total_loss = torch.Tensor(data['total_loss'])
         ade_min = torch.Tensor(data['ade_min'])
         fde_min = torch.Tensor(data['fde_min'])
@@ -990,8 +1027,7 @@ class Solver(object):
         test_loss_recon = torch.Tensor(data['test_loss_recon'])
         test_loss_kl = torch.Tensor(data['test_loss_kl'])
         test_total_loss = torch.Tensor(data['test_total_loss'])
-        test_loss_map = torch.Tensor(data['test_loss_map'])
-        test_loss_vel = torch.Tensor(data['test_loss_vel'])
+
 
         self.viz.line(
             X=iters, Y=loss_recon, env=self.name + '/lines',
@@ -1008,24 +1044,10 @@ class Solver(object):
         )
 
         self.viz.line(
-            X=iters, Y=loss_map, env=self.name + '/lines',
-            win=self.win_id['loss_map'], update='append',
-            opts=dict(xlabel='iter', ylabel='loss',
-                      title='Map recon loss'),
-        )
-
-        self.viz.line(
-            X=iters, Y=loss_vel, env=self.name + '/lines',
-            win=self.win_id['loss_vel'], update='append',
-            opts=dict(xlabel='iter', ylabel='loss',
-                      title='Velocity loss'),
-        )
-
-        self.viz.line(
             X=iters, Y=total_loss, env=self.name + '/lines',
             win=self.win_id['total_loss'], update='append',
-            opts=dict(xlabel='iter', ylabel='total loss',
-                      title='Total loss'),
+            opts=dict(xlabel='iter', ylabel='vae loss',
+                      title='VAE loss'),
         )
 
         self.viz.line(
@@ -1045,25 +1067,9 @@ class Solver(object):
         self.viz.line(
             X=iters, Y=test_total_loss, env=self.name + '/lines',
             win=self.win_id['test_total_loss'], update='append',
-            opts=dict(xlabel='iter', ylabel='total loss',
-                      title='Test Total loss'),
+            opts=dict(xlabel='iter', ylabel='vae loss',
+                      title='Test VAE loss'),
         )
-
-        self.viz.line(
-            X=iters, Y=test_loss_map, env=self.name + '/lines',
-            win=self.win_id['test_loss_map'], update='append',
-            opts=dict(xlabel='iter', ylabel='loss',
-                      title='Test MAP recon loss'),
-        )
-
-        self.viz.line(
-            X=iters, Y=test_loss_vel, env=self.name + '/lines',
-            win=self.win_id['test_loss_vel'], update='append',
-            opts=dict(xlabel='iter', ylabel='loss',
-                      title='Test Velocity loss'),
-        )
-
-
 
         self.viz.line(
             X=iters, Y=ade_min, env=self.name + '/lines',
@@ -1132,22 +1138,13 @@ class Solver(object):
             self.ckpt_dir,
             'iter_%s_decoderMy.pt' % iteration
         )
-        map_dec_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_map_dec.pt' % iteration
-        )
-        map_enc_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_map_enc.pt' % iteration
-        )
+
 
         mkdirs(self.ckpt_dir)
 
         torch.save(self.encoderMx, encoderMx_path)
         torch.save(self.encoderMy, encoderMy_path)
         torch.save(self.decoderMy, decoderMy_path)
-        torch.save(self.map_decoder, map_dec_path)
-        torch.save(self.map_encoder, map_enc_path)
     ####
     def load_checkpoint(self):
 
@@ -1164,39 +1161,11 @@ class Solver(object):
             'iter_%s_decoderMy.pt' % self.ckpt_load_iter
         )
 
-        map_encoder_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_map_enc.pt' % self.ckpt_load_iter
-        )
-
-        map_decoder_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_map_dec.pt' % self.ckpt_load_iter
-        )
-
-
         if self.device == 'cuda':
             self.encoderMx = torch.load(encoderMx_path)
             self.encoderMy = torch.load(encoderMy_path)
             self.decoderMy = torch.load(decoderMy_path)
-            self.decoderMy = torch.load(decoderMy_path)
-            self.map_encoder = torch.load(map_encoder_path)
-            self.map_decoder = torch.load(map_decoder_path)
         else:
             self.encoderMx = torch.load(encoderMx_path, map_location='cpu')
             self.encoderMy = torch.load(encoderMy_path, map_location='cpu')
             self.decoderMy = torch.load(decoderMy_path, map_location='cpu')
-            self.map_encoder = torch.load(map_encoder_path, map_location='cpu')
-            self.map_decoder = torch.load(map_decoder_path, map_location='cpu')
-
-
-    def load_map_encoder(self):
-        map_encoder_path = 'ckpts/A2E_map_size_16_drop_out0.1_hidden_d256_latent_d32_run_4/iter_20000_encoder.pt'
-        map_decoder_path = 'ckpts/A2E_map_size_16_drop_out0.1_hidden_d256_latent_d32_run_4/iter_20000_decoder.pt'
-        if self.device == 'cuda':
-            self.map_encoder = torch.load(map_encoder_path)
-            self.map_decoder = torch.load(map_decoder_path)
-
-        else:
-            self.map_encoder = torch.load(map_encoder_path, map_location='cpu')
-            self.map_decoder = torch.load(map_decoder_path, map_location='cpu')
