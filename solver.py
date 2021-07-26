@@ -42,9 +42,9 @@ class Solver(object):
         # self.name = '%s_pred_len_%s_zS_%s_embedding_dim_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_pool_dim_%s_lr_%s_klw_%s' % \
         #             (args.dataset_name, args.pred_len, args.zS_dim, 16, args.encoder_h_dim, args.decoder_h_dim, args.mlp_dim, args.pool_dim, args.lr_VAE, args.kl_weight)
 
-        self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_map_feat_dim_%s_lr_%s_klw_%s' % \
+        self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_map_feat_dim_%s_map_h_dim_%s_lr_%s_klw_%s' % \
                     (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
-                     args.decoder_h_dim, args.mlp_dim, args.map_feat_dim , args.lr_VAE, args.kl_weight)
+                     args.decoder_h_dim, args.mlp_dim, args.map_feat_dim, args.map_hidden_dim, args.lr_VAE, args.kl_weight)
 
         # self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_attn_%s_lr_%s_klw_%s' % \
         #             (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
@@ -188,7 +188,8 @@ class Solver(object):
                 dropout_rnn=args.dropout_rnn,
                 map_feat_dim=args.map_feat_dim,
                 batch_norm=args.batch_norm,
-                map_size=args.map_size).to(self.device)
+                map_size=args.map_size,
+                map_hidden_dim=args.map_hidden_dim).to(self.device)
             map_decoder_path = 'ckpts/A2E_map_size_16_drop_out0.1_hidden_d256_latent_d32_run_4/iter_20000_decoder.pt'
 
         else:  # load a previously saved model

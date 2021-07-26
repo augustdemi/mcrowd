@@ -65,7 +65,7 @@ def create_parser():
     parser.add_argument( '--ckpt_load_iter', default=0, type=int,
       help='iter# to load the previously saved model ' +
         '(default=0 to start from the scratch)' )
-    parser.add_argument( '--max_iter', default=0, type=float,
+    parser.add_argument( '--max_iter', default=10, type=float,
       help='maximum number of batch iterations' )
     parser.add_argument( '--ckpt_save_iter', default=100, type=int,
       help='checkpoint saved every # iters' )
@@ -82,9 +82,9 @@ def create_parser():
     parser.add_argument( '--viz_port',
       default=8002, type=int, help='visdom port number' )
     parser.add_argument( '--viz_ll_iter',
-      default=30, type=int, help='visdom line data logging iter' )
+      default=5, type=int, help='visdom line data logging iter' )
     parser.add_argument( '--viz_la_iter',
-      default=30, type=int, help='visdom line data applying iter' )
+      default=5, type=int, help='visdom line data applying iter' )
     #parser.add_argument( '--viz_ra_iter',
     #  default=10000, type=int, help='visdom recon image applying iter' )
     #parser.add_argument( '--viz_ta_iter',
@@ -114,7 +114,7 @@ def create_parser():
     # Encoder
     parser.add_argument('--encoder_h_dim', default=32, type=int)
     parser.add_argument('--decoder_h_dim', default=128, type=int)
-    parser.add_argument('--map_feat_dim', default=8, type=int)
+    parser.add_argument('--map_feat_dim', default=32, type=int)
 
     parser.add_argument('--num_layers', default=1, type=int)
     parser.add_argument('--dropout_mlp', default=0.1, type=float)
@@ -129,6 +129,7 @@ def create_parser():
     parser.add_argument( '--kl_weight', default=100.0, type=float,
       help='kl weight' )
     parser.add_argument('--map_size', default=16, type=int)
+    parser.add_argument('--map_hidden_dim', default=8, type=int)
 
     parser.add_argument( '--desc', default='data', type=str,
       help='run description' )

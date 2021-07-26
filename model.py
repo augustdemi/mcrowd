@@ -256,7 +256,7 @@ class Decoder(nn.Module):
     def __init__(
         self, map_encoder, seq_len, dec_h_dim=128, mlp_dim=1024, num_layers=1,
         map_feat_dim=32, dropout_rnn=0.0, enc_h_dim=32, z_dim=32,
-        activation='relu', batch_norm=False, device='cpu', map_size=180
+        activation='relu', batch_norm=False, device='cpu', map_size=180, map_hidden_dim=8,
     ):
         super(Decoder, self).__init__()
         n_state=6
@@ -274,7 +274,7 @@ class Decoder(nn.Module):
         self.to_vel = nn.Linear(n_state, n_pred_state)
 
         self.rnn_decoder = nn.GRUCell(
-            input_size=mlp_dim + z_dim + n_pred_state + d_map_feat, hidden_size=dec_h_dim
+            input_size=mlp_dim + z_dim + n_pred_state + map_hidden_dim, hidden_size=dec_h_dim
         )
 
         # self.mlp = make_mlp(
@@ -287,7 +287,7 @@ class Decoder(nn.Module):
         self.fc_mu = nn.Linear(dec_h_dim, n_pred_state)
         self.fc_std = nn.Linear(dec_h_dim, n_pred_state)
         self.map_encoder = map_encoder
-
+        self.fc_map = nn.Linear(map_feat_dim, map_hidden_dim)
 
     def forward(self, last_obs_traj_st, enc_h_feat, z, last_obs_and_fut_map, fut_traj=None, map_info=None):
         """
@@ -316,6 +316,7 @@ class Decoder(nn.Module):
         map = last_obs_and_fut_map[0]
         for i in range(self.seq_len):
             map_feat = self.map_encoder(a, map, train=False)
+            map_feat = self.fc_map(map_feat)
 
             decoder_h= self.rnn_decoder(torch.cat([zx, a, map_feat], dim=1), decoder_h) #493, 128
             mu= self.fc_mu(decoder_h)
