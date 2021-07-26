@@ -50,19 +50,6 @@ def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0.0):
     return nn.Sequential(*layers)
 
 
-
-def load_map_encoder(device, map_feat_dim):
-    # map_encoder_path = 'ckpts/nmap_map_size_180_drop_out0.0_run_25/iter_6500_encoder.pt'
-    map_encoder_path = 'ckpts/A2E_map_size_16_drop_out0.1_hidden_d256_latent_d' + str(map_feat_dim)+'_run_4/iter_20000_encoder.pt'
-    if device == 'cuda':
-        map_encoder = torch.load(map_encoder_path)
-    else:
-        map_encoder = torch.load(map_encoder_path, map_location='cpu')
-    for p in map_encoder.parameters():
-        p.requires_grad = False
-    return map_encoder
-
-
 def crop(map, target_pos, inv_h_t, context_size=198):
     # context_size=32
     expanded_obs_img = np.full((map.shape[0] + context_size, map.shape[1] + context_size), False, dtype=np.float32)
@@ -108,7 +95,7 @@ def crop(map, target_pos, inv_h_t, context_size=198):
 class Encoder(nn.Module):
     """Encoder:spatial emb -> lstm -> pooling -> fc for posterior / conditional prior"""
     def __init__(
-        self, zS_dim, enc_h_dim=64, mlp_dim=32, map_feat_dim=32,
+        self, map_encoder, zS_dim, enc_h_dim=64, mlp_dim=32, map_feat_dim=32,
             batch_norm=False, num_layers=1, dropout_mlp=0.0, dropout_rnn=0.0,  activation='relu', pooling_type='pool', device='cpu'
     ):
         super(Encoder, self).__init__()
@@ -143,7 +130,7 @@ class Encoder(nn.Module):
             dropout=dropout_mlp
         )
         self.fc2 = nn.Linear(mlp_dim, zS_dim)
-        self.map_encoder = load_map_encoder(device, map_feat_dim)
+        self.map_encoder = map_encoder
 
 
     def forward(self, obs_traj_st, seq_start_end, map, obs_vel, train=False):
@@ -153,11 +140,10 @@ class Encoder(nn.Module):
         Output:
         - final_h: Tensor of shape (self.num_layers, batch, self.h_dim)
         """
-        map_feat = self.map_encoder(obs_vel.reshape(-1, 2), map.reshape(-1, map.shape[2], map.shape[3], map.shape[4]), train=False)
-        map_feat = map_feat.reshape((8, -1, map_feat.shape[-1]))
+        map_feat = self.map_encoder(obs_vel.reshape(-1, 2), map.reshape(-1, map.shape[2], map.shape[3], map.shape[4]), train=True)
 
         _, (final_encoder_h, _) = self.rnn_encoder(obs_traj_st) # [8, 656, 16], 두개의 [1, 656, 32]
-        _, (final_map_encoder_h, _) = self.rnn_map_encoder(map_feat) # [8, 656, 16], 두개의 [1, 656, 32]
+        _, (final_map_encoder_h, _) = self.rnn_map_encoder(map_feat.reshape((8, -1, map_feat.shape[-1]))) # [8, 656, 16], 두개의 [1, 656, 32]
 
         final_encoder_h = F.dropout(final_encoder_h,
                             p=self.dropout_rnn,
@@ -173,14 +159,14 @@ class Encoder(nn.Module):
 
         stats = self.fc2(dist_fc_input) # 64(32 without attn) to z dim
 
-        return dist_fc_input, stats
+        return dist_fc_input, stats, map_feat
 
 
 class EncoderY(nn.Module):
     """Encoder:spatial emb -> lstm -> pooling -> fc for posterior / conditional prior"""
 
     def __init__(
-            self, zS_dim, enc_h_dim=64, mlp_dim=32, map_feat_dim=32,
+            self, map_encoder, zS_dim, enc_h_dim=64, mlp_dim=32, map_feat_dim=32,
             batch_norm=False, num_layers=1, dropout_mlp=0.0, dropout_rnn=0.0, activation='relu', pooling_type='pool',
             device='cpu'
     ):
@@ -220,7 +206,7 @@ class EncoderY(nn.Module):
         )
         self.fc2 = nn.Linear( 2 * mlp_dim, zS_dim)
 
-        self.map_encoder = load_map_encoder(device, map_feat_dim)
+        self.map_encoder = map_encoder
 
     def forward(self, last_obs_traj_st, fut_vel_st, seq_start_end, obs_enc_feat, map, fut_vel, train=False):
         """
@@ -239,11 +225,10 @@ class EncoderY(nn.Module):
         state_tuple = (initial_h, initial_c)
 
         map_feat = self.map_encoder(fut_vel.reshape(-1, 2), map.reshape(-1, map.shape[2], map.shape[3], map.shape[4]),
-                                    train=False)
-        map_feat = map_feat.reshape((12, -1, map_feat.shape[-1]))
+                                    train=True)
 
         _, state = self.rnn_encoder(fut_vel_st, state_tuple)
-        _, map_state = self.rnn_map_encoder(map_feat)  # [8, 656, 16], 두개의 [1, 656, 32]
+        _, map_state = self.rnn_map_encoder(map_feat.reshape((12, -1, map_feat.shape[-1])))  # [8, 656, 16], 두개의 [1, 656, 32]
 
         final_encoder_h = torch.cat(state, dim=0).permute(1, 0, 2)  # 2,81,32두개 -> 4, 81,32 -> 81,4,32
         final_encoder_h = F.dropout(final_encoder_h,
@@ -263,20 +248,19 @@ class EncoderY(nn.Module):
 
         stats = self.fc2(dist_fc_input)
 
-        return dist_fc_input, stats
+        return dist_fc_input, stats, map_feat
 
 
 class Decoder(nn.Module):
     """Decoder is part of TrajectoryGenerator"""
     def __init__(
-        self, seq_len, dec_h_dim=128, mlp_dim=1024, num_layers=1,
+        self, map_encoder, seq_len, dec_h_dim=128, mlp_dim=1024, num_layers=1,
         map_feat_dim=32, dropout_rnn=0.0, enc_h_dim=32, z_dim=32,
         activation='relu', batch_norm=False, device='cpu', map_size=180
     ):
         super(Decoder, self).__init__()
         n_state=6
         n_pred_state=2
-        d_map_feat=map_feat_dim
         self.seq_len = seq_len
         self.mlp_dim = mlp_dim
         self.dec_h_dim = dec_h_dim
@@ -325,8 +309,6 @@ class Decoder(nn.Module):
         mus = []
         stds = []
         for i in range(self.seq_len):
-            # map_feat = self.map_encoder(a, map, train=False)
-
             decoder_h= self.rnn_decoder(torch.cat([zx, a], dim=1), decoder_h) #493, 128
             mu= self.fc_mu(decoder_h)
             logVar = self.fc_std(decoder_h)
@@ -338,7 +320,6 @@ class Decoder(nn.Module):
                 a = fut_traj[i,:,2:4]
             else:
                 a = Normal(mu, std).rsample()
-
 
         mus = torch.stack(mus, dim=0)
         stds = torch.stack(stds, dim=0)
