@@ -152,7 +152,6 @@ class Solver(object):
         self.num_layers = args.num_layers
         self.decoder_h_dim = args.decoder_h_dim
 
-        self.load_map_encoder()
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
             self.encoderMx = Encoder(
                 self.map_encoder,
@@ -189,7 +188,7 @@ class Solver(object):
                 map_feat_dim=args.map_feat_dim,
                 batch_norm=args.batch_norm,
                 map_size=args.map_size).to(self.device)
-            map_decoder_path = 'ckpts/A2E_map_size_16_drop_out0.1_hidden_d256_latent_d32_run_4/iter_20000_decoder.pt'
+            self.load_map_encoder()
 
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
@@ -820,24 +819,18 @@ class Solver(object):
     def plot_traj_var(self, data_loader, num_samples=20):
         import matplotlib.pyplot as plt
         from matplotlib.animation import FuncAnimation
-        import cv2
         gif_path = "D:\crowd\\fig\\runid" + str(self.run_id)
         mkdirs(gif_path)
-        # read video
-        cap = cv2.VideoCapture('D:\crowd\ewap_dataset\seq_'+self.dataset_name+'\seq_'+self.dataset_name+'.avi')
 
         colors = ['r', 'g', 'y', 'm', 'c', 'k', 'w', 'b']
-        h = np.loadtxt('D:\crowd\ewap_dataset\seq_'+self.dataset_name+'\H.txt')
-        inv_h_t = np.linalg.pinv(np.transpose(h))
 
         total_traj = 0
         with torch.no_grad():
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, non_linear_ped,
-                 loss_mask, seq_start_end, obs_frames, pred_frames) = batch
-                batch_size = obs_traj_rel.size(1)
+                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
+                 obs_frames, pred_frames, obs_obst, fut_obst, map_path, inv_h_t) = batch
                 total_traj += fut_traj.size(1)
 
                 # path = '../datasets\hotel\\test\\biwi_hotel.txt'
@@ -859,46 +852,32 @@ class Solver(object):
                 #     ax.text(gt_pixel[i][1], gt_pixel[i][0], str(int(d[:,1][i])), fontsize=10)
 
 
-                (encX_h_feat, logitX) \
-                    = self.encoderMx(obs_traj, seq_start_end)
+
+                (encX_h_feat, logitX, map_featX) \
+                    = self.encoderMx(obs_traj_st, seq_start_end, obs_obst, obs_traj[:,:,2:4])
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
-                # s=seq_start_end.numpy()
-                # np.where(s[:,0]==63)
+                # s+=1
+                # e+=1
+                # j+=1
 
-                def init():
-                    ax.imshow(frame)
-
-                def update_dot(num_t):
-                    print(num_t)
-                    cap.set(1, frame_numbers[num_t])
-                    _, frame = cap.read()
-                    ax.imshow(frame)
-
-                    for i in range(n_agent):
-                        ln_gt[i].set_data(gt_data[i, :num_t, 0], gt_data[i, :num_t, 1])
-
-                        for j in range(20):
-                            all_ln_pred[i][j].set_data(multi_sample_pred[j][i, :num_t, 0],
-                                                       multi_sample_pred[j][i, :num_t, 1])
-
-                for s, e in seq_start_end:
+                for j, (s, e) in enumerate(seq_start_end):
                     agent_rng = range(s, e)
+                    seq_map = imageio.imread(map_path[j])  # seq = 한 씬에서 모든 neighbors니까. 같은 데이터셋.
 
-                    frame_numbers = np.concatenate([obs_frames[agent_rng[0]], pred_frames[agent_rng[0]]])
-                    frame_number = frame_numbers[0]
-                    cap.set(1, frame_number)
-                    ret, frame = cap.read()
                     multi_sample_pred = []
 
                     for _ in range(num_samples):
                         fut_rel_pos_dist = self.decoderMy(
-                            obs_traj[-1],
+                            obs_traj_st[-1],
                             encX_h_feat,
-                            relaxed_p_dist.rsample()
+                            relaxed_p_dist.rsample(),
+                            obs_obst[-1].unsqueeze(0),
+                            map_info=[seq_start_end, map_path, inv_h_t,
+                                      lambda x: integrate_samples(x, obs_traj[-1, :, :2], dt=self.dt)]
                         )
                         pred_fut_traj_rel = fut_rel_pos_dist.rsample()
-                        pred_fut_traj = integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
+                        pred_fut_traj = integrate_samples(pred_fut_traj_rel, obs_traj[-1, :, :2], dt=self.dt)
 
                         gt_data, pred_data = [], []
 
@@ -906,17 +885,17 @@ class Solver(object):
                             one_ped = agent_rng[idx]
                             obs_real = obs_traj[:, one_ped,:2]
                             obs_real = np.concatenate([obs_real, np.ones((self.obs_len, 1))], axis=1)
-                            obs_pixel = np.matmul(obs_real, inv_h_t)
+                            obs_pixel = np.matmul(obs_real, inv_h_t[j])
                             obs_pixel /= np.expand_dims(obs_pixel[:, 2], 1)
 
                             gt_real = fut_traj[:, one_ped, :2]
                             gt_real = np.concatenate([gt_real, np.ones((self.pred_len, 1))], axis=1)
-                            gt_pixel = np.matmul(gt_real, inv_h_t)
+                            gt_pixel = np.matmul(gt_real, inv_h_t[j])
                             gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
 
                             pred_real = pred_fut_traj[:, one_ped].numpy()
                             pred_pixel = np.concatenate([pred_real, np.ones((self.pred_len, 1))], axis=1)
-                            pred_pixel = np.matmul(pred_pixel, inv_h_t)
+                            pred_pixel = np.matmul(pred_pixel, inv_h_t[j])
                             pred_pixel /= np.expand_dims(pred_pixel[:, 2], 1)
 
                             gt_data.append(np.concatenate([obs_pixel, gt_pixel], 0)) # (20, 3)
@@ -926,18 +905,29 @@ class Solver(object):
                         pred_data = np.stack(pred_data)
 
                         # if self.dataset_name == 'eth':
-                        gt_data[:,:, [0,1]] = gt_data[:,:,[1,0]]
-                        pred_data[:,:,[0,1]] = pred_data[:,:,[1,0]]
+                        # gt_data[:,:, [0,1]] = gt_data[:,:,[1,0]]
+                        # pred_data[:,:,[0,1]] = pred_data[:,:,[1,0]]
 
                         multi_sample_pred.append(pred_data)
 
+                    def init():
+                        ax.imshow(seq_map)
 
+                    def update_dot(num_t):
+                        print(num_t)
+                        ax.imshow(seq_map)
+
+                        for i in range(n_agent):
+                            ln_gt[i].set_data(gt_data[i, :num_t, 0], gt_data[i, :num_t, 1])
+
+                            for j in range(20):
+                                all_ln_pred[i][j].set_data(multi_sample_pred[j][i, :num_t, 0],
+                                                           multi_sample_pred[j][i, :num_t, 1])
                     n_agent = gt_data.shape[0]
                     n_frame = gt_data.shape[1]
 
                     fig, ax = plt.subplots()
-                    title = ",".join([str(int(elt)) for elt in frame_numbers[:8]]) + ' -->\n'
-                    title += ",".join([str(int(elt)) for elt in frame_numbers[8:]])
+                    title = map_path[j].split('.')[0].split('\\')[-1].replace('/', '_')
                     ax.set_title(title, fontsize=9)
                     fig.tight_layout()
 
@@ -958,96 +948,8 @@ class Solver(object):
 
                     # writer = PillowWriter(fps=3000)
 
-                    ani.save(gif_path + "/" +self.dataset_name+ "_f" + str(int(frame_numbers[0])) + "_agent" + str(agent_rng[0]) +"to" +str(agent_rng[-1]) +".gif", fps=4)
+                    ani.save(gif_path + "/" +self.dataset_name+ "_" + title + "_agent" + str(agent_rng[0]) +"to" +str(agent_rng[-1]) +".gif", fps=4)
 
-    def plot_traj_var2(self, data_loader, num_samples=20):
-        import matplotlib.pyplot as plt
-        from matplotlib.animation import FuncAnimation
-        import cv2
-        gif_path = "D:\crowd\\fig\\runid" + str(self.run_id)
-        mkdirs(gif_path)
-        # read video
-        # cap = cv2.VideoCapture('D:\crowd\ewap_dataset\seq_' + self.dataset_name + '\seq_' + self.dataset_name + '.avi')
-        # cap = cv2.VideoCapture('D:\crowd/ucy_original\data/crowds_zara01.avi')
-        cap = cv2.VideoCapture('D:\crowd/ucy_original\data/crowds_zara01.avi')
-
-        colors = ['r', 'g', 'y', 'm', 'c', 'k', 'w', 'b']
-        h = np.loadtxt('D:\crowd\ewap_dataset\seq_' + self.dataset_name + '\H.txt')
-        # h = np.loadtxt('D:\crowd\datasets/nmap\map/zara01_H.txt')
-        inv_h_t = np.linalg.pinv(np.transpose(h))
-
-        total_traj = 0
-        with torch.no_grad():
-            b = 0
-            for batch in data_loader:
-                b += 1
-                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst) = batch
-
-
-                total_traj += fut_traj.size(1)
-
-
-                def init():
-                    ax.imshow(frame)
-
-                def update_dot(num_t):
-                    print(num_t)
-                    cap.set(1, frame_numbers[num_t])
-                    _, frame = cap.read()
-                    ax.imshow(frame)
-
-                    for i in range(n_agent):
-                        ln_gt[i].set_data(gt_data[i, :num_t, 0], gt_data[i, :num_t, 1])
-
-                for s, e in seq_start_end:
-                    agent_rng = range(s, e)
-
-                    frame_numbers = np.concatenate([fut_frames[agent_rng[0]]])
-                    frame_number = frame_numbers[0]
-                    cap.set(1, frame_number)
-                    ret, frame = cap.read()
-                    gt_data = []
-
-                    for idx in range(len(agent_rng)):
-                        one_ped = agent_rng[idx]
-
-                        gt_real = fut_traj[:, one_ped, :2]
-                        gt_real = np.concatenate([gt_real, np.ones((self.pred_len, 1))], axis=1)
-                        gt_pixel = np.matmul(gt_real, inv_h_t)
-                        gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
-                        gt_data.append(gt_pixel)  # (20, 3)
-
-                    gt_data = np.stack(gt_data)
-                    # if self.dataset_name == 'eth':
-                    gt_data[:, :, [0, 1]] = gt_data[:, :, [1, 0]]
-
-                    n_agent = gt_data.shape[0]
-                    n_frame = gt_data.shape[1]
-
-                    fig, ax = plt.subplots()
-                    # title = ",".join([str(int(elt)) for elt in frame_numbers[:8]]) + ' -->\n'
-                    # title += ",".join([str(int(elt)) for elt in frame_numbers[8:]])
-                    # ax.set_title(title, fontsize=9)
-                    ax.axis('off')
-                    fig.tight_layout()
-
-                    ln_gt = []
-
-                    colors = ['r', 'g', 'y', 'm', 'c', 'blue']
-
-                    ax.imshow(frame)
-                    for i in range(n_agent):
-                        plt.plot(gt_data[i,:,0], gt_data[i,:,1], c=colors[i])
-                        plt.scatter(gt_data[i,-1,0], gt_data[i,-1,1], c=colors[i])
-
-                    for i in range(n_agent):
-                        ln_gt.append(ax.plot([], [], colors[i])[0])
-
-                    ani = FuncAnimation(fig, update_dot, frames=n_frame, interval=1, init_func=init())
-
-                    ani.save(gif_path + "/" + self.dataset_name + "_f" + str(
-                        int(frame_numbers[0])) + "_agent" + str(agent_rng[0]) + "to" + str(
-                        agent_rng[-1]) + ".gif", fps=4)
 
     ####
     def viz_init(self):
@@ -1262,19 +1164,30 @@ class Solver(object):
             'iter_%s_decoderMy.pt' % self.ckpt_load_iter
         )
 
-        map_decoder_path = 'ckpts/A2E_map_size_16_drop_out0.1_hidden_d256_latent_d32_run_4/iter_20000_decoder.pt'
+        map_encoder_path = os.path.join(
+            self.ckpt_dir,
+            'iter_%s_map_enc.pt' % self.ckpt_load_iter
+        )
+
+        map_decoder_path = os.path.join(
+            self.ckpt_dir,
+            'iter_%s_map_dec.pt' % self.ckpt_load_iter
+        )
+
 
         if self.device == 'cuda':
             self.encoderMx = torch.load(encoderMx_path)
             self.encoderMy = torch.load(encoderMy_path)
             self.decoderMy = torch.load(decoderMy_path)
             self.decoderMy = torch.load(decoderMy_path)
+            self.map_encoder = torch.load(map_encoder_path)
+            self.map_decoder = torch.load(map_decoder_path)
         else:
             self.encoderMx = torch.load(encoderMx_path, map_location='cpu')
             self.encoderMy = torch.load(encoderMy_path, map_location='cpu')
             self.decoderMy = torch.load(decoderMy_path, map_location='cpu')
+            self.map_encoder = torch.load(map_encoder_path, map_location='cpu')
             self.map_decoder = torch.load(map_decoder_path, map_location='cpu')
-
 
 
     def load_map_encoder(self):
