@@ -650,7 +650,7 @@ class Solver(object):
                     multi_sample_pred = np.array(multi_sample_pred)[:,:,:,:2]
 
                     for a in range(len(agent_rng)):
-                        obs_map = imageio.imread(map_path[a])
+                        obs_map = imageio.imread(map_path[j])
                         num_viol_trajs, viol20 = self.compute_obs_violations(multi_sample_pred[:,a], obs_map)
                         total_viol += num_viol_trajs
                         min_viol.append(np.min(viol20))
