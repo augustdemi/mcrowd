@@ -501,50 +501,6 @@ class Solver(object):
 
 
 
-
-    def evaluate_dtw(self, data_loader, num_samples):
-        self.set_mode(train=False)
-        all_dist = []
-        from dtaidistance import dtw_ndim
-        with torch.no_grad():
-            b=0
-            for batch in data_loader:
-                b+=1
-                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
-                 fut_obst) = batch
-                batch_size = fut_traj.size(1)
-
-                (encX_h_feat, logitX) \
-                    = self.encoderMx(obs_traj, seq_start_end)
-                relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
-
-                dist_20samples = [] # (20, # seq, 12)
-                for _ in range(num_samples):
-                    fut_rel_pos_dist = self.decoderMy(
-                        obs_traj[-1],
-                        encX_h_feat,
-                        relaxed_p_dist.rsample()
-                    )
-                    pred_fut_traj_rel = fut_rel_pos_dist.rsample()
-
-                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[-1, :, :2], dt=self.dt)
-
-                    dtw_dist = []
-                    for i in range(batch_size):
-                        dtw_dist.append(dtw_ndim.distance(pred_fut_traj[:,i].cpu().numpy(), fut_traj[:, i,:2].cpu().numpy()))
-                    dist_20samples.append(dtw_dist)
-                all_dist.append(np.array(dist_20samples))
-
-            all_dist=np.concatenate(all_dist, axis=1) #(20,70,12)
-            print('all_coll: ', all_dist.shape)
-            dtw_min=all_dist.min(axis=0).mean()
-            dtw_avg=all_dist.mean(axis=0).mean()
-            dtw_std=all_dist.std(axis=0).mean()
-        self.set_mode(train=True)
-        return dtw_min, dtw_avg, dtw_std
-
-
-
     def evaluate_collision(self, data_loader, num_samples, threshold):
         self.set_mode(train=False)
         total_traj = 0
@@ -657,7 +613,7 @@ class Solver(object):
                 total_traj += fut_traj.size(1)
 
 
-                (encX_h_feat, logitX, map_featX) \
+                (encX_h_feat, logitX) \
                     = self.encoderMx(obs_traj_st, seq_start_end, obs_obst, obs_traj[:,:,2:4])
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
@@ -786,8 +742,7 @@ class Solver(object):
                 #     ax.text(gt_pixel[i][1], gt_pixel[i][0], str(int(d[:,1][i])), fontsize=10)
 
 
-
-                (encX_h_feat, logitX, map_featX) \
+                (encX_h_feat, logitX) \
                     = self.encoderMx(obs_traj_st, seq_start_end, obs_obst, obs_traj[:,:,2:4])
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
