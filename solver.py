@@ -767,6 +767,49 @@ class Solver(object):
         return coll_rate
 
 
+    def plot_traj(self, data_loader, num_samples=20):
+        import matplotlib.pyplot as plt
+        from matplotlib.animation import FuncAnimation
+        gif_path = "D:\crowd\\fig\\runid" + str(self.run_id)
+        mkdirs(gif_path)
+
+        colors = ['r', 'g', 'b', 'm', 'c', 'k', 'w', 'k']
+
+        total_traj = 0
+        with torch.no_grad():
+            b=0
+            for batch in data_loader:
+                b+=1
+                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
+                 obs_frames, pred_frames, obs_obst, fut_obst, map_path, inv_h_t) = batch
+                total_traj += fut_traj.size(1)
+
+                # rng = range(9, 18)
+                # rng = range(18, 38)
+                # rng = range(38, 45)
+
+                # rng = range(17)
+                # rng = range(95, 104)
+                # rng = range(100, 101)
+
+                rng = range(19,27)
+                fig, ax = plt.subplots()
+                ax.imshow(imageio.imread(map_path[rng[0]]))
+                for idx in rng:
+                    obs_real = obs_traj[:, idx, :2]
+                    obs_real = np.concatenate([obs_real, np.ones((self.obs_len, 1))], axis=1)
+                    obs_pixel = np.matmul(obs_real, inv_h_t[idx])
+                    obs_pixel /= np.expand_dims(obs_pixel[:, 2], 1)
+
+                    gt_real = fut_traj[:, idx, :2]
+                    gt_real = np.concatenate([gt_real, np.ones((self.pred_len, 1))], axis=1)
+                    gt_pixel = np.matmul(gt_real, inv_h_t[idx])
+                    gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
+                    gt_data = np.concatenate([obs_pixel, gt_pixel], 0)
+
+                    ax.plot(gt_data[:,0], gt_data[:,1])
+                    ax.scatter(gt_data[0,0], gt_data[0,1], s=5)
+
 
 
     def plot_traj_var(self, data_loader, num_samples=20):
