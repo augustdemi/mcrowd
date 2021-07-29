@@ -207,7 +207,13 @@ class TrajectoryDataset(Dataset):
         self.context_size=context_size
 
         with open(self.data_dir) as f:
-            all_files = f.readlines()
+            all_files = np.array(f.readlines())
+        if 'Train' in self.data_dir:
+            path_finding_files = all_files[['Pathfinding' in e for e in all_files]]
+            all_files = np.concatenate((all_files[['Pathfinding' not in e for e in all_files]], np.repeat(path_finding_files, 10)))
+
+
+
         num_peds_in_seq = []
         seq_list = []
         seq_list_rel = []
@@ -223,7 +229,7 @@ class TrajectoryDataset(Dataset):
         for path in all_files:
             path = os.path.join(root_dir, path.rstrip().replace('\\', '/'))
             print('data path:', path)
-            # if 'Pathfinding' in path:
+            # if 'Pathfinding' not in path:
             #     continue
             map_file_name = path.replace('.txt', '.png')
             print('map path: ', map_file_name)
@@ -234,7 +240,7 @@ class TrajectoryDataset(Dataset):
             data.columns = ['f', 'a', 'pos_x', 'pos_y']
             data.sort_values(by=['f', 'a'], inplace=True)
             if 'Pathfinding' in path:
-                data = data.iloc[::5]
+                data = data.iloc[::3]
                 data['a'] = 0.
 
             frames = data['f'].unique().tolist()
@@ -304,9 +310,6 @@ class TrajectoryDataset(Dataset):
                             i += 1
                     seq_past_obst_list.append(per_frame_past_obst)
                     seq_fut_obst_list.append(per_frame_fut_obst)
-
-
-
                 if num_peds_considered > min_ped: # 주어진 하나의 sliding(16초)동안 등장한 agent수가 min_ped보다 큼을 만족하는 경우에만 이 slide데이터를 채택
                     num_peds_in_seq.append(num_peds_considered)
                     # 다음 list의 initialize는 peds_in_curr_seq만큼 해뒀었지만, 조건을 만족하는 slide의 agent만 차례로 append 되었기 때문에 num_peds_considered만큼만 잘라서 씀
@@ -316,7 +319,7 @@ class TrajectoryDataset(Dataset):
                     fut_frame_num.append(np.ones((num_peds_considered, self.pred_len)) * frames[idx + self.obs_len:idx + self.seq_len])
                     # map_file_names.append(num_peds_considered*[map_file_name])
                     map_file_names.append(map_file_name)
-
+            # print(len(seq_list))
             #     ped_ids = np.array(ped_ids)
             #     # if 'test' in path and len(ped_ids) > 0:
             #     if len(ped_ids) > 0:
@@ -352,6 +355,8 @@ class TrajectoryDataset(Dataset):
             for start, end in zip(cum_start_idx, cum_start_idx[1:])
         ] # [(0, 2),  (2, 4),  (4, 7),  (7, 10), ... (32682, 32684),  (32684, 32686)]
         self.map_file_name = map_file_names
+        print(self.seq_start_end[-1])
+        print(len(self.seq_start_end))
 
 
 
