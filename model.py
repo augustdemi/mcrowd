@@ -309,7 +309,7 @@ class Decoder(nn.Module):
         # a = self.to_vel(torch.cat((last_obs_traj_st, map[0]), dim=-1)) # map[0] = last observed map
 
 
-        map = torch.ones(a.shape[0], 1, 16, 16)
+        map = torch.ones(a.shape[0], 1, 16, 16).to(z.device)
         map[:, :, 8, 8] = 0
 
         mus = []
