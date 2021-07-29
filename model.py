@@ -261,7 +261,6 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
         n_state=6
         n_pred_state=2
-        d_map_feat=map_feat_dim
         self.seq_len = seq_len
         self.mlp_dim = mlp_dim
         self.dec_h_dim = dec_h_dim
@@ -274,7 +273,7 @@ class Decoder(nn.Module):
         self.to_vel = nn.Linear(n_state, n_pred_state)
 
         self.rnn_decoder = nn.GRUCell(
-            input_size=mlp_dim + z_dim + n_pred_state + d_map_feat, hidden_size=dec_h_dim
+            input_size=mlp_dim + z_dim + n_pred_state, hidden_size=dec_h_dim
         )
 
         # self.mlp = make_mlp(
@@ -286,7 +285,6 @@ class Decoder(nn.Module):
 
         self.fc_mu = nn.Linear(dec_h_dim, n_pred_state)
         self.fc_std = nn.Linear(dec_h_dim, n_pred_state)
-        self.map_encoder = map_encoder
 
 
     def forward(self, last_obs_traj_st, enc_h_feat, z, last_obs_and_fut_map, fut_traj=None, map_info=None):
@@ -308,16 +306,10 @@ class Decoder(nn.Module):
         a = self.to_vel(last_obs_traj_st)
         # a = self.to_vel(torch.cat((last_obs_traj_st, map[0]), dim=-1)) # map[0] = last observed map
 
-        if fut_traj is None:
-            seq_start_end, map_path, inv_h_t, integrate_fn = map_info[0], map_info[1], map_info[2], map_info[3]
-
         mus = []
         stds = []
-        map = last_obs_and_fut_map[0]
         for i in range(self.seq_len):
-            map_feat = self.map_encoder(a, map, train=False)
-
-            decoder_h= self.rnn_decoder(torch.cat([zx, a, map_feat], dim=1), decoder_h) #493, 128
+            decoder_h= self.rnn_decoder(torch.cat([zx, a], dim=1), decoder_h) #493, 128
             mu= self.fc_mu(decoder_h)
             logVar = self.fc_std(decoder_h)
             std = torch.sqrt(torch.exp(logVar))
@@ -326,19 +318,8 @@ class Decoder(nn.Module):
 
             if fut_traj is not None:
                 a = fut_traj[i,:,2:4]
-                map = last_obs_and_fut_map[i+1]
             else:
                 a = Normal(mu, std).rsample()
-                ####
-                pred_fut_traj = integrate_fn(a.unsqueeze(0)).squeeze(0)
-                map = []
-                for j, (s, e) in enumerate(seq_start_end):
-                    seq_map = imageio.imread(map_path[j])  # seq = 한 씬에서 모든 neighbors니까. 같은 데이터셋.
-                    seq_cropped_map = crop(seq_map, pred_fut_traj[s:e], inv_h_t[j],
-                                           context_size=self.map_size)  # (e-s), 1, 64, 64
-                    map.append(seq_cropped_map)
-                map = torch.cat(map).to(z.device)
-                ####
 
         mus = torch.stack(mus, dim=0)
         stds = torch.stack(stds, dim=0)
