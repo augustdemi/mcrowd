@@ -233,8 +233,12 @@ class TrajectoryDataset(Dataset):
             data = pd.DataFrame(loaded_data)
             data.columns = ['f', 'a', 'pos_x', 'pos_y']
             data.sort_values(by=['f', 'a'], inplace=True)
+            if 'Pathfinding' in path:
+                data = data.iloc[::5]
+                data['a'] = 0.
 
             frames = data['f'].unique().tolist()
+
             frame_data = []
             # data.sort_values(by=['f'])
             for frame in frames:
