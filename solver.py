@@ -305,6 +305,52 @@ class Solver(object):
             # loglikelihood = log_p_yt_xz.sum().div(batch)
             loglikelihood = fut_rel_pos_dist.log_prob(fut_traj[:, :, 2:4]).sum().div(batch)
 
+            pred_vel = fut_rel_pos_dist.rsample()
+            pred_fut_traj = integrate_samples(pred_vel, obs_traj[-1, :, :2], dt=self.dt)
+
+            violation_val=0
+            for j, (s, e) in enumerate(seq_start_end):
+                agent_rng = range(s, e)
+                pred_data = []
+                gt_data = []
+                for idx in range(len(agent_rng)):
+                    one_ped = agent_rng[idx]
+                    pred_real = pred_fut_traj[:, one_ped].detach().cpu().numpy()
+                    pred_pixel = np.concatenate([pred_real, np.ones((self.pred_len, 1))], axis=1)
+                    pred_pixel = np.matmul(pred_pixel, inv_h_t[j])
+                    pred_pixel /= np.expand_dims(pred_pixel[:, 2], 1)
+                    pred_data.append(pred_pixel)
+
+                    # gt_real = fut_traj[:, one_ped,:2].detach().cpu().numpy()
+                    # gt_real = np.concatenate([gt_real, np.ones((self.pred_len, 1))], axis=1)
+                    # gt_pixel = np.matmul(gt_real, inv_h_t[j])
+                    # gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
+                    # gt_data.append(gt_pixel)
+
+                pred_data = np.stack(pred_data)[:,:,:2]
+                pred_data = torch.tensor(pred_data)
+                # gt_data = np.stack(gt_data)[:,:,:2]
+
+                for a in range(len(agent_rng)):
+                    obs_map = imageio.imread(map_path[j])
+                    interp_obs_map = RectBivariateSpline(range(obs_map.shape[0]),
+                                                         range(obs_map.shape[1]),
+                                                         1 - (obs_map/255).astype(int),
+                                                         kx=1, ky=1)
+
+                    # plt.imshow(obs_map)
+                    # for i in range(12):
+                    #     plt.scatter(gt_data[a, i,0], gt_data[a, i,1], s=1, c='r')
+                    #
+                    # # plt.imshow(1-binary_dilation(obs_map, iterations=1))
+                    # plt.imshow(1 - (obs_map/255).astype(int))
+                    # for i in range(12):
+                    #     plt.scatter(pred_data[a, i,0], pred_data[a, i,1], s=1, c='r')
+                    #     # plt.scatter(gt_data[a, i,0], gt_data[a, i,1], s=1, c='r')
+
+                    violation_val += interp_obs_map(pred_data[a, :, 1], pred_data[a, :, 0], grid=False).sum()
+
+
             loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
             loss_kl = torch.clamp(loss_kl, min=0.07)
             # print('log_likelihood:', loglikelihood.item(), ' kl:', loss_kl.item())
@@ -645,10 +691,10 @@ class Solver(object):
         # for i in range(12, 24):
         #     plt.scatter(predicted_trajs[i,0], predicted_trajs[i,1], s=1, c='r')
         #
-        # a = 1-binary_dilation(obs_map, iterations=1)
-        # plt.imshow(a)
-        # for i in range(12):
-        #     plt.scatter(predicted_trajs[i,0], predicted_trajs[i,1], s=1, c='r')
+        a = 1-binary_dilation(obs_map, iterations=1)
+        plt.imshow(a)
+        for i in range(12):
+            plt.scatter(predicted_trajs[i,0], predicted_trajs[i,1], s=1, c='r')
 
         traj_obs_values = interp_obs_map(predicted_trajs[:, 1], predicted_trajs[:, 0], grid=False)
         traj_obs_values = traj_obs_values.reshape((old_shape[0], old_shape[1]))
@@ -702,12 +748,19 @@ class Solver(object):
                             pred_pixel = np.matmul(pred_pixel, inv_h_t[j])
                             pred_pixel /= np.expand_dims(pred_pixel[:, 2], 1)
                             pred_data.append(pred_pixel)
+                        multi_sample_pred.append(np.stack(pred_data)[:,:,:2])
 
-                        pred_data = np.stack(pred_data)
+                        pred_data = []
+                        for idx in range(len(agent_rng)):
+                            one_ped = agent_rng[idx]
+                            pred_real = pred_fut_traj[:, one_ped]
+                            pred_pixel = torch.cat([pred_real, torch.ones((self.pred_len, 1))], dim=1)
+                            pred_pixel = torch.matmul(pred_pixel, torch.FloatTensor(inv_h_t[j]))
+                            pred_pixel /= torch.unsqueeze(pred_pixel[:, 2], 1)
+                            pred_data.append(pred_pixel)
+                        multi_sample_pred.append(torch.stack(pred_data)[:,:,:2])
 
-                        multi_sample_pred.append(pred_data)
-
-                    multi_sample_pred = np.array(multi_sample_pred)[:,:,:,:2]
+                    multi_sample_pred = np.array(multi_sample_pred)
 
                     for a in range(len(agent_rng)):
                         obs_map = imageio.imread(map_path[j])
@@ -792,7 +845,19 @@ class Solver(object):
                 # rng = range(95, 104)
                 # rng = range(100, 101)
 
-                rng = range(19,27)
+                # rng = range(19,27)
+
+                ############################
+
+                # f =fut_traj[:,idx,:2]
+                # dist = torch.pow(((f[1] - f[0]) ** 2).sum(), 1 / 2)
+                # grid_pt = f[0] + torch.tensor([0, dist])
+                # newpx = np.concatenate([grid_pt, [1]])
+                # newpx = np.matmul(newpx, inv_h_t[idx])
+                # ax.scatter(newpx[0], newpx[1], s=1, c='k')
+
+                rng = range(304,305)
+                rng = range(1,2)
                 fig, ax = plt.subplots()
                 ax.imshow(imageio.imread(map_path[rng[0]]))
                 for idx in rng:
@@ -807,8 +872,41 @@ class Solver(object):
                     gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
                     gt_data = np.concatenate([obs_pixel, gt_pixel], 0)
 
-                    ax.plot(gt_data[:,0], gt_data[:,1])
-                    ax.scatter(gt_data[0,0], gt_data[0,1], s=5)
+                    # ax.plot(gt_data[:,0], gt_data[:,1], c='red')
+                    # if idx == rng[0]:
+                    #     ax.scatter(gt_data[0, 0], gt_data[0, 1], s=5, c='red')
+                    for s in range(8):
+                        ax.scatter(gt_data[s,0], gt_data[s,1], s=1, c='b')
+
+                    for s in range(8,20):
+                        ax.scatter(gt_data[s,0], gt_data[s,1], s=1, c='r')
+                    ############################
+
+                    fig, ax = plt.subplots()
+                    agent_idx = rng[0]
+                    this_obs_traj = obs_traj[:, agent_idx, :2]
+                    per_step_dist = torch.pow(((this_obs_traj[1:] - this_obs_traj[:-1]) ** 2).sum(1), (1 / 2)).mean()
+
+                    grid_pt = []
+                    for i in range(-7, 8):
+                        for j in range(-7, 8):
+                            grid_pt.append(this_obs_traj[-1] + torch.tensor([j * per_step_dist * 2, i * per_step_dist * 2]))
+                    grid_pt = torch.stack(grid_pt)
+
+                    for i in range(len(grid_pt)):
+                        ax.scatter(grid_pt[i, 0], grid_pt[i, 1], s=5, c='k', marker='x', alpha=0.5)
+                    for s in range(8):
+                        ax.scatter(obs_traj[s, agent_idx, 0], obs_traj[s, agent_idx, 1], s=1, c='b')
+                    for s in range(12):
+                        ax.scatter(fut_traj[s, agent_idx, 0], fut_traj[s, agent_idx, 1], s=1, c='r')
+                    past_fut_dist = (fut_traj[-1, idx, :2] - obs_traj[-1, idx, :2]) / (per_step_dist * 2)
+                    goal_coord = torch.ceil(past_fut_dist) + 7
+                    goal_class = goal_coord[0] + (goal_coord[1] - 1) * 14
+                    # =============
+                    newpx = np.concatenate([grid_pt, np.ones((grid_pt.shape[0], 1))], axis=1)
+                    newpx = np.matmul(newpx, inv_h_t[idx])
+                    for i in range(grid_pt.shape[0]):
+                        ax.scatter(newpx[i, 0], newpx[i, 1], s=5, c='g', marker='x', alpha=0.5)
 
 
 
