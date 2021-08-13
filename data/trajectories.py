@@ -199,18 +199,21 @@ class TrajectoryDataset(Dataset):
         self.seq_len = self.obs_len + self.pred_len
         self.delim = delim
         self.device = device
-        n_pred_state=2
-        n_state=6
-        root_dir = '/dresden/users/ml1323/crowd/baseline/HTP-benchmark/A2E Data'
-        # root_dir = 'C:\dataset\HTP-benchmark\A2E Data'
-
         self.context_size=context_size
 
-        with open(self.data_dir) as f:
-            all_files = np.array(f.readlines())
-        if 'Train' in self.data_dir:
-            path_finding_files = all_files[['Pathfinding' in e for e in all_files]]
-            all_files = np.concatenate((all_files[['Pathfinding' not in e for e in all_files]], np.repeat(path_finding_files, 10)))
+        n_pred_state=2
+        n_state=6
+        # root_dir = '/dresden/users/ml1323/crowd/baseline/HTP-benchmark/A2E Data'
+        # root_dir = 'C:\dataset\HTP-benchmark\A2E Data'
+        root_dir = 'D:\crowd\datasets\Trajectories\Trajectories'
+
+        all_files = [e for e in os.listdir(root_dir) if ('.csv' in e) and ('homo' not in e)]
+        all_files = all_files[:30]
+        # with open(self.data_dir) as f:
+        #     all_files = np.array(f.readlines())
+        # if 'Train' in self.data_dir:
+        #     path_finding_files = all_files[['Pathfinding' in e for e in all_files]]
+        #     all_files = np.concatenate((all_files[['Pathfinding' not in e for e in all_files]], np.repeat(path_finding_files, 10)))
 
 
 
@@ -231,7 +234,7 @@ class TrajectoryDataset(Dataset):
             print('data path:', path)
             # if 'Pathfinding' not in path:
             #     continue
-            map_file_name = path.replace('.txt', '.png')
+            map_file_name = path.replace('.csv', '.png')
             print('map path: ', map_file_name)
 
             loaded_data = read_file(path, delim)
@@ -239,9 +242,10 @@ class TrajectoryDataset(Dataset):
             data = pd.DataFrame(loaded_data)
             data.columns = ['f', 'a', 'pos_x', 'pos_y']
             data.sort_values(by=['f', 'a'], inplace=True)
-            if 'Pathfinding' in path:
-                data = data.iloc[::3]
-                data['a'] = 0.
+            # data = data.iloc[::10]
+            # if 'Pathfinding' in path:
+            #     data = data.iloc[::3]
+            #     data['a'] = 0.
 
             frames = data['f'].unique().tolist()
 
@@ -368,7 +372,7 @@ class TrajectoryDataset(Dataset):
         current_obs_traj = self.obs_traj[start:end, :].detach().clone()
         current_fut_traj = self.pred_traj[start:end, :].detach().clone()
         map = imageio.imread(self.map_file_name[index])
-        h=np.loadtxt(self.map_file_name[index].replace('.png', '.hom'), delimiter=',')
+        h=np.loadtxt(self.map_file_name[index].replace('.png', '_homography.csv'), delimiter=',')
 
         inv_h_t = np.linalg.pinv(np.transpose(h))
         past_map_obst = []
