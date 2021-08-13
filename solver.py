@@ -344,7 +344,7 @@ class Solver(object):
             q_dist_goal = discrete(logits=logitY_goal)
             relaxed_q_dist_goal = concrete(logits=logitY_goal, temperature=self.goal_temp)
             ## the discrete uniform distribution prior of the goal: it should always has the same probabilities for each 20 values: req_grad = False
-            logit_unif_prior_goal = torch.zeros((batch, 20))
+            logit_unif_prior_goal = torch.zeros((batch, 20)).to(self.device)
             unif_prior_goal = discrete(logits=logit_unif_prior_goal)
             # relaxed_unif_prior_goal = concrete(logits=logit_unif_prior_goal, temperature=self.goal_temp)
 
