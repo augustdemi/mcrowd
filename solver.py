@@ -318,13 +318,13 @@ class Solver(object):
 
             per_step_dist = torch.pow(((obs_traj[1:, :, :2] - obs_traj[:-1, :, :2]) ** 2).sum(2), (1 / 2)).mean(0)
             ########### per_step_dist와 0.5 사이에 max값 취하기
-            per_step_dist = torch.max(per_step_dist, torch.tensor(0.5))
+            per_step_dist = torch.max(per_step_dist, torch.tensor(0.5).to(self.device))
 
             goal_coord = torch.ceil((fut_traj[-1, :, :2] - obs_traj[-1, :, :2]) / (per_step_dist * 2).unsqueeze(1)) + (np.power(self.n_grid,1/2)/2)
-            goal_class = (goal_coord[:, 0] + (goal_coord[:, 1] - 1) * np.power(self.n_grid,1/2)).long()
+            goal_class = (goal_coord[:, 0] + (goal_coord[:, 1] - 1) * np.power(self.n_grid,1/2)).long().to(self.device)
             # one_hot_vec = torch.eye(self.n_grid)
             # goal_class = one_hot_vec[goal_class]
-            goal_one_hot = torch.zeros(len(goal_class), self.n_grid)
+            goal_one_hot = torch.zeros(len(goal_class), self.n_grid).to(self.device)
             goal_one_hot.scatter_(1, goal_class.unsqueeze(1), 1)
             #######################
 
@@ -370,7 +370,7 @@ class Solver(object):
             ll_goal_prior = []
             ll_traj_prior = []
             for w_one_hot in torch.eye(20):
-                w_one_hot = w_one_hot.unsqueeze(0).repeat((encX_traj_feat.shape[0], 1))
+                w_one_hot = w_one_hot.unsqueeze(0).repeat((encX_traj_feat.shape[0], 1)).to(self.device)
                 # predict goal from the goal prior
                 ll_goal_prior.append(-F.cross_entropy(self.decoderM_goal(encX_traj_feat, w_one_hot), goal_class, reduction='none'))
                 # predict future trajectories from the goal prior
@@ -554,16 +554,14 @@ class Solver(object):
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
-
                 #---
-
                 per_step_dist = torch.pow(((obs_traj[1:, :, :2] - obs_traj[:-1, :, :2]) ** 2).sum(2), (1 / 2)).mean(0)
-                per_step_dist = torch.max(per_step_dist, torch.tensor(0.5))
+                per_step_dist = torch.max(per_step_dist, torch.tensor(0.5).to(self.device))
                 goal_coord = torch.ceil(
                     (fut_traj[-1, :, :2] - obs_traj[-1, :, :2]) / (per_step_dist * 2).unsqueeze(1)) + (
                              np.power(self.n_grid, 1 / 2) / 2)
-                goal_class = (goal_coord[:, 0] + (goal_coord[:, 1] - 1) * np.power(self.n_grid, 1 / 2)).long()
-                goal_one_hot = torch.zeros(len(goal_class), self.n_grid)
+                goal_class = (goal_coord[:, 0] + (goal_coord[:, 1] - 1) * np.power(self.n_grid, 1 / 2)).long().to(self.device)
+                goal_one_hot = torch.zeros(len(goal_class), self.n_grid).to(self.device)
                 goal_one_hot.scatter_(1, goal_class.unsqueeze(1), 1)
                 #######################
                 #---
@@ -625,7 +623,7 @@ class Solver(object):
                 ade, fde = [], []
 
                 for w_one_hot in torch.eye(20):
-                    w_one_hot = w_one_hot.unsqueeze(0).repeat((encX_traj_feat.shape[0], 1))
+                    w_one_hot = w_one_hot.unsqueeze(0).repeat((encX_traj_feat.shape[0], 1)).to(self.device)
                     fut_rel_pos_dist = self.decoderMy(
                         obs_traj_st[-1],
                         encX_h_feat,
