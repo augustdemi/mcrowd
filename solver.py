@@ -368,20 +368,20 @@ class Solver(object):
 
             ### Goal & Traj generation from the "prior" latents of goals ###
             ll_goal_prior = []
-            # ll_traj_prior = []
+            ll_traj_prior = []
             for w_one_hot in torch.eye(20):
                 w_one_hot = w_one_hot.unsqueeze(0).repeat((encX_traj_feat.shape[0], 1)).to(self.device)
                 # predict goal from the goal prior
                 ll_goal_prior.append(-F.cross_entropy(self.decoderM_goal(encX_traj_feat, w_one_hot), goal_class, reduction='none'))
                 # predict future trajectories from the goal prior
-                # fut_vel_dist = self.decoderMy(
-                #     obs_traj_st[-1],
-                #     encX_h_feat,
-                #     torch.cat([z, w_one_hot], dim=1),
-                #     torch.cat((obs_obst[-1].unsqueeze(0), fut_obst), dim=0),
-                #     fut_traj
-                # )
-                # ll_traj_prior.append(fut_vel_dist.log_prob(fut_traj[:, :, 2:4]))
+                fut_vel_dist = self.decoderMy(
+                    obs_traj_st[-1],
+                    encX_h_feat,
+                    torch.cat([z, w_one_hot], dim=1),
+                    torch.cat((obs_obst[-1].unsqueeze(0), fut_obst), dim=0),
+                    fut_traj
+                )
+                ll_traj_prior.append(fut_vel_dist.log_prob(fut_traj[:, :, 2:4]))
 
 
 
@@ -389,7 +389,7 @@ class Solver(object):
             ll_goal_prior = torch.stack(ll_goal_prior).sum().div(batch)
             ll_goal_posterior = -F.cross_entropy(goal_posterior, goal_class, reduction='none').sum().div(batch)
 
-            # ll_traj_prior = torch.stack(ll_traj_prior).sum().div(batch)
+            ll_traj_prior = torch.stack(ll_traj_prior).sum().div(batch)
             ll_traj_posterior = fut_rel_pos_dist_posterior.log_prob(fut_traj[:, :, 2:4]).sum().div(batch)
 
             loss_kl_goal =  torch.clamp(kl_divergence(q_dist_goal, p_dist_goal).sum().div(batch), min=0.07)
@@ -398,7 +398,7 @@ class Solver(object):
             loss_kl = torch.clamp(kl_divergence(q_dist, p_dist).sum().div(batch), min=0.07)
 
             goal_elbo = (ll_goal_prior + ll_goal_posterior).div(21) -  self.kl_weight_goal * (loss_kl_goal + loss_kl_goal_prior)
-            traj_elbo = ll_traj_posterior - self.kl_weight * loss_kl
+            traj_elbo = (ll_traj_prior + ll_traj_posterior).div(21) - self.kl_weight * loss_kl
 
             #### map AE ####
             recon_mapX, pred_velX = self.map_decoder(map_featX)
