@@ -346,7 +346,6 @@ class Decoder(nn.Module):
         return rel_pos_dist
 
 
-
 class EncoderX_Goal(nn.Module):
     def __init__(
         self, w_dim, enc_h_dim=64, mlp_dim=32,
@@ -392,9 +391,6 @@ class Encoder_Goal(nn.Module):
 
     def forward(self, obs_traj_feat, goal, train=False):
         return self.fc1(torch.cat([obs_traj_feat, goal], dim=1))
-
-
-
 
 
 

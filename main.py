@@ -62,7 +62,7 @@ def create_parser():
 
 
     # saving directories and checkpoint/sample iterations
-    parser.add_argument( '--ckpt_load_iter', default=14000, type=int,
+    parser.add_argument( '--ckpt_load_iter', default=0, type=int,
       help='iter# to load the previously saved model ' +
         '(default=0 to start from the scratch)' )
     parser.add_argument( '--max_iter', default=14000, type=float,
@@ -111,6 +111,8 @@ def create_parser():
     # model hyperparameters
     parser.add_argument( '--zS_dim', default=32, type=int,
       help='dimension of the shared latent representation' )
+    parser.add_argument( '--w_dim', default=20, type=int,
+      help='dimension of the shared latent representation' )
     # Encoder
     parser.add_argument('--encoder_h_dim', default=64, type=int)
     parser.add_argument('--decoder_h_dim', default=256, type=int)
@@ -128,6 +130,11 @@ def create_parser():
       help='pool/attn' )
     parser.add_argument( '--kl_weight', default=100.0, type=float,
       help='kl weight' )
+    parser.add_argument( '--kl_weight_goal', default=100.0, type=float,
+      help='kl weight' )
+    parser.add_argument( '--goal_vae_w', default=1.0, type=float,
+      help='kl weight' )
+
     parser.add_argument('--map_size', default=16, type=int)
 
     parser.add_argument( '--desc', default='data', type=str,
@@ -212,9 +219,10 @@ def main(args):
 
             print('--------------------', args.dataset_name, '----------------------')
             test_path = os.path.join(args.dataset_dir, args.dataset_name, 'Test.txt')
-            # args.batch_size=32
+            args.batch_size=400
             _, test_loader = data_loader(args, test_path,shuffle=False)
 
+            solver.plot_traj(test_loader)
             # solver.plot_traj_var(test_loader)
             '''
             coll_rate_min, non_zero_coll_min, \
@@ -226,7 +234,7 @@ def main(args):
             print('std: ', coll_rate_std)
             '''
 
-            their_viol, min_viol, avg_viol, std_viol = solver.map_collision(test_loader)
+            their_viol, min_viol, avg_viol, std_viol = solver.map_collision(test_loader, num_samples=3)
             print('their_viol: ', their_viol)
             print('min_viol: ', min_viol)
             print('avg_viol: ', avg_viol)
