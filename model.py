@@ -159,7 +159,7 @@ class Encoder(nn.Module):
 
         stats = self.fc2(dist_fc_input) # 64(32 without attn) to z dim
 
-        return dist_fc_input, stats, map_feat
+        return final_encoder_h, dist_fc_input, stats, map_feat
 
 
 class EncoderY(nn.Module):
@@ -256,7 +256,7 @@ class Decoder(nn.Module):
     def __init__(
         self, map_encoder, seq_len, dec_h_dim=128, mlp_dim=1024, num_layers=1,
         map_feat_dim=32, dropout_rnn=0.0, enc_h_dim=32, z_dim=32,
-        activation='relu', batch_norm=False, device='cpu', map_size=180
+        device='cpu', map_size=180
     ):
         super(Decoder, self).__init__()
         n_state=6
@@ -345,3 +345,77 @@ class Decoder(nn.Module):
         rel_pos_dist =  Normal(mus, stds)
         return rel_pos_dist
 
+
+
+class EncoderX_Goal(nn.Module):
+    def __init__(
+        self, w_dim, enc_h_dim=64, mlp_dim=32,
+            batch_norm=False, dropout_mlp=0.0, activation='relu'
+    ):
+        super(EncoderX_Goal, self).__init__()
+
+        if mlp_dim > 0:
+            mlp_dims = [enc_h_dim, mlp_dim, w_dim]
+        else:
+            mlp_dims = [enc_h_dim, w_dim]
+
+        self.fc1 = make_mlp(
+            mlp_dims,
+            activation=activation,
+            batch_norm=batch_norm,
+            dropout=dropout_mlp
+        )
+
+    def forward(self, obs_traj_feat, train=False):
+        return self.fc1(obs_traj_feat)
+
+
+
+class Encoder_Goal(nn.Module):
+    def __init__(
+        self, w_dim, enc_h_dim=64, mlp_dim=32, num_goal_classes = 256,
+            batch_norm=False, dropout_mlp=0.0, activation='relu'
+    ):
+        super(Encoder_Goal, self).__init__()
+
+        if mlp_dim > 0:
+            mlp_dims = [enc_h_dim + num_goal_classes, mlp_dim, w_dim]
+        else:
+            mlp_dims = [enc_h_dim + num_goal_classes, w_dim]
+
+        self.fc1 = make_mlp(
+            mlp_dims,
+            activation=activation,
+            batch_norm=batch_norm,
+            dropout=dropout_mlp
+        )
+
+    def forward(self, obs_traj_feat, goal, train=False):
+        return self.fc1(torch.cat([obs_traj_feat, goal], dim=1))
+
+
+
+
+
+
+class Decoder_Goal(nn.Module):
+    def __init__(
+        self, w_dim, enc_h_dim=64, mlp_dim=32, num_goal_classes = 256,
+            batch_norm=False, dropout_mlp=0.0, activation='relu'
+    ):
+        super(Decoder_Goal, self).__init__()
+
+        if mlp_dim > 0:
+            mlp_dims = [enc_h_dim + w_dim, mlp_dim, num_goal_classes]
+        else:
+            mlp_dims = [enc_h_dim + w_dim, num_goal_classes]
+
+        self.fc1 = make_mlp(
+            mlp_dims,
+            activation=activation,
+            batch_norm=batch_norm,
+            dropout=dropout_mlp
+        )
+
+    def forward(self, enc_h_feat, w, train=False):
+        return self.fc1(torch.cat([enc_h_feat, w], dim=1))
