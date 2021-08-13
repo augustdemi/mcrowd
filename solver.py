@@ -1311,15 +1311,15 @@ class Solver(object):
 
         encoderMx_goal_path = os.path.join(
             self.ckpt_dir,
-            'iter_%s_encoderMx_goal.pt' % self.ckpt_load_iter
+            'iter_%s_encoderMx_goal.pt' % iteration
         )
         encoderM_goal_path = os.path.join(
             self.ckpt_dir,
-            'iter_%s_encoderM_goal.pt' % self.ckpt_load_iter
+            'iter_%s_encoderM_goal.pt' % iteration
         )
         decoderM_goal_path = os.path.join(
             self.ckpt_dir,
-            'iter_%s_decoderM_goal.pt' % self.ckpt_load_iter
+            'iter_%s_decoderM_goal.pt' % iteration
         )
 
         mkdirs(self.ckpt_dir)
