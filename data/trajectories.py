@@ -199,15 +199,24 @@ class TrajectoryDataset(Dataset):
         self.seq_len = self.obs_len + self.pred_len
         self.delim = delim
         self.device = device
-        n_pred_state=2
-        n_state=6
-        root_dir = '/dresden/users/ml1323/crowd/baseline/HTP-benchmark/A2E Data'
-        # root_dir = 'C:\dataset\HTP-benchmark\A2E Data'
-
         self.context_size=context_size
 
-        with open(self.data_dir) as f:
-            all_files = f.readlines()
+        n_pred_state=2
+        n_state=6
+        # root_dir = '/dresden/users/ml1323/crowd/baseline/HTP-benchmark/A2E Data'
+        # root_dir = 'C:\dataset\HTP-benchmark\A2E Data'
+        root_dir = 'D:\crowd\datasets\Concurrent Trajectories\Trajectories'
+
+        all_files = [e for e in os.listdir(root_dir) if ('.csv' in e) and ('homo' not in e)]
+        all_files = all_files[:30]
+        # with open(self.data_dir) as f:
+        #     all_files = np.array(f.readlines())
+        # if 'Train' in self.data_dir:
+        #     path_finding_files = all_files[['Pathfinding' in e for e in all_files]]
+        #     all_files = np.concatenate((all_files[['Pathfinding' not in e for e in all_files]], np.repeat(path_finding_files, 10)))
+
+
+
         num_peds_in_seq = []
         seq_list = []
         seq_list_rel = []
@@ -223,96 +232,97 @@ class TrajectoryDataset(Dataset):
         for path in all_files:
             path = os.path.join(root_dir, path.rstrip().replace('\\', '/'))
             print('data path:', path)
-            # if 'Pathfinding' in path:
+            # if 'Pathfinding' not in path:
             #     continue
-            map_file_name = path.replace('.txt', '.png')
+            map_file_name = path.replace('.csv', '.png')
             print('map path: ', map_file_name)
 
             loaded_data = read_file(path, delim)
 
-            data = pd.DataFrame(loaded_data)
-            data.columns = ['f', 'a', 'pos_x', 'pos_y']
-            data.sort_values(by=['f', 'a'], inplace=True)
+            data1 = pd.DataFrame(loaded_data)
+            data1.columns = ['f', 'a', 'pos_x', 'pos_y']
+            # data.sort_values(by=['f', 'a'], inplace=True)
+            data1.sort_values(by=['f', 'a'], inplace=True)
 
-            frames = data['f'].unique().tolist()
-            frame_data = []
-            # data.sort_values(by=['f'])
-            for frame in frames:
-                frame_data.append(data[data['f'] == frame].values)
-            num_sequences = int(
-                math.ceil((len(frames) - self.seq_len + 1) / skip))
-            # print('num_sequences: ', num_sequences)
+            for agent_idx in data1['a'].unique():
+                data = data1[data1['a'] == agent_idx].iloc[::5]
+                frames = data['f'].unique().tolist()
 
-            # all frames를 seq_len(kernel size)만큼씩 sliding해가며 볼것. 이때 skip = stride.
-            for idx in range(0, num_sequences * self.skip + 1, skip):
-                curr_seq_data = np.concatenate(
-                    frame_data[idx:idx + self.seq_len], axis=0) # frame을 seq_len만큼씩 잘라서 볼것 = curr_seq_data. 각 frame이 가진 데이터(agent)수는 다를수 잇음. 하지만 각 데이터의 길이는 4(frame #, agent id, pos_x, pos_y)
-                peds_in_curr_seq = np.unique(curr_seq_data[:, 1]) # unique agent id
+                frame_data = []
+                # data.sort_values(by=['f'])
+                for frame in frames:
+                    frame_data.append(data[data['f'] == frame].values)
+                num_sequences = int(
+                    math.ceil((len(frames) - self.seq_len + 1) / skip))
+                # print('num_sequences: ', num_sequences)
 
-                curr_seq_rel = np.zeros((len(peds_in_curr_seq), n_pred_state, self.seq_len))
-                curr_seq = np.zeros((len(peds_in_curr_seq), n_state, self.seq_len))
-                num_peds_considered = 0
-                ped_ids = []
-                for _, ped_id in enumerate(peds_in_curr_seq): # current frame sliding에 들어온 각 agent에 대해
-                    curr_ped_seq = curr_seq_data[curr_seq_data[:, 1] == ped_id, :] # frame#, agent id, pos_x, pos_y
-                    curr_ped_seq = np.around(curr_ped_seq, decimals=4)
-                    pad_front = frames.index(curr_ped_seq[0, 0]) - idx # sliding idx를 빼주는 이유?. sliding이 움직여온 step인 idx를 빼줘야 pad_front=0 이됨. 0보다 큰 pad_front라는 것은 현ped_id가 처음 나타난 frame이 desired first frame보다 더 늦은 경우.
-                    pad_end = frames.index(curr_ped_seq[-1, 0]) - idx + 1 # pad_end까지선택하는 index로 쓰일거라 1더함
-                    if pad_end - pad_front != self.seq_len: # seq_len만큼의 sliding동안 매 프레임마다 agent가 존재하지 않은 데이터였던것.
-                        continue
-                    ped_ids.append(ped_id)
-                    # x,y,x',y',x'',y''
-                    x = curr_ped_seq[:,2]
-                    y = curr_ped_seq[:,3]
-                    vx = derivative_of(x, dt)
-                    vy = derivative_of(y, dt)
-                    ax = derivative_of(vx, dt)
-                    ay = derivative_of(vy, dt)
+                # all frames를 seq_len(kernel size)만큼씩 sliding해가며 볼것. 이때 skip = stride.
+                for idx in range(0, num_sequences * self.skip + 1, skip):
+                    curr_seq_data = np.concatenate(
+                        frame_data[idx:idx + self.seq_len], axis=0) # frame을 seq_len만큼씩 잘라서 볼것 = curr_seq_data. 각 frame이 가진 데이터(agent)수는 다를수 잇음. 하지만 각 데이터의 길이는 4(frame #, agent id, pos_x, pos_y)
+                    peds_in_curr_seq = np.unique(curr_seq_data[:, 1]) # unique agent id
 
-                    # Make coordinates relative
-                    _idx = num_peds_considered
-                    curr_seq[_idx, :, pad_front:pad_end] = np.stack([x, y, vx, vy, ax, ay])
-                    curr_seq_rel[_idx, :, pad_front:pad_end] = np.stack([vx, vy])
-                    num_peds_considered += 1
+                    curr_seq_rel = np.zeros((len(peds_in_curr_seq), n_pred_state, self.seq_len))
+                    curr_seq = np.zeros((len(peds_in_curr_seq), n_state, self.seq_len))
+                    num_peds_considered = 0
+                    ped_ids = []
+                    for _, ped_id in enumerate(peds_in_curr_seq): # current frame sliding에 들어온 각 agent에 대해
+                        curr_ped_seq = curr_seq_data[curr_seq_data[:, 1] == ped_id, :] # frame#, agent id, pos_x, pos_y
+                        curr_ped_seq = np.around(curr_ped_seq, decimals=4)
+                        pad_front = frames.index(curr_ped_seq[0, 0]) - idx # sliding idx를 빼주는 이유?. sliding이 움직여온 step인 idx를 빼줘야 pad_front=0 이됨. 0보다 큰 pad_front라는 것은 현ped_id가 처음 나타난 frame이 desired first frame보다 더 늦은 경우.
+                        pad_end = frames.index(curr_ped_seq[-1, 0]) - idx + 1 # pad_end까지선택하는 index로 쓰일거라 1더함
+                        if pad_end - pad_front != self.seq_len: # seq_len만큼의 sliding동안 매 프레임마다 agent가 존재하지 않은 데이터였던것.
+                            continue
+                        ped_ids.append(ped_id)
+                        # x,y,x',y',x'',y''
+                        x = curr_ped_seq[:,2]
+                        y = curr_ped_seq[:,3]
+                        vx = derivative_of(x, dt)
+                        vy = derivative_of(y, dt)
+                        ax = derivative_of(vx, dt)
+                        ay = derivative_of(vy, dt)
 
-                    ### others
-                    per_frame_past_obst = []
-                    per_frame_fut_obst = []
-                    if map_file_name is '':
-                        per_frame_past_obst = [[]] * self.obs_len
-                        per_frame_fut_obst = [[]] * self.pred_len
-                    else:
-                        curr_obst_seq = curr_seq_data[curr_seq_data[:, 1] != ped_id, :] # frame#, agent id, pos_x, pos_y
-                        i=0
-                        for frame in np.unique(curr_ped_seq[:,0]): # curr_ped_seq는 continue를 지나왔으므로 반드시 20임
-                            neighbor_ped = curr_obst_seq[curr_obst_seq[:, 0] == frame][:, 2:]
-                            if i < self.obs_len:
-                                # print('neighbor_ped:', len(neighbor_ped))
-                                if len(neighbor_ped) ==0:
-                                    per_frame_past_obst.append([])
+                        # Make coordinates relative
+                        _idx = num_peds_considered
+                        curr_seq[_idx, :, pad_front:pad_end] = np.stack([x, y, vx, vy, ax, ay])
+                        curr_seq_rel[_idx, :, pad_front:pad_end] = np.stack([vx, vy])
+                        num_peds_considered += 1
+
+                        ### others
+                        per_frame_past_obst = []
+                        per_frame_fut_obst = []
+                        if map_file_name is '':
+                            per_frame_past_obst = [[]] * self.obs_len
+                            per_frame_fut_obst = [[]] * self.pred_len
+                        else:
+                            curr_obst_seq = curr_seq_data[curr_seq_data[:, 1] != ped_id, :] # frame#, agent id, pos_x, pos_y
+                            i=0
+                            for frame in np.unique(curr_ped_seq[:,0]): # curr_ped_seq는 continue를 지나왔으므로 반드시 20임
+                                neighbor_ped = curr_obst_seq[curr_obst_seq[:, 0] == frame][:, 2:]
+                                if i < self.obs_len:
+                                    # print('neighbor_ped:', len(neighbor_ped))
+                                    if len(neighbor_ped) ==0:
+                                        per_frame_past_obst.append([])
+                                    else:
+                                        per_frame_past_obst.append(np.around(neighbor_ped, decimals=4))
                                 else:
-                                    per_frame_past_obst.append(np.around(neighbor_ped, decimals=4))
-                            else:
-                                if len(neighbor_ped) ==0:
-                                    per_frame_fut_obst.append([])
-                                else:
-                                    per_frame_fut_obst.append(np.around(neighbor_ped, decimals=4))
-                            i += 1
-                    seq_past_obst_list.append(per_frame_past_obst)
-                    seq_fut_obst_list.append(per_frame_fut_obst)
-
-
-
-                if num_peds_considered > min_ped: # 주어진 하나의 sliding(16초)동안 등장한 agent수가 min_ped보다 큼을 만족하는 경우에만 이 slide데이터를 채택
-                    num_peds_in_seq.append(num_peds_considered)
-                    # 다음 list의 initialize는 peds_in_curr_seq만큼 해뒀었지만, 조건을 만족하는 slide의 agent만 차례로 append 되었기 때문에 num_peds_considered만큼만 잘라서 씀
-                    seq_list.append(curr_seq[:num_peds_considered])
-                    seq_list_rel.append(curr_seq_rel[:num_peds_considered])
-                    obs_frame_num.append(np.ones((num_peds_considered, self.obs_len)) * frames[idx:idx + self.obs_len])
-                    fut_frame_num.append(np.ones((num_peds_considered, self.pred_len)) * frames[idx + self.obs_len:idx + self.seq_len])
-                    # map_file_names.append(num_peds_considered*[map_file_name])
-                    map_file_names.append(map_file_name)
-
+                                    if len(neighbor_ped) ==0:
+                                        per_frame_fut_obst.append([])
+                                    else:
+                                        per_frame_fut_obst.append(np.around(neighbor_ped, decimals=4))
+                                i += 1
+                        seq_past_obst_list.append(per_frame_past_obst)
+                        seq_fut_obst_list.append(per_frame_fut_obst)
+                    if num_peds_considered > min_ped: # 주어진 하나의 sliding(16초)동안 등장한 agent수가 min_ped보다 큼을 만족하는 경우에만 이 slide데이터를 채택
+                        num_peds_in_seq.append(num_peds_considered)
+                        # 다음 list의 initialize는 peds_in_curr_seq만큼 해뒀었지만, 조건을 만족하는 slide의 agent만 차례로 append 되었기 때문에 num_peds_considered만큼만 잘라서 씀
+                        seq_list.append(curr_seq[:num_peds_considered])
+                        seq_list_rel.append(curr_seq_rel[:num_peds_considered])
+                        obs_frame_num.append(np.ones((num_peds_considered, self.obs_len)) * frames[idx:idx + self.obs_len])
+                        fut_frame_num.append(np.ones((num_peds_considered, self.pred_len)) * frames[idx + self.obs_len:idx + self.seq_len])
+                        # map_file_names.append(num_peds_considered*[map_file_name])
+                        map_file_names.append(map_file_name)
+            # print(len(seq_list))
             #     ped_ids = np.array(ped_ids)
             #     # if 'test' in path and len(ped_ids) > 0:
             #     if len(ped_ids) > 0:
@@ -348,6 +358,8 @@ class TrajectoryDataset(Dataset):
             for start, end in zip(cum_start_idx, cum_start_idx[1:])
         ] # [(0, 2),  (2, 4),  (4, 7),  (7, 10), ... (32682, 32684),  (32684, 32686)]
         self.map_file_name = map_file_names
+        print(self.seq_start_end[-1])
+        print(len(self.seq_start_end))
 
 
 
@@ -359,7 +371,7 @@ class TrajectoryDataset(Dataset):
         current_obs_traj = self.obs_traj[start:end, :].detach().clone()
         current_fut_traj = self.pred_traj[start:end, :].detach().clone()
         map = imageio.imread(self.map_file_name[index])
-        h=np.loadtxt(self.map_file_name[index].replace('.png', '.hom'), delimiter=',')
+        h=np.loadtxt(self.map_file_name[index].replace('.png', '_homography.csv'), delimiter=',')
 
         inv_h_t = np.linalg.pinv(np.transpose(h))
         past_map_obst = []
