@@ -303,6 +303,10 @@ class Solver(object):
             # posterior
             q_dist_goal = discrete(logits=logitY_goal)
             relaxed_q_dist_goal = concrete(logits=logitY_goal, temperature=self.goal_temp)
+            ## the discrete uniform distribution prior of the goal: it should always has the same probabilities for each 20 values: req_grad = False
+            logit_unif_prior_goal = torch.zeros((batch, 20)).to(self.device)
+            unif_prior_goal = discrete(logits=logit_unif_prior_goal)
+            # relaxed_unif_prior_goal = concrete(logits=logit_unif_prior_goal, temperature=self.goal_temp)
 
             w_posterior = relaxed_q_dist_goal.rsample()
             goal_posterior = self.decoderM_goal(goal_encX_h_feat, w_posterior)
@@ -321,21 +325,39 @@ class Solver(object):
                 fut_traj
             )
 
+            ### Goal & Traj generation from the "prior" latents of goals ###
+            ll_goal_prior = []
+            # ll_traj_prior = []
+            for w_one_hot in torch.eye(20):
+                w_one_hot = w_one_hot.unsqueeze(0).repeat((goal_encX_h_feat.shape[0], 1)).to(self.device)
+                # predict goal from the goal prior
+                ll_goal_prior.append(-F.l1_loss(self.decoderM_goal(goal_encX_h_feat, w_one_hot), goal_heatmap, reduction='none'))
+                # predict future trajectories from the goal prior
+                # fut_vel_dist = self.decoderMy(
+                #     obs_traj_st[-1],
+                #     encX_h_feat,
+                #     torch.cat([z, w_one_hot], dim=1),
+                #     torch.cat((obs_obst[-1].unsqueeze(0), fut_obst), dim=0),
+                #     fut_traj
+                # )
+                # ll_traj_prior.append(fut_vel_dist.log_prob(fut_traj[:, :, 2:4]))
+
+
 
             ### Loss ###
-            ll_goal_prior = torch.tensor(0)
+            ll_goal_prior = torch.stack(ll_goal_prior).sum().div(goal_heatmap.shape[0]).div(128)
             ll_goal_posterior = -F.l1_loss(goal_posterior, goal_heatmap, reduction='none').sum().div(goal_heatmap.shape[0]).div(128)
-            # ll_goal_posterior = (torch.log(goal_posterior + self.eps) *  goal_heatmap +
-            #           torch.log(1 - goal_posterior + self.eps) * (1 - goal_heatmap)).sum().div(goal_heatmap.shape[0]).div(128)
 
+            # ll_traj_prior = torch.stack(ll_traj_prior).sum().div(batch)
             ll_traj_prior = torch.tensor(0)
             ll_traj_posterior = fut_rel_pos_dist_posterior.log_prob(fut_traj[:, :, 2:4]).sum().div(batch)
 
             loss_kl_goal =  torch.clamp(kl_divergence(q_dist_goal, p_dist_goal).sum().div(batch), min=0.07)
-            loss_kl_goal_prior = torch.tensor(0)
+            loss_kl_goal_prior =  torch.clamp(kl_divergence(q_dist_goal, unif_prior_goal).sum().div(batch), min=0.07)
+
             loss_kl = torch.clamp(kl_divergence(q_dist, p_dist).sum().div(batch), min=0.07)
 
-            goal_elbo = ll_goal_posterior -  self.kl_weight_goal * loss_kl_goal
+            goal_elbo = (ll_goal_prior + ll_goal_posterior).div(21) -  self.kl_weight_goal * (loss_kl_goal + loss_kl_goal_prior)
             traj_elbo = ll_traj_posterior - self.kl_weight * loss_kl
 
             #### map AE ####
@@ -551,11 +573,12 @@ class Solver(object):
 
                 ade, fde = [], []
 
-                for _ in range(20):
+                for w_one_hot in torch.eye(20):
+                    w_one_hot = w_one_hot.unsqueeze(0).repeat((goal_encX_h_feat.shape[0], 1)).to(self.device)
                     fut_rel_pos_dist = self.decoderMy(
                         obs_traj_st[-1],
                         encX_h_feat,
-                        torch.cat([relaxed_p_dist.rsample(), relaxed_p_dist_goal.rsample()], dim=1),
+                        torch.cat([relaxed_p_dist.rsample(), w_one_hot], dim=1),
                         obs_obst[-1].unsqueeze(0),
                         map_info=[seq_start_end, map_path, inv_h_t, lambda x: integrate_samples(x, obs_traj[-1, :, :2], dt=self.dt)]
                     )
