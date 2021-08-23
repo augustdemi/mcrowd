@@ -402,15 +402,15 @@ class TrajectoryDataset(Dataset):
         goal_heatmaps = []
         for i in range(end - start):
             ## observed heatmap
-            gt_past = current_obs_traj[0, :2].numpy().transpose((1,0))
+            gt_past = current_obs_traj[i, :2].numpy().transpose((1,0))
             gt_past = np.concatenate([gt_past, np.ones((self.obs_len, 1))], axis=1)
             past_pixel = np.matmul(gt_past, inv_h_t)
             past_pixel /= np.expand_dims(past_pixel[:, 2], 1)
             past_pixel = np.round(past_pixel)
             ## create heatmap
             obs_heatmap = np.zeros((224, 224))
-            for i in range(self.obs_len):
-                obs_heatmap[int(past_pixel[i,1]), int(past_pixel[i,0])] = 1
+            for j in range(self.obs_len):
+                obs_heatmap[int(past_pixel[j,1]), int(past_pixel[j,0])] = 1
             obs_heatmap = ndimage.filters.gaussian_filter(obs_heatmap, sigma=1)
             ## resize to 100
             obs_heatmap = transforms.Compose([
@@ -420,7 +420,7 @@ class TrajectoryDataset(Dataset):
             obs_heatmaps.append(obs_heatmap)
 
             ##### goal heatmap
-            gt_goal = current_fut_traj[0, :2, -1]
+            gt_goal = current_fut_traj[i, :2, -1]
             gt_goal = np.concatenate([gt_goal, [1]], axis=0)
             gt_pixel = np.matmul(gt_goal, inv_h_t)
             gt_pixel /= gt_pixel[2]
