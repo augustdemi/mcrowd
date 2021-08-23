@@ -237,7 +237,7 @@ class Solver(object):
         print('Start loading data...')
         # args.batch_size=4
         # self.agrs = args
-        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'Test.txt')
+        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'Train.txt')
         val_path = os.path.join(self.dataset_dir, self.dataset_name, 'Test.txt')
 
         # long_dtype, float_dtype = get_dtypes(args)
@@ -312,16 +312,6 @@ class Solver(object):
             q_dist = discrete(logits=logitY)
             relaxed_q_dist = concrete(logits=logitY, temperature=self.temp)
             z = relaxed_q_dist.rsample()
-
-            ## goal heatmap to traj
-            goal_posterior = F.interpolate(goal_heatmap[0], size=224)
-            plt.imshow(goal_posterior)
-            goal_idx = np.where(goal_posterior==goal_posterior.max())
-            pred_goal = np.array([int(np.round(goal_idx[1])[0]), int(np.round(goal_idx[0])[0])])
-            pred_goal = np.concatenate([pred_goal, [1]], axis=0)
-            d = np.matmul(pred_goal, np.linalg.inv(inv_h_t))
-            back_real = d / np.expand_dims(d[2],0)
-
 
             fut_rel_pos_dist_posterior = self.decoderMy(
                 obs_traj_st[-1],
