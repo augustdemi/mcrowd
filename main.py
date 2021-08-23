@@ -42,14 +42,14 @@ def create_parser():
     
     parser = argparse.ArgumentParser()
 
-    parser.add_argument( '--run_id', default=214, type=int,
+    parser.add_argument( '--run_id', default=231, type=int,
       help='run id (default=-1 to create a new id)' )
 
     parser.add_argument( '--device', default='cpu', type=str,
       help='cpu/cuda' )
 
     # training hyperparameters
-    parser.add_argument( '--batch_size', default=64, type=int,
+    parser.add_argument( '--batch_size', default=16, type=int,
       help='batch size' )
     parser.add_argument( '--lr_VAE', default=1e-3, type=float,
       help='learning rate of the VAE' )
@@ -65,7 +65,7 @@ def create_parser():
     parser.add_argument( '--ckpt_load_iter', default=0, type=int,
       help='iter# to load the previously saved model ' +
         '(default=0 to start from the scratch)' )
-    parser.add_argument( '--max_iter', default=14000, type=float,
+    parser.add_argument( '--max_iter', default=10, type=float,
       help='maximum number of batch iterations' )
     parser.add_argument( '--ckpt_save_iter', default=100, type=int,
       help='checkpoint saved every # iters' )
@@ -115,7 +115,7 @@ def create_parser():
       help='dimension of the shared latent representation' )
     # Encoder
     parser.add_argument('--encoder_h_dim', default=64, type=int)
-    parser.add_argument('--decoder_h_dim', default=256, type=int)
+    parser.add_argument('--decoder_h_dim', default=64, type=int)
     parser.add_argument('--map_feat_dim', default=32, type=int)
 
     parser.add_argument('--num_layers', default=1, type=int)
@@ -123,7 +123,8 @@ def create_parser():
     parser.add_argument('--dropout_rnn', default=0.25, type=float)
     # Decoder
     parser.add_argument('--pool_every_timestep', default=0, type=bool_flag)
-    parser.add_argument('--mlp_dim', default=256, type=int)
+    parser.add_argument('--mlp_dim', default=32, type=int)
+    parser.add_argument('--goal_mlp_dim', default=32, type=int)
     parser.add_argument('--batch_norm', default=0, type=bool_flag)
 
     parser.add_argument( '--attention', default=0, type=bool_flag,
@@ -132,7 +133,7 @@ def create_parser():
       help='kl weight' )
     parser.add_argument( '--kl_weight_goal', default=100.0, type=float,
       help='kl weight' )
-    parser.add_argument( '--goal_vae_w', default=1.0, type=float,
+    parser.add_argument( '--goal_vae_w', default=5.0, type=float,
       help='kl weight' )
 
     parser.add_argument('--map_size', default=16, type=int)
@@ -219,7 +220,7 @@ def main(args):
 
             print('--------------------', args.dataset_name, '----------------------')
             test_path = os.path.join(args.dataset_dir, args.dataset_name, 'Test.txt')
-            args.batch_size=400
+            args.batch_size=200
             _, test_loader = data_loader(args, test_path,shuffle=False)
 
             solver.plot_traj(test_loader)
@@ -233,12 +234,12 @@ def main(args):
             print('avg: ', coll_rate_avg)
             print('std: ', coll_rate_std)
             '''
-
-            their_viol, min_viol, avg_viol, std_viol = solver.map_collision(test_loader, num_samples=3)
-            print('their_viol: ', their_viol)
-            print('min_viol: ', min_viol)
-            print('avg_viol: ', avg_viol)
-            print('std_viol: ', std_viol)
+            #
+            # their_viol, min_viol, avg_viol, std_viol = solver.map_collision(test_loader, num_samples=3)
+            # print('their_viol: ', their_viol)
+            # print('min_viol: ', min_viol)
+            # print('avg_viol: ', avg_viol)
+            # print('std_viol: ', std_viol)
 
             # solver.plot_traj_var(test_loader)
             # solver.draw_traj(test_loader, 20)
