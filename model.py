@@ -159,7 +159,7 @@ class Encoder(nn.Module):
 
         stats = self.fc2(dist_fc_input) # 64(32 without attn) to z dim
 
-        return final_encoder_h, dist_fc_input, stats, map_feat
+        return dist_fc_input, stats, map_feat
 
 
 class EncoderY(nn.Module):
@@ -348,70 +348,64 @@ class Decoder(nn.Module):
 
 class EncoderX_Goal(nn.Module):
     def __init__(
-        self, w_dim, enc_h_dim=64, mlp_dim=32,
-            batch_norm=False, dropout_mlp=0.0, activation='relu'
+        self, w_dim, enc_h_dim=64
     ):
         super(EncoderX_Goal, self).__init__()
 
-        if mlp_dim > 0:
-            mlp_dims = [enc_h_dim, mlp_dim, w_dim]
-        else:
-            mlp_dims = [enc_h_dim, w_dim]
+        self.conv1 = nn.Conv2d(1, 4, 4, stride=1, bias=False)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.conv2 = nn.Conv2d(4, 4, 3, stride=1, bias=False)
+        self.conv3 = nn.Conv2d(4, 4, 3, stride=1, bias=False)
+        self.fc1 = nn.Linear(4 * 14 * 14, enc_h_dim, bias=False)
+        self.fc2 = nn.Linear(enc_h_dim, w_dim, bias=False)
 
-        self.fc1 = make_mlp(
-            mlp_dims,
-            activation=activation,
-            batch_norm=batch_norm,
-            dropout=dropout_mlp
-        )
-
-    def forward(self, obs_traj_feat, train=False):
-        return self.fc1(obs_traj_feat)
+    def forward(self, obs_heatmap, train=False):
+        x = self.pool(F.relu(self.conv1(obs_heatmap))) # 52->26
+        x = self.pool(F.relu(self.conv2(x)))  # 22->11
+        x = self.pool(F.relu(self.conv3(x)))  # 22->11
+        x = self.fc1(x.view(obs_heatmap.shape[0], -1))
+        return x, self.fc2(F.relu(x))
 
 
 
 class Encoder_Goal(nn.Module):
     def __init__(
-        self, w_dim, enc_h_dim=64, mlp_dim=32, num_goal_classes = 256,
-            batch_norm=False, dropout_mlp=0.0, activation='relu'
+        self, w_dim, enc_h_dim=64
     ):
         super(Encoder_Goal, self).__init__()
 
-        if mlp_dim > 0:
-            mlp_dims = [enc_h_dim + num_goal_classes, mlp_dim, w_dim]
-        else:
-            mlp_dims = [enc_h_dim + num_goal_classes, w_dim]
+        self.conv1 = nn.Conv2d(1, 4, 4, stride=1, bias=False)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.conv2 = nn.Conv2d(4, 4, 3, stride=1, bias=False)
+        self.conv3 = nn.Conv2d(4, 4, 3, stride=1, bias=False)
+        self.fc1 = nn.Linear(4 * 14 * 14, enc_h_dim, bias=False)
+        self.fc2 = nn.Linear(2*enc_h_dim, w_dim, bias=False)
 
-        self.fc1 = make_mlp(
-            mlp_dims,
-            activation=activation,
-            batch_norm=batch_norm,
-            dropout=dropout_mlp
-        )
-
-    def forward(self, obs_traj_feat, goal, train=False):
-        return self.fc1(torch.cat([obs_traj_feat, goal], dim=1))
+    def forward(self, obs_heat_feat, goal_heatmap, train=False):
+        x = self.pool(F.relu(self.conv1(goal_heatmap)))  # 52->26
+        x = self.pool(F.relu(self.conv2(x)))  # 22->11
+        x = self.pool(F.relu(self.conv3(x)))  # 22->11
+        x = self.fc1(x.view(goal_heatmap.shape[0], -1))
+        x = torch.cat([F.relu(x), obs_heat_feat], dim=1)
+        return self.fc2(x)
 
 
 
 class Decoder_Goal(nn.Module):
     def __init__(
-        self, w_dim, enc_h_dim=64, mlp_dim=32, num_goal_classes = 256,
-            batch_norm=False, dropout_mlp=0.0, activation='relu'
+        self, w_dim, enc_h_dim=64
     ):
         super(Decoder_Goal, self).__init__()
+        self.fc1 = nn.Linear(w_dim +enc_h_dim, 4 * 14 * 14, bias=False)
+        self.deconv1 = nn.ConvTranspose2d(4, 4, 4, stride=2, bias=False)
+        self.deconv2 = nn.ConvTranspose2d(4, 4, 4, stride=2, bias=False)
+        self.deconv3 = nn.ConvTranspose2d(4, 1, 6, stride=2, bias=False)
 
-        if mlp_dim > 0:
-            mlp_dims = [enc_h_dim + w_dim, mlp_dim, num_goal_classes]
-        else:
-            mlp_dims = [enc_h_dim + w_dim, num_goal_classes]
-
-        self.fc1 = make_mlp(
-            mlp_dims,
-            activation=activation,
-            batch_norm=batch_norm,
-            dropout=dropout_mlp
-        )
 
     def forward(self, enc_h_feat, w, train=False):
-        return self.fc1(torch.cat([enc_h_feat, w], dim=1))
+        x= self.fc1(torch.cat([enc_h_feat, w], dim=1))
+        x = x.view(-1, 4, 14, 14)
+        x = self.deconv1(F.relu(x)) # 32, 32
+        x = self.deconv2(F.relu(x))
+        x = self.deconv3(F.relu(x))
+        return F.sigmoid(x)

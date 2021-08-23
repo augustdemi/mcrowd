@@ -200,25 +200,14 @@ class Solver(object):
 
             self.encoderMx_goal = EncoderX_Goal(
                 args.w_dim,
-                enc_h_dim=args.mlp_dim//2,
-                mlp_dim=args.mlp_dim,
-                batch_norm=args.batch_norm,
-                dropout_mlp=args.dropout_mlp).to(self.device)
+                enc_h_dim=args.mlp_dim).to(self.device)
             self.encoderM_goal = Encoder_Goal(
                 args.w_dim,
-                num_goal_classes=self.n_grid,
-                enc_h_dim=args.mlp_dim//2,
-                mlp_dim=args.mlp_dim,
-                batch_norm=args.batch_norm,
-                dropout_mlp=args.dropout_mlp).to(self.device)
+                enc_h_dim=args.mlp_dim).to(self.device)
 
             self.decoderM_goal = Decoder_Goal(
                 args.w_dim,
-                num_goal_classes=self.n_grid,
-                enc_h_dim=args.mlp_dim//2,
-                mlp_dim=args.mlp_dim,
-                batch_norm=args.batch_norm,
-                dropout_mlp=args.dropout_mlp).to(self.device)
+                enc_h_dim=args.mlp_dim).to(self.device)
 
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
@@ -295,49 +284,20 @@ class Solver(object):
 
             # sample a mini-batch
             (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-             obs_frames, pred_frames, obs_obst, fut_obst, map_path, inv_h_t) = next(iterator)
+             obs_frames, pred_frames, obs_obst, fut_obst, map_path, inv_h_t, obs_heatmap, goal_heatmap) = next(iterator)
             batch = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
 
-####################### make goal label ###############
-            # fig, ax = plt.subplots()
-            # agent_idx = 1
-            # this_obs_traj = obs_traj[:, agent_idx, :2]
-            # per_step_dist = torch.pow(((this_obs_traj[1:] - this_obs_traj[:-1]) ** 2).sum(1), (1 / 2)).mean(0)
-            # grid_pt = []
-            # for i in range(-8, 9):
-            #     for j in range(-8, 9):
-            #         grid_pt.append(this_obs_traj[-1] + torch.tensor([j * per_step_dist * 2, i * per_step_dist * 2]))
-            # grid_pt = torch.stack(grid_pt)
-            # for i in range(len(grid_pt)):
-            #     ax.scatter(grid_pt[i, 0], grid_pt[i, 1], s=5, c='k', marker='x', alpha=0.5)
-            # for s in range(8):
-            #     ax.scatter(obs_traj[s, agent_idx, 0], obs_traj[s, agent_idx, 1], s=1, c='b')
-            # for s in range(12):
-            #     ax.scatter(fut_traj[s, agent_idx, 0], fut_traj[s, agent_idx, 1], s=1, c='r')
-
-            per_step_dist = torch.pow(((obs_traj[1:, :, :2] - obs_traj[:-1, :, :2]) ** 2).sum(2), (1 / 2)).mean(0)
-            ########### per_step_dist와 0.5 사이에 max값 취하기
-            per_step_dist = torch.max(per_step_dist, torch.tensor(0.5).to(self.device))
-
-            goal_coord = torch.ceil((fut_traj[-1, :, :2] - obs_traj[-1, :, :2]) / (per_step_dist * 2).unsqueeze(1)) + (np.power(self.n_grid,1/2)/2)
-            goal_class = (goal_coord[:, 0] + (goal_coord[:, 1] - 1) * np.power(self.n_grid,1/2)).long().to(self.device)
-            # one_hot_vec = torch.eye(self.n_grid)
-            # goal_class = one_hot_vec[goal_class]
-            goal_one_hot = torch.zeros(len(goal_class), self.n_grid).to(self.device)
-            goal_one_hot.scatter_(1, goal_class.unsqueeze(1), 1)
-            #######################
-
             ### Trajectory Encoders ###
-            (encX_traj_feat, encX_h_feat, logitX, map_featX) \
+            (encX_h_feat, logitX, map_featX) \
                 = self.encoderMx(obs_traj_st, seq_start_end, obs_obst, obs_traj[:,:,2:4], train=True)
             (_, logitY, map_featY) \
                 = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, encX_h_feat, fut_obst, fut_traj[:,:,2:4],train=True)
 
 
             ### Goal VAE ###
-            logitX_goal = self.encoderMx_goal(encX_traj_feat, train=True)
-            logitY_goal = self.encoderM_goal(encX_traj_feat, goal_one_hot, train=True)
+            goal_encX_h_feat, logitX_goal = self.encoderMx_goal(obs_heatmap, train=True)
+            logitY_goal = self.encoderM_goal(goal_encX_h_feat, goal_heatmap, train=True)
             # conditional prior
             p_dist_goal = discrete(logits=logitX_goal)
             # posterior
@@ -349,7 +309,7 @@ class Solver(object):
             # relaxed_unif_prior_goal = concrete(logits=logit_unif_prior_goal, temperature=self.goal_temp)
 
             w_posterior = relaxed_q_dist_goal.rsample()
-            goal_posterior = self.decoderM_goal(encX_traj_feat, w_posterior)
+            goal_posterior = self.decoderM_goal(goal_encX_h_feat, w_posterior)
 
             ### Trajectory latent dist. and Decoder ###
             p_dist = discrete(logits=logitX)
@@ -365,14 +325,13 @@ class Solver(object):
                 fut_traj
             )
 
-
             ### Goal & Traj generation from the "prior" latents of goals ###
             ll_goal_prior = []
             # ll_traj_prior = []
             for w_one_hot in torch.eye(20):
-                w_one_hot = w_one_hot.unsqueeze(0).repeat((encX_traj_feat.shape[0], 1)).to(self.device)
+                w_one_hot = w_one_hot.unsqueeze(0).repeat((goal_encX_h_feat.shape[0], 1)).to(self.device)
                 # predict goal from the goal prior
-                ll_goal_prior.append(-F.cross_entropy(self.decoderM_goal(encX_traj_feat, w_one_hot), goal_class, reduction='none'))
+                ll_goal_prior.append(-F.l1_loss(self.decoderM_goal(goal_encX_h_feat, w_one_hot), goal_heatmap, reduction='none'))
                 # predict future trajectories from the goal prior
                 # fut_vel_dist = self.decoderMy(
                 #     obs_traj_st[-1],
@@ -386,8 +345,8 @@ class Solver(object):
 
 
             ### Loss ###
-            ll_goal_prior = torch.stack(ll_goal_prior).sum().div(batch)
-            ll_goal_posterior = -F.cross_entropy(goal_posterior, goal_class, reduction='none').sum().div(batch)
+            ll_goal_prior = torch.stack(ll_goal_prior).sum().div(goal_heatmap.shape[0]).div(128)
+            ll_goal_posterior = -F.l1_loss(goal_posterior, goal_heatmap, reduction='none').sum().div(goal_heatmap.shape[0]).div(128)
 
             # ll_traj_prior = torch.stack(ll_traj_prior).sum().div(batch)
             ll_traj_prior = torch.tensor(0)
@@ -551,29 +510,20 @@ class Solver(object):
             for batch in data_loader:
                 b+=1
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-                 obs_frames, fut_frames, obs_obst, fut_obst, map_path, inv_h_t) = batch
+                 obs_frames, fut_frames, obs_obst, fut_obst, map_path, inv_h_t, obs_heatmap, goal_heatmap) = batch
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
-                #---
-                per_step_dist = torch.pow(((obs_traj[1:, :, :2] - obs_traj[:-1, :, :2]) ** 2).sum(2), (1 / 2)).mean(0)
-                per_step_dist = torch.max(per_step_dist, torch.tensor(0.5).to(self.device))
-                goal_coord = torch.ceil(
-                    (fut_traj[-1, :, :2] - obs_traj[-1, :, :2]) / (per_step_dist * 2).unsqueeze(1)) + (
-                             np.power(self.n_grid, 1 / 2) / 2)
-                goal_class = (goal_coord[:, 0] + (goal_coord[:, 1] - 1) * np.power(self.n_grid, 1 / 2)).long().to(self.device)
-                goal_one_hot = torch.zeros(len(goal_class), self.n_grid).to(self.device)
-                goal_one_hot.scatter_(1, goal_class.unsqueeze(1), 1)
                 #######################
                 #---
                 # Traj Enc
-                (encX_traj_feat, encX_h_feat, logitX, map_featX) \
+                (encX_h_feat, logitX, map_featX) \
                     = self.encoderMx(obs_traj_st, seq_start_end, obs_obst, obs_traj[:,:,2:4])
                 p_dist = discrete(logits=logitX)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
                 # Goal Enc
-                logitX_goal = self.encoderMx_goal(encX_traj_feat, train=False)
+                goal_encX_h_feat, logitX_goal = self.encoderMx_goal(obs_heatmap, train=False)
                 relaxed_p_dist_goal = concrete(logits=logitX_goal, temperature=self.goal_temp)
 
 
@@ -624,7 +574,7 @@ class Solver(object):
                 ade, fde = [], []
 
                 for w_one_hot in torch.eye(20):
-                    w_one_hot = w_one_hot.unsqueeze(0).repeat((encX_traj_feat.shape[0], 1)).to(self.device)
+                    w_one_hot = w_one_hot.unsqueeze(0).repeat((goal_encX_h_feat.shape[0], 1)).to(self.device)
                     fut_rel_pos_dist = self.decoderMy(
                         obs_traj_st[-1],
                         encX_h_feat,
@@ -904,8 +854,10 @@ class Solver(object):
                 # rng = range(95, 104)
                 # rng = range(100, 101)
 
-                rng = range(19,27)
+                # rng = range(19,27)
+                rng = range(1)
                 fig, ax = plt.subplots()
+                ax.imshow(imageio.imread(map_path[rng[0]]))
                 ax.imshow(imageio.imread(map_path[rng[0]]))
                 for idx in rng:
                     obs_real = obs_traj[:, idx, :2]
@@ -919,8 +871,38 @@ class Solver(object):
                     gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
                     gt_data = np.concatenate([obs_pixel, gt_pixel], 0)
 
-                    ax.plot(gt_data[:,0], gt_data[:,1])
-                    ax.scatter(gt_data[0,0], gt_data[0,1], s=5)
+                    # ax.plot(gt_data[:,0], gt_data[:,1])
+                    ax.scatter(gt_data[-1,0], gt_data[-1,1], s=5)
+
+                d= np.matmul(gt_data, np.linalg.inv(inv_h_t[idx]))
+                back_real = d / np.expand_dims(d[:, 2], 1)
+                fig.savefig('test.png')
+
+                im = imageio.imread(map_path[rng[0]]) / 255
+                np.expand_dims(im,-1)
+
+                ## create heatmap
+                from scipy import ndimage
+                x = np.zeros((224, 224))
+                x[74, 81] = 1
+                heat_map = ndimage.filters.gaussian_filter(x, sigma=5)
+                plt.imshow(heat_map)
+
+                ## resize to 100
+                im = Image.fromarray(heat_map)
+                image = transforms.Compose([
+                    transforms.Resize(100),
+                    transforms.ToTensor()
+                ])(im)
+                plt.imshow(image[0])
+
+                ## back to 224
+                im2 = Image.fromarray(image.numpy()[0])
+                image2 = transforms.Compose([
+                    transforms.Resize(224),
+                    transforms.ToTensor()
+                ])(im2)
+                plt.imshow(image2[0])
 
 
 
