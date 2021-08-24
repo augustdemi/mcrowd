@@ -191,7 +191,7 @@ class Solver(object):
                 dec_h_dim=self.decoder_h_dim,
                 enc_h_dim=args.encoder_h_dim,
                 mlp_dim=args.mlp_dim,
-                z_dim=args.zS_dim + args.w_dim,
+                z_dim=args.zS_dim,
                 num_layers=args.num_layers,
                 device=args.device,
                 dropout_rnn=args.dropout_rnn,
@@ -317,30 +317,61 @@ class Solver(object):
             relaxed_q_dist = concrete(logits=logitY, temperature=self.temp)
             z = relaxed_q_dist.rsample()
 
+            ##### Goal heatmap to traj #####
+            recon_goal_heatmap = F.interpolate(goal_posterior, size=(224,224))
+            # recon_goal_heatmap2 = F.interpolate(goal_heatmap, size=(224,224))
+            pred_goal_pos_posterior = []
+            for idx, (start, end) in enumerate(seq_start_end):
+                for t in range(start, end):
+                    # goal_idx = np.where(recon_goal_heatmap[t,0]==recon_goal_heatmap[t,0].max())
+                    # pred_goal = np.array([goal_idx[1][len(goal_idx)//2], goal_idx[0][len(goal_idx)//2]])
+                    # pred_goal = np.concatenate([pred_goal, [1]], axis=0)
+                    # pred_goal = np.matmul(pred_goal, np.linalg.inv(inv_h_t[idx]))
+                    x_goal_pixel = 0
+                    y_goal_pixel = 0
+                    exp_recon = torch.exp(recon_goal_heatmap[t, 0]*(30/recon_goal_heatmap[t].max()))
+                    for pixel_idx in range(224):
+                        x_goal_pixel += pixel_idx * exp_recon[pixel_idx, :].sum() / exp_recon.sum()
+                        y_goal_pixel += pixel_idx * exp_recon[:, pixel_idx].sum() / exp_recon.sum()
+                    goal_pixel = torch.cat([torch.round(y_goal_pixel).unsqueeze(0), torch.round(x_goal_pixel).unsqueeze(0), torch.ones(1)])
+                    pred_goal = torch.matmul(goal_pixel, torch.tensor(np.linalg.inv(inv_h_t[idx])).float())
+                    pred_goal_pos_posterior.append(pred_goal / pred_goal[2])
+            pred_goal_pos_posterior = torch.stack(pred_goal_pos_posterior)[:,:2]
+
             fut_rel_pos_dist_posterior = self.decoderMy(
                 obs_traj_st[-1],
                 encX_h_feat,
-                torch.cat([z, w_posterior], dim=1),
+                z, fut_traj[-1,:,:2],
                 torch.cat((obs_obst[-1].unsqueeze(0), fut_obst), dim=0),
                 fut_traj
             )
 
             ### Goal & Traj generation from the "prior" latents of goals ###
             ll_goal_prior = []
-            # ll_traj_prior = []
-            for w_one_hot in torch.eye(20):
+            loss_goal_pos_onehot = 0
+            for w_one_hot in torch.eye(20)[torch.randperm(20)[:5]]:
+                print(w_one_hot)
+
                 w_one_hot = w_one_hot.unsqueeze(0).repeat((goal_encX_h_feat.shape[0], 1)).to(self.device)
                 # predict goal from the goal prior
-                ll_goal_prior.append(-F.l1_loss(self.decoderM_goal(goal_encX_h_feat, w_one_hot), goal_heatmap, reduction='none'))
-                # predict future trajectories from the goal prior
-                # fut_vel_dist = self.decoderMy(
-                #     obs_traj_st[-1],
-                #     encX_h_feat,
-                #     torch.cat([z, w_one_hot], dim=1),
-                #     torch.cat((obs_obst[-1].unsqueeze(0), fut_obst), dim=0),
-                #     fut_traj
-                # )
-                # ll_traj_prior.append(fut_vel_dist.log_prob(fut_traj[:, :, 2:4]))
+                goal_prior = self.decoderM_goal(goal_encX_h_feat, w_one_hot)
+                ll_goal_prior.append(-F.l1_loss(goal_prior, goal_heatmap, reduction='none'))
+
+                recon_goal_heatmap = F.interpolate(goal_prior, size=(224, 224))
+                pred_goal_pos_prior = []
+                for idx, (start, end) in enumerate(seq_start_end):
+                    for t in range(start, end):
+                        x_goal_pixel = 0
+                        y_goal_pixel = 0
+                        exp_recon = torch.exp(recon_goal_heatmap[t, 0]*(30/recon_goal_heatmap[t].max()))
+                        for pixel_idx in range(224):
+                            x_goal_pixel += pixel_idx * exp_recon[pixel_idx, :].sum() / exp_recon.sum()
+                            y_goal_pixel += pixel_idx * exp_recon[:, pixel_idx].sum() / exp_recon.sum()
+                        goal_pixel = torch.cat([torch.round(y_goal_pixel).unsqueeze(0), torch.round(x_goal_pixel).unsqueeze(0), torch.ones(1)])
+                        pred_goal = torch.matmul(goal_pixel, torch.tensor(np.linalg.inv(inv_h_t[idx])).float())
+                        pred_goal_pos_prior.append(pred_goal / pred_goal[2])
+                pred_goal_pos_prior = torch.stack(pred_goal_pos_prior)[:,:2]
+                loss_goal_pos_onehot += ((pred_goal_pos_prior - fut_traj[-1, :, :2]) ** 2).mean()
 
 
 
@@ -349,7 +380,8 @@ class Solver(object):
             ll_goal_posterior = -F.l1_loss(goal_posterior, goal_heatmap, reduction='none').sum().div(goal_heatmap.shape[0]).div(128)
 
             # ll_traj_prior = torch.stack(ll_traj_prior).sum().div(batch)
-            ll_traj_prior = torch.tensor(0)
+            # ll_traj_prior = torch.tensor(0)
+            loss_goal_pos = ll_traj_prior = (((pred_goal_pos_posterior - fut_traj[-1,:,:2])**2).mean() + loss_goal_pos_onehot).div(21)
             ll_traj_posterior = fut_rel_pos_dist_posterior.log_prob(fut_traj[:, :, 2:4]).sum().div(batch)
 
             loss_kl_goal =  torch.clamp(kl_divergence(q_dist_goal, p_dist_goal).sum().div(batch), min=0.07)
@@ -379,7 +411,7 @@ class Solver(object):
 
 
             ######## Total Loss ######
-            loss = - self.goal_vae_w * goal_elbo - traj_elbo + loss_map + loss_vel
+            loss = - self.goal_vae_w * goal_elbo - traj_elbo + loss_map + loss_vel + loss_goal_pos
 
 
 
@@ -531,11 +563,32 @@ class Solver(object):
                     (encY_h_feat, logitY, map_featY) \
                         = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, encX_h_feat, fut_obst, fut_traj[:,:,2:4])
 
+                    goal_prior = self.decoderM_goal(goal_encX_h_feat, relaxed_p_dist_goal.rsample())
+
+                    recon_goal_heatmap = F.interpolate(goal_prior, size=(224, 224))
+                    # recon_goal_heatmap2 = F.interpolate(goal_heatmap, size=(224,224))
+                    pred_goal_pos_prior = []
+                    for idx, (start, end) in enumerate(seq_start_end):
+                        for t in range(start, end):
+                            x_goal_pixel = 0
+                            y_goal_pixel = 0
+                            exp_recon = torch.exp(recon_goal_heatmap[t, 0] * (30 / recon_goal_heatmap[t].max()))
+                            for pixel_idx in range(224):
+                                x_goal_pixel += pixel_idx * exp_recon[pixel_idx, :].sum() / exp_recon.sum()
+                                y_goal_pixel += pixel_idx * exp_recon[:, pixel_idx].sum() / exp_recon.sum()
+                            goal_pixel = torch.cat(
+                                [torch.round(y_goal_pixel).unsqueeze(0), torch.round(x_goal_pixel).unsqueeze(0),
+                                 torch.ones(1)])
+                            pred_goal = torch.matmul(goal_pixel, torch.tensor(np.linalg.inv(inv_h_t[idx])).float())
+                            pred_goal_pos_prior.append(pred_goal / pred_goal[2])
+                    pred_goal_pos_prior = torch.stack(pred_goal_pos_prior)[:, :2]
+
+
                     q_dist = discrete(logits=logitY)
                     fut_rel_pos_dist = self.decoderMy(
                         obs_traj_st[-1],
                         encX_h_feat,
-                        torch.cat([relaxed_p_dist.rsample(), relaxed_p_dist_goal.rsample()], dim=1),
+                        relaxed_p_dist.rsample(), pred_goal_pos_prior,
                         obs_obst[-1].unsqueeze(0),
                         map_info=[seq_start_end, map_path, inv_h_t, lambda x: integrate_samples(x, obs_traj[-1, :, :2], dt=self.dt)]
                     )
@@ -568,13 +621,35 @@ class Solver(object):
                         recon_mapY.shape[0])
 
                     total_loss += (-elbo + (recon_map_lossX + recon_velX) + (recon_map_lossY + recon_velY))
-                    loss_map_recon += (recon_map_lossX + recon_map_lossY)
-                    loss_vel += (recon_velX + recon_velY)
+                    # loss_map_recon += (recon_map_lossX + recon_map_lossY)
+                    # loss_vel += (recon_velX + recon_velY)
+                    loss_vel +=((pred_goal_pos_prior - fut_traj[-1,:,:2])**2).mean()
 
                 ade, fde = [], []
-
+                loss_goal_pos_onehot = 0
                 for w_one_hot in torch.eye(20):
                     w_one_hot = w_one_hot.unsqueeze(0).repeat((goal_encX_h_feat.shape[0], 1)).to(self.device)
+
+                    goal_prior = self.decoderM_goal(goal_encX_h_feat, w_one_hot)
+                    recon_goal_heatmap = F.interpolate(goal_prior, size=(224, 224))
+                    pred_goal_pos_prior = []
+                    for idx, (start, end) in enumerate(seq_start_end):
+                        for t in range(start, end):
+                            x_goal_pixel = 0
+                            y_goal_pixel = 0
+                            exp_recon = torch.exp(recon_goal_heatmap[t, 0] * (30 / recon_goal_heatmap[t].max()))
+                            for pixel_idx in range(224):
+                                x_goal_pixel += pixel_idx * exp_recon[pixel_idx, :].sum() / exp_recon.sum()
+                                y_goal_pixel += pixel_idx * exp_recon[:, pixel_idx].sum() / exp_recon.sum()
+                            goal_pixel = torch.cat(
+                                [torch.round(y_goal_pixel).unsqueeze(0), torch.round(x_goal_pixel).unsqueeze(0),
+                                 torch.ones(1)])
+                            pred_goal = torch.matmul(goal_pixel, torch.tensor(np.linalg.inv(inv_h_t[idx])).float())
+                            pred_goal_pos_prior.append(pred_goal / pred_goal[2])
+                    pred_goal_pos_prior = torch.stack(pred_goal_pos_prior)[:, :2]
+                    loss_goal_pos_onehot += ((pred_goal_pos_prior - fut_traj[-1, :, :2]) ** 2).mean()
+
+
                     fut_rel_pos_dist = self.decoderMy(
                         obs_traj_st[-1],
                         encX_h_feat,
@@ -592,6 +667,9 @@ class Solver(object):
                     fde.append(final_displacement_error(
                         pred_fut_traj[-1], fut_traj[-1,:,:2], mode='raw'
                     ))
+                if loss:
+                    loss_map_recon += loss_goal_pos_onehot.div(20)
+
                 all_ade.append(torch.stack(ade))
                 all_fde.append(torch.stack(fde))
 
