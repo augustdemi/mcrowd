@@ -274,7 +274,7 @@ class Decoder(nn.Module):
         self.to_vel = nn.Linear(n_state, n_pred_state)
 
         self.rnn_decoder = nn.GRUCell(
-            input_size=mlp_dim + z_dim + n_pred_state + d_map_feat, hidden_size=dec_h_dim
+            input_size=mlp_dim + z_dim + 2 * n_pred_state + d_map_feat, hidden_size=dec_h_dim
         )
 
         # self.mlp = make_mlp(
@@ -289,7 +289,7 @@ class Decoder(nn.Module):
         self.map_encoder = map_encoder
 
 
-    def forward(self, last_obs_traj_st, enc_h_feat, z, last_obs_and_fut_map, fut_traj=None, map_info=None):
+    def forward(self, last_obs_traj_st, enc_h_feat, z, goal_pos, last_obs_and_fut_map, fut_traj=None, map_info=None):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
@@ -317,7 +317,7 @@ class Decoder(nn.Module):
         for i in range(self.seq_len):
             map_feat = self.map_encoder(a, map, train=False)
 
-            decoder_h= self.rnn_decoder(torch.cat([zx, a, map_feat], dim=1), decoder_h) #493, 128
+            decoder_h= self.rnn_decoder(torch.cat([zx, a, goal_pos, map_feat], dim=1), decoder_h) #493, 128
             mu= self.fc_mu(decoder_h)
             logVar = self.fc_std(decoder_h)
             std = torch.sqrt(torch.exp(logVar))
