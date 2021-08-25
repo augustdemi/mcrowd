@@ -2,12 +2,11 @@ import os
 
 import torch.optim as optim
 # -----------------------------------------------------------------------------#
-from utils import DataGather, mkdirs
+from utils import DataGather, mkdirs, grid2gif2, apply_poe, sample_gaussian, sample_gumbel_softmax
 from model import *
 from loss import kl_two_gaussian, displacement_error, final_displacement_error
 from data.loader import data_loader
 import imageio
-import visdom
 
 import matplotlib.pyplot as plt
 from torch.distributions import RelaxedOneHotCategorical as concrete
@@ -15,8 +14,8 @@ from torch.distributions import OneHotCategorical as discrete
 from torch.distributions import kl_divergence
 from scipy.interpolate import RectBivariateSpline
 from scipy.ndimage import binary_dilation
-# from model_map_ae import Decoder as Map_Decoder
-
+from model_map_ae import Encoder as Map_Encoder
+from utils import crop
 import numpy as np
 
 ###############################################################################
@@ -43,9 +42,9 @@ class Solver(object):
         # self.name = '%s_pred_len_%s_zS_%s_embedding_dim_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_pool_dim_%s_lr_%s_klw_%s' % \
         #             (args.dataset_name, args.pred_len, args.zS_dim, 16, args.encoder_h_dim, args.decoder_h_dim, args.mlp_dim, args.pool_dim, args.lr_VAE, args.kl_weight)
 
-        self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_map_feat_dim_%s_lr_%s_klw_%s_klgw_%s_gvaew_%s_g_mlp_%s' % \
+        self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_pool_dim_%s_lr_%s_klw_%s' % \
                     (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
-                     args.decoder_h_dim, args.mlp_dim, args.map_feat_dim , args.lr_VAE, args.kl_weight, args.kl_weight_goal, args.goal_vae_w, args.goal_mlp_dim)
+                     args.decoder_h_dim, args.mlp_dim, 0, args.lr_VAE, args.kl_weight)
 
         # self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_attn_%s_lr_%s_klw_%s' % \
         #             (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
@@ -57,14 +56,8 @@ class Solver(object):
         # self.use_cuda = args.cuda and torch.cuda.is_available()
         self.device = args.device
         self.temp=1.99
-        self.goal_temp=0.66
         self.dt=0.4
-        self.eps=1e-9
-        self.n_grid=256
-
         self.kl_weight=args.kl_weight
-        self.kl_weight_goal=args.kl_weight_goal
-        self.goal_vae_w=args.goal_vae_w
 
         self.max_iter = int(args.max_iter)
         self.map_size = args.map_size
@@ -94,24 +87,18 @@ class Solver(object):
         self.viz_on = args.viz_on
         if self.viz_on:
             self.win_id = dict(
-                recon='win_recon', loss_kl='win_loss_kl', loss_recon='win_loss_recon', total_loss='win_total_loss',
-                loss_map='win_loss_map', loss_vel='win_loss_vel', test_loss_map='win_test_loss_map', test_loss_vel='win_test_loss_vel',
-                ade_min='win_ade_min', fde_min='win_fde_min', ade_avg='win_ade_avg', fde_avg='win_fde_avg',
+                recon='win_recon', loss_kl='win_loss_kl', loss_recon='win_loss_recon', total_loss='win_total_loss'
+                , ade_min='win_ade_min', fde_min='win_fde_min', ade_avg='win_ade_avg', fde_avg='win_fde_avg',
                 ade_std='win_ade_std', fde_std='win_fde_std',
-                test_loss_recon='win_test_loss_recon', test_loss_kl='win_test_loss_kl', test_total_loss='win_test_total_loss',
-                loss_recon_prior='win_loss_recon_prior', loss_recon_goal='win_loss_recon_goal',
-                loss_recon_goal_prior='win_loss_recon_goal_prior',
-                loss_kl_goal='win_loss_kl_goal', loss_kl_goal_prior='win_loss_kl_goal_prior'
+                test_loss_recon='win_test_loss_recon', test_loss_kl='win_test_loss_kl', test_total_loss='win_test_total_loss'
             )
-
-
             self.line_gather = DataGather(
                 'iter', 'loss_recon', 'loss_kl', 'total_loss', 'ade_min', 'fde_min',
                 'ade_avg', 'fde_avg', 'ade_std', 'fde_std',
-                'test_loss_recon', 'test_loss_kl', 'test_total_loss',
-                'test_loss_map', 'test_loss_vel', 'loss_map', 'loss_vel',
-                'loss_recon_prior', 'loss_recon_goal', 'loss_recon_goal_prior', 'loss_kl_goal', 'loss_kl_goal_prior'
+                'test_loss_recon', 'test_loss_kl', 'test_total_loss'
             )
+
+            import visdom
 
             self.viz_port = args.viz_port  # port number, eg, 8097
             self.viz = visdom.Visdom(port=self.viz_port)
@@ -162,9 +149,7 @@ class Solver(object):
         self.decoder_h_dim = args.decoder_h_dim
 
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
-            self.load_map_encoder()
             self.encoderMx = Encoder(
-                self.map_encoder,
                 args.zS_dim,
                 enc_h_dim=args.encoder_h_dim,
                 mlp_dim=args.mlp_dim,
@@ -172,10 +157,8 @@ class Solver(object):
                 num_layers=args.num_layers,
                 dropout_mlp=args.dropout_mlp,
                 dropout_rnn=args.dropout_rnn,
-                map_feat_dim=args.map_feat_dim,
                 device=self.device).to(self.device)
             self.encoderMy = EncoderY(
-                self.map_encoder,
                 args.zS_dim,
                 enc_h_dim=args.encoder_h_dim,
                 mlp_dim=args.mlp_dim,
@@ -183,31 +166,19 @@ class Solver(object):
                 num_layers=args.num_layers,
                 dropout_mlp=args.dropout_mlp,
                 dropout_rnn=args.dropout_rnn,
-                map_feat_dim=args.map_feat_dim,
                 device=self.device).to(self.device)
             self.decoderMy = Decoder(
-                self.map_encoder,
                 args.pred_len,
                 dec_h_dim=self.decoder_h_dim,
                 enc_h_dim=args.encoder_h_dim,
-                mlp_dim=args.mlp_dim,
                 z_dim=args.zS_dim,
+                mlp_dim=args.mlp_dim,
                 num_layers=args.num_layers,
                 device=args.device,
+                dropout_mlp=args.dropout_mlp,
                 dropout_rnn=args.dropout_rnn,
-                map_feat_dim=args.map_feat_dim,
+                batch_norm=args.batch_norm,
                 map_size=args.map_size).to(self.device)
-
-            self.encoderMx_goal = EncoderX_Goal(
-                args.w_dim,
-                enc_h_dim=args.goal_mlp_dim).to(self.device)
-            self.encoderM_goal = Encoder_Goal(
-                args.w_dim,
-                enc_h_dim=args.goal_mlp_dim).to(self.device)
-
-            self.decoderM_goal = Decoder_Goal(
-                args.w_dim,
-                enc_h_dim=args.goal_mlp_dim).to(self.device)
 
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
@@ -219,12 +190,7 @@ class Solver(object):
         vae_params = \
             list(self.encoderMx.parameters()) + \
             list(self.encoderMy.parameters()) + \
-            list(self.decoderMy.parameters()) + \
-            list(self.encoderMx_goal.parameters()) + \
-            list(self.encoderM_goal.parameters()) + \
-            list(self.decoderM_goal.parameters()) + \
-            list(self.map_encoder.parameters()) + \
-            list(self.map_decoder.parameters())
+            list(self.decoderMy.parameters())
 
         # create optimizers
         self.optim_vae = optim.Adam(
@@ -235,10 +201,8 @@ class Solver(object):
 
         # prepare dataloader (iterable)
         print('Start loading data...')
-        # args.batch_size=4
-        # self.agrs = args
-        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'Train.txt')
-        val_path = os.path.join(self.dataset_dir, self.dataset_name, 'Test.txt')
+        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'train')
+        val_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
 
         # long_dtype, float_dtype = get_dtypes(args)
 
@@ -284,139 +248,57 @@ class Solver(object):
 
             # sample a mini-batch
             (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-             obs_frames, pred_frames, obs_obst, fut_obst, map_path, inv_h_t, obs_heatmap, goal_heatmap) = next(iterator)
+             obs_frames, pred_frames, obs_obst, fut_obst, map_path, inv_h_t) = next(iterator)
             batch = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
 
-            ### Trajectory Encoders ###
-            (encX_h_feat, logitX, map_featX) \
+            (encX_h_feat, logitX) \
                 = self.encoderMx(obs_traj_st, seq_start_end, obs_obst, obs_traj[:,:,2:4], train=True)
-            (_, logitY, map_featY) \
+            (encY_h_feat, logitY) \
                 = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, encX_h_feat, fut_obst, fut_traj[:,:,2:4],train=True)
 
-
-            ### Goal VAE ###
-            goal_encX_h_feat, logitX_goal = self.encoderMx_goal(obs_heatmap, train=True)
-            logitY_goal = self.encoderM_goal(goal_encX_h_feat, goal_heatmap, train=True)
-            # conditional prior
-            p_dist_goal = discrete(logits=logitX_goal)
-            # posterior
-            q_dist_goal = discrete(logits=logitY_goal)
-            relaxed_q_dist_goal = concrete(logits=logitY_goal, temperature=self.goal_temp)
-            ## the discrete uniform distribution prior of the goal: it should always has the same probabilities for each 20 values: req_grad = False
-            logit_unif_prior_goal = torch.zeros((batch, 20)).to(self.device)
-            unif_prior_goal = discrete(logits=logit_unif_prior_goal)
-            # relaxed_unif_prior_goal = concrete(logits=logit_unif_prior_goal, temperature=self.goal_temp)
-
-            w_posterior = relaxed_q_dist_goal.rsample()
-            goal_posterior = self.decoderM_goal(goal_encX_h_feat, w_posterior)
-
-            ### Trajectory latent dist. and Decoder ###
             p_dist = discrete(logits=logitX)
             q_dist = discrete(logits=logitY)
             relaxed_q_dist = concrete(logits=logitY, temperature=self.temp)
-            z = relaxed_q_dist.rsample()
 
-            ##### Goal heatmap to traj #####
-            recon_goal_heatmap = F.interpolate(goal_posterior, size=(224,224))
-            # recon_goal_heatmap2 = F.interpolate(goal_heatmap, size=(224,224))
-            pred_goal_pos_posterior = []
-            for idx, (start, end) in enumerate(seq_start_end):
-                for t in range(start, end):
-                    # goal_idx = np.where(recon_goal_heatmap[t,0]==recon_goal_heatmap[t,0].max())
-                    # pred_goal = np.array([goal_idx[1][len(goal_idx)//2], goal_idx[0][len(goal_idx)//2]])
-                    # pred_goal = np.concatenate([pred_goal, [1]], axis=0)
-                    # pred_goal = np.matmul(pred_goal, np.linalg.inv(inv_h_t[idx]))
-                    x_goal_pixel = 0
-                    y_goal_pixel = 0
-                    exp_recon = torch.exp(recon_goal_heatmap[t, 0]*(30/recon_goal_heatmap[t].max()))
-                    for pixel_idx in range(224):
-                        x_goal_pixel += pixel_idx * exp_recon[pixel_idx, :].sum() / exp_recon.sum()
-                        y_goal_pixel += pixel_idx * exp_recon[:, pixel_idx].sum() / exp_recon.sum()
-                    goal_pixel = torch.cat([torch.round(y_goal_pixel).unsqueeze(0), torch.round(x_goal_pixel).unsqueeze(0), torch.ones(1)])
-                    pred_goal = torch.matmul(goal_pixel, torch.tensor(np.linalg.inv(inv_h_t[idx])).float())
-                    pred_goal_pos_posterior.append(pred_goal / pred_goal[2])
-            pred_goal_pos_posterior = torch.stack(pred_goal_pos_posterior)[:,:2]
 
-            fut_rel_pos_dist_posterior = self.decoderMy(
+            # 첫번째 iteration 디코더 인풋 = (obs_traj_rel의 마지막 값, (hidden_state, cell_state))
+            # where hidden_state = "인코더의 마지막 hidden_layer아웃풋과 그것으로 만든 max_pooled값을 concat해서 mlp 통과시켜만든 feature인 noise_input에다 noise까지 추가한값)"
+            fut_rel_pos_dist = self.decoderMy(
                 obs_traj_st[-1],
                 encX_h_feat,
-                z, fut_traj[-1,:,:2],
+                relaxed_q_dist.rsample(),
                 torch.cat((obs_obst[-1].unsqueeze(0), fut_obst), dim=0),
                 fut_traj
             )
 
-            ### Goal & Traj generation from the "prior" latents of goals ###
-            ll_goal_prior = []
-            loss_goal_pos_onehot = 0
-            for w_one_hot in torch.eye(20)[torch.randperm(20)[:5]]:
-                print(w_one_hot)
 
-                w_one_hot = w_one_hot.unsqueeze(0).repeat((goal_encX_h_feat.shape[0], 1)).to(self.device)
-                # predict goal from the goal prior
-                goal_prior = self.decoderM_goal(goal_encX_h_feat, w_one_hot)
-                ll_goal_prior.append(-F.l1_loss(goal_prior, goal_heatmap, reduction='none'))
+            ################# validate integration #################
+            # a = integrate_samples(fut_traj_rel, obs_traj[-1][:, :2])
+            # d = a - fut_traj[:, :, :2]
+            # b = relative_to_abs(fut_traj_rel, obs_traj[-1][:, :2])
+            # e = b - fut_traj[:, :, :2]
+            # d==e
+            ####################################################################
 
-                recon_goal_heatmap = F.interpolate(goal_prior, size=(224, 224))
-                pred_goal_pos_prior = []
-                for idx, (start, end) in enumerate(seq_start_end):
-                    for t in range(start, end):
-                        x_goal_pixel = 0
-                        y_goal_pixel = 0
-                        exp_recon = torch.exp(recon_goal_heatmap[t, 0]*(30/recon_goal_heatmap[t].max()))
-                        for pixel_idx in range(224):
-                            x_goal_pixel += pixel_idx * exp_recon[pixel_idx, :].sum() / exp_recon.sum()
-                            y_goal_pixel += pixel_idx * exp_recon[:, pixel_idx].sum() / exp_recon.sum()
-                        goal_pixel = torch.cat([torch.round(y_goal_pixel).unsqueeze(0), torch.round(x_goal_pixel).unsqueeze(0), torch.ones(1)])
-                        pred_goal = torch.matmul(goal_pixel, torch.tensor(np.linalg.inv(inv_h_t[idx])).float())
-                        pred_goal_pos_prior.append(pred_goal / pred_goal[2])
-                pred_goal_pos_prior = torch.stack(pred_goal_pos_prior)[:,:2]
-                loss_goal_pos_onehot += ((pred_goal_pos_prior - fut_traj[-1, :, :2]) ** 2).mean()
+            ################## total loss for vae ####################
+            # loglikelihood = fut_rel_pos_dist.log_prob(torch.reshape(fut_traj_rel, [batch, self.pred_len, 2])).sum().div(batch)
 
+            # log_p_yt_xz=torch.clamp(fut_rel_pos_dist.log_prob(torch.reshape(fut_traj_rel, [batch, self.pred_len, 2])), max=6)
+            # print(">>>max:", log_p_yt_xz.max(), log_p_yt_xz.min(), log_p_yt_xz.mean())
+            # loglikelihood = log_p_yt_xz.sum().div(batch)
+            loglikelihood = fut_rel_pos_dist.log_prob(fut_traj[:, :, 2:4]).sum().div(batch)
 
+            loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
+            loss_kl = torch.clamp(loss_kl, min=0.07)
+            # print('log_likelihood:', loglikelihood.item(), ' kl:', loss_kl.item())
 
-            ### Loss ###
-            ll_goal_prior = torch.stack(ll_goal_prior).sum().div(goal_heatmap.shape[0]).div(128)
-            ll_goal_posterior = -F.l1_loss(goal_posterior, goal_heatmap, reduction='none').sum().div(goal_heatmap.shape[0]).div(128)
-
-            # ll_traj_prior = torch.stack(ll_traj_prior).sum().div(batch)
-            # ll_traj_prior = torch.tensor(0)
-            loss_goal_pos = ll_traj_prior = (((pred_goal_pos_posterior - fut_traj[-1,:,:2])**2).mean() + loss_goal_pos_onehot).div(21)
-            ll_traj_posterior = fut_rel_pos_dist_posterior.log_prob(fut_traj[:, :, 2:4]).sum().div(batch)
-
-            loss_kl_goal =  torch.clamp(kl_divergence(q_dist_goal, p_dist_goal).sum().div(batch), min=0.07)
-            loss_kl_goal_prior =  torch.clamp(kl_divergence(q_dist_goal, unif_prior_goal).sum().div(batch), min=0.07)
-
-            loss_kl = torch.clamp(kl_divergence(q_dist, p_dist).sum().div(batch), min=0.07)
-
-            goal_elbo = (ll_goal_prior + ll_goal_posterior).div(21) -  self.kl_weight_goal * (loss_kl_goal + loss_kl_goal_prior)
-            traj_elbo = ll_traj_posterior - self.kl_weight * loss_kl
-
-            #### map AE ####
-            recon_mapX, pred_velX = self.map_decoder(map_featX)
-            recon_mapY, pred_velY = self.map_decoder(map_featY)
-            # past
-            obs_obst = obs_obst.reshape(-1, obs_obst.shape[2], obs_obst.shape[3], obs_obst.shape[4])
-            recon_map_lossX = - (torch.log(recon_mapX + self.eps) *  obs_obst +
-                      torch.log(1 - recon_mapX + self.eps) * (1 - obs_obst)).sum().div(recon_mapX.shape[0])
-            recon_velX = F.mse_loss(pred_velX, obs_traj[:,:,2:4].reshape(-1,2), reduction='sum').div(recon_mapX.shape[0])
-            # fut
-            fut_obst = fut_obst.reshape(-1, fut_obst.shape[2], fut_obst.shape[3], fut_obst.shape[4])
-            recon_map_lossY = - (torch.log(recon_mapY + self.eps) *  fut_obst +
-                      torch.log(1 - recon_mapY + self.eps) * (1 - fut_obst)).sum().div(recon_mapY.shape[0])
-            recon_velY = F.mse_loss(pred_velY, fut_traj[:,:,2:4].reshape(-1,2), reduction='sum').div(recon_mapY.shape[0])
-
-            loss_map = recon_map_lossX + recon_map_lossY
-            loss_vel = recon_velX + recon_velY
-
-
-            ######## Total Loss ######
-            loss = - self.goal_vae_w * goal_elbo - traj_elbo + loss_map + loss_vel + loss_goal_pos
-
+            elbo = loglikelihood - self.kl_weight * loss_kl
+            vae_loss = -elbo
 
 
             self.optim_vae.zero_grad()
-            loss.backward()
+            vae_loss.backward()
             self.optim_vae.step()
 
 
@@ -430,18 +312,11 @@ class Solver(object):
                 ade_min, fde_min, \
                 ade_avg, fde_avg, \
                 ade_std, fde_std, \
-                test_loss_recon, test_loss_kl, test_loss, test_loss_map, test_loss_vel = self.evaluate_dist(self.val_loader, 20, loss=True)
+                test_loss_recon, test_loss_kl, test_vae_loss = self.evaluate_dist(self.val_loader, 20, loss=True)
                 self.line_gather.insert(iter=iteration,
-                                        loss_recon=-ll_traj_posterior.item(),
-                                        loss_recon_prior=-ll_traj_prior.item(),
-                                        loss_recon_goal=-ll_goal_posterior.item(),
-                                        loss_recon_goal_prior=-ll_goal_prior.item(),
+                                        loss_recon=-loglikelihood.item(),
                                         loss_kl=loss_kl.item(),
-                                        loss_kl_goal=loss_kl_goal.item(),
-                                        loss_kl_goal_prior=loss_kl_goal_prior.item(),
-                                        loss_map=loss_map.item(),
-                                        loss_vel=loss_vel.item(),
-                                        total_loss=-traj_elbo.item(),
+                                        total_loss=vae_loss.item(),
                                         ade_min=ade_min,
                                         fde_min=fde_min,
                                         ade_avg=ade_avg,
@@ -450,16 +325,14 @@ class Solver(object):
                                         fde_std=fde_std,
                                         test_loss_recon=-test_loss_recon.item(),
                                         test_loss_kl=test_loss_kl.item(),
-                                        test_total_loss=test_loss.item(),
-                                        test_loss_map=test_loss_map.item(),
-                                        test_loss_vel=test_loss_vel.item()
+                                        test_total_loss=test_vae_loss.item(),
                                         )
                 prn_str = ('[iter_%d (epoch_%d)] vae_loss: %.3f ' + \
                               '(recon: %.3f, kl: %.3f)\n' + \
                               'ADE min: %.2f, FDE min: %.2f, ADE avg: %.2f, FDE avg: %.2f\n'
                           ) % \
                           (iteration, epoch,
-                           -traj_elbo.item(), -ll_traj_posterior.item(), loss_kl.item(),
+                           vae_loss.item(), -loglikelihood.item(), loss_kl.item(),
                            ade_min, fde_min, ade_avg, fde_avg
                            )
 
@@ -532,8 +405,7 @@ class Solver(object):
         self.set_mode(train=False)
         total_traj = 0
 
-        loss_recon = loss_kl = total_loss = 0
-        loss_map_recon = loss_vel = 0
+        loss_recon = loss_kl = vae_loss = 0
 
         all_ade =[]
         all_fde =[]
@@ -542,124 +414,57 @@ class Solver(object):
             for batch in data_loader:
                 b+=1
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-                 obs_frames, fut_frames, obs_obst, fut_obst, map_path, inv_h_t, obs_heatmap, goal_heatmap) = batch
+                 obs_frames, fut_frames, obs_obst, fut_obst, map_path, inv_h_t) = batch
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
-                #######################
-                #---
-                # Traj Enc
-                (encX_h_feat, logitX, map_featX) \
+                (encX_h_feat, logitX) \
                     = self.encoderMx(obs_traj_st, seq_start_end, obs_obst, obs_traj[:,:,2:4])
                 p_dist = discrete(logits=logitX)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
-                # Goal Enc
-                goal_encX_h_feat, logitX_goal = self.encoderMx_goal(obs_heatmap, train=False)
-                relaxed_p_dist_goal = concrete(logits=logitX_goal, temperature=self.goal_temp)
-
-
                 if loss:
-                    (encY_h_feat, logitY, map_featY) \
+                    (encY_h_feat, logitY) \
                         = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, encX_h_feat, fut_obst, fut_traj[:,:,2:4])
-
-                    goal_prior = self.decoderM_goal(goal_encX_h_feat, relaxed_p_dist_goal.rsample())
-
-                    recon_goal_heatmap = F.interpolate(goal_prior, size=(224, 224))
-                    # recon_goal_heatmap2 = F.interpolate(goal_heatmap, size=(224,224))
-                    pred_goal_pos_prior = []
-                    for idx, (start, end) in enumerate(seq_start_end):
-                        for t in range(start, end):
-                            x_goal_pixel = 0
-                            y_goal_pixel = 0
-                            exp_recon = torch.exp(recon_goal_heatmap[t, 0] * (30 / recon_goal_heatmap[t].max()))
-                            for pixel_idx in range(224):
-                                x_goal_pixel += pixel_idx * exp_recon[pixel_idx, :].sum() / exp_recon.sum()
-                                y_goal_pixel += pixel_idx * exp_recon[:, pixel_idx].sum() / exp_recon.sum()
-                            goal_pixel = torch.cat(
-                                [torch.round(y_goal_pixel).unsqueeze(0), torch.round(x_goal_pixel).unsqueeze(0),
-                                 torch.ones(1)])
-                            pred_goal = torch.matmul(goal_pixel, torch.tensor(np.linalg.inv(inv_h_t[idx])).float())
-                            pred_goal_pos_prior.append(pred_goal / pred_goal[2])
-                    pred_goal_pos_prior = torch.stack(pred_goal_pos_prior)[:, :2]
-
 
                     q_dist = discrete(logits=logitY)
                     fut_rel_pos_dist = self.decoderMy(
                         obs_traj_st[-1],
                         encX_h_feat,
-                        relaxed_p_dist.rsample(), pred_goal_pos_prior,
+                        relaxed_p_dist.rsample(),
                         obs_obst[-1].unsqueeze(0),
                         map_info=[seq_start_end, map_path, inv_h_t, lambda x: integrate_samples(x, obs_traj[-1, :, :2], dt=self.dt)]
                     )
+                    # fut_rel_pos_dist = self.decoderMy(
+                    #     obs_traj[-1],
+                    #     encX_h_feat,
+                    #     relaxed_p_dist.rsample((num_samples,)),
+                    #     num_samples=num_samples
+                    # )
 
-                    recon_mapX, pred_velX = self.map_decoder(map_featX)
-                    recon_mapY, pred_velY = self.map_decoder(map_featY)
                     ################## total loss for vae ####################
                     loglikelihood = fut_rel_pos_dist.log_prob(fut_traj[:, :, 2:4]).sum().div(batch_size)
 
                     kld = kl_divergence(q_dist, p_dist).sum().div(batch_size)
                     kld = torch.clamp(kld, min=0.07)
                     elbo = loglikelihood - self.kl_weight * kld
+                    vae_loss -=elbo
                     loss_recon +=loglikelihood
                     loss_kl +=kld
 
-                    ## map AE
-                    reshaped_obs_obst = obs_obst.reshape(-1, obs_obst.shape[2], obs_obst.shape[3], obs_obst.shape[4])
-                    recon_map_lossX = - (torch.log(recon_mapX + self.eps) * reshaped_obs_obst +
-                                         torch.log(1 - recon_mapX + self.eps) * (1 - reshaped_obs_obst)).sum().div(
-                        recon_mapX.shape[0])
-                    recon_velX = F.mse_loss(pred_velX, obs_traj[:, :, 2:4].reshape(-1, 2), reduction='sum').div(
-                        recon_mapX.shape[0])
-
-                    ## map AE
-                    reshaped_fut_obst = fut_obst.reshape(-1, fut_obst.shape[2], fut_obst.shape[3], fut_obst.shape[4])
-                    recon_map_lossY = - (torch.log(recon_mapY + self.eps) * reshaped_fut_obst +
-                                         torch.log(1 - recon_mapY + self.eps) * (1 - reshaped_fut_obst)).sum().div(
-                        recon_mapY.shape[0])
-                    recon_velY = F.mse_loss(pred_velY, fut_traj[:, :, 2:4].reshape(-1, 2), reduction='sum').div(
-                        recon_mapY.shape[0])
-
-                    total_loss += (-elbo + (recon_map_lossX + recon_velX) + (recon_map_lossY + recon_velY))
-                    # loss_map_recon += (recon_map_lossX + recon_map_lossY)
-                    # loss_vel += (recon_velX + recon_velY)
-                    loss_vel +=((pred_goal_pos_prior - fut_traj[-1,:,:2])**2).mean()
-
                 ade, fde = [], []
-                loss_goal_pos_onehot = 0
-                for w_one_hot in torch.eye(20):
-                    w_one_hot = w_one_hot.unsqueeze(0).repeat((goal_encX_h_feat.shape[0], 1)).to(self.device)
-
-                    goal_prior = self.decoderM_goal(goal_encX_h_feat, w_one_hot)
-                    recon_goal_heatmap = F.interpolate(goal_prior, size=(224, 224))
-                    pred_goal_pos_prior = []
-                    for idx, (start, end) in enumerate(seq_start_end):
-                        for t in range(start, end):
-                            x_goal_pixel = 0
-                            y_goal_pixel = 0
-                            exp_recon = torch.exp(recon_goal_heatmap[t, 0] * (30 / recon_goal_heatmap[t].max()))
-                            for pixel_idx in range(224):
-                                x_goal_pixel += pixel_idx * exp_recon[pixel_idx, :].sum() / exp_recon.sum()
-                                y_goal_pixel += pixel_idx * exp_recon[:, pixel_idx].sum() / exp_recon.sum()
-                            goal_pixel = torch.cat(
-                                [torch.round(y_goal_pixel).unsqueeze(0), torch.round(x_goal_pixel).unsqueeze(0),
-                                 torch.ones(1)])
-                            pred_goal = torch.matmul(goal_pixel, torch.tensor(np.linalg.inv(inv_h_t[idx])).float())
-                            pred_goal_pos_prior.append(pred_goal / pred_goal[2])
-                    pred_goal_pos_prior = torch.stack(pred_goal_pos_prior)[:, :2]
-                    loss_goal_pos_onehot += ((pred_goal_pos_prior - fut_traj[-1, :, :2]) ** 2).mean()
-
-
+                for _ in range(num_samples):
                     fut_rel_pos_dist = self.decoderMy(
                         obs_traj_st[-1],
                         encX_h_feat,
-                        torch.cat([relaxed_p_dist.rsample(), w_one_hot], dim=1),
+                        relaxed_p_dist.rsample(),
                         obs_obst[-1].unsqueeze(0),
                         map_info=[seq_start_end, map_path, inv_h_t, lambda x: integrate_samples(x, obs_traj[-1, :, :2], dt=self.dt)]
                     )
-
                     pred_fut_traj_rel = fut_rel_pos_dist.rsample()
+
                     pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[-1, :, :2], dt=self.dt)
+
 
                     ade.append(displacement_error(
                         pred_fut_traj, fut_traj[:,:,:2], mode='raw'
@@ -667,9 +472,6 @@ class Solver(object):
                     fde.append(final_displacement_error(
                         pred_fut_traj[-1], fut_traj[-1,:,:2], mode='raw'
                     ))
-                if loss:
-                    loss_map_recon += loss_goal_pos_onehot.div(20)
-
                 all_ade.append(torch.stack(ade))
                 all_fde.append(torch.stack(fde))
 
@@ -688,13 +490,56 @@ class Solver(object):
             return ade_min, fde_min, \
                    ade_avg, fde_avg, \
                    ade_std, fde_std, \
-                   loss_recon/b, loss_kl/b, total_loss/b, loss_map_recon/b, loss_vel/b
+                   loss_recon/b, loss_kl/b, vae_loss/b
         else:
             return ade_min, fde_min, \
                    ade_avg, fde_avg, \
                    ade_std, fde_std
 
 
+
+
+
+    def evaluate_dtw(self, data_loader, num_samples):
+        self.set_mode(train=False)
+        all_dist = []
+        from dtaidistance import dtw_ndim
+        with torch.no_grad():
+            b=0
+            for batch in data_loader:
+                b+=1
+                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
+                 fut_obst) = batch
+                batch_size = fut_traj.size(1)
+
+                (encX_h_feat, logitX) \
+                    = self.encoderMx(obs_traj, seq_start_end)
+                relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
+
+                dist_20samples = [] # (20, # seq, 12)
+                for _ in range(num_samples):
+                    fut_rel_pos_dist = self.decoderMy(
+                        obs_traj[-1],
+                        encX_h_feat,
+                        relaxed_p_dist.rsample()
+                    )
+                    pred_fut_traj_rel = fut_rel_pos_dist.rsample()
+
+                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[-1, :, :2], dt=self.dt)
+
+                    dtw_dist = []
+                    for i in range(batch_size):
+                        dtw_dist.append(dtw_ndim.distance(pred_fut_traj[:,i].cpu().numpy(), fut_traj[:, i,:2].cpu().numpy()))
+                    dist_20samples.append(dtw_dist)
+                all_dist.append(np.array(dist_20samples))
+
+            all_dist=np.concatenate(all_dist, axis=1) #(20,70,12)
+            print('all_coll: ', all_dist.shape)
+            dtw_min=all_dist.min(axis=0).mean()
+            dtw_avg=all_dist.mean(axis=0).mean()
+            dtw_std=all_dist.std(axis=0).mean()
+        self.set_mode(train=True)
+        return dtw_min, dtw_avg, dtw_std
 
 
 
@@ -775,20 +620,25 @@ class Solver(object):
     def compute_obs_violations(self, predicted_trajs, obs_map):
         interp_obs_map = RectBivariateSpline(range(obs_map.shape[0]),
                                              range(obs_map.shape[1]),
-                                             1-binary_dilation(obs_map, iterations=1),
+                                             binary_dilation(obs_map, iterations=1),
                                              kx=1, ky=1)
 
         old_shape = predicted_trajs.shape
         predicted_trajs = predicted_trajs.reshape((-1,2))
 
         # plt.imshow(obs_map)
-        # for i in range(12, 24):
-        #     plt.scatter(predicted_trajs[i,0], predicted_trajs[i,1], s=1, c='r')
+        # import cv2
+        # cap = cv2.VideoCapture(os.path.join('D:\crowd\datasets/nmap\map2', self.dataset_name + '_video.avi'))
+        # cap.set(1, int(880))
+        # _, ff = cap.read()
+        # plt.imshow(ff)
+        # for i in range(12):
+        #     plt.scatter(predicted_trajs[i,0], predicted_trajs[i,1], s=1)
         #
-        # a = 1-binary_dilation(obs_map, iterations=1)
+        # a = binary_dilation(obs_map, iterations=1)
         # plt.imshow(a)
         # for i in range(12):
-        #     plt.scatter(predicted_trajs[i,0], predicted_trajs[i,1], s=1, c='r')
+        #     plt.scatter(predicted_trajs[i,0], predicted_trajs[i,1], s=1)
 
         traj_obs_values = interp_obs_map(predicted_trajs[:, 1], predicted_trajs[:, 0], grid=False)
         traj_obs_values = traj_obs_values.reshape((old_shape[0], old_shape[1]))
@@ -799,6 +649,10 @@ class Solver(object):
 
     def map_collision(self, data_loader, num_samples=20):
 
+        obs_map = imageio.imread(os.path.join('../datasets/nmap/map', self.dataset_name + '_map.png'))
+        h = np.loadtxt(os.path.join('../datasets/nmap/map', self.dataset_name +'_H.txt'))
+        inv_h_t = np.linalg.pinv(np.transpose(h))
+
         total_traj = 0
         total_viol = 0
         min_viol = []
@@ -808,50 +662,47 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-                 obs_frames, pred_frames, obs_obst, fut_obst, map_path, inv_h_t) = batch
+                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
+                 fut_obst) = batch
                 total_traj += fut_traj.size(1)
 
-
-                (encX_h_feat, logitX, map_featX) \
-                    = self.encoderMx(obs_traj_st, seq_start_end, obs_obst, obs_traj[:,:,2:4])
+                (encX_h_feat, logitX) \
+                    = self.encoderMx(obs_traj, seq_start_end, train=False)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
 
-                for j, (s, e) in enumerate(seq_start_end):
+
+
+                for s, e in seq_start_end:
                     agent_rng = range(s, e)
 
                     multi_sample_pred = []
                     for _ in range(num_samples):
                         fut_rel_pos_dist = self.decoderMy(
-                            obs_traj_st[-1],
+                            obs_traj[-1],
                             encX_h_feat,
-                            relaxed_p_dist.rsample(),
-                            obs_obst[-1].unsqueeze(0),
-                            map_info=[seq_start_end, map_path, inv_h_t,
-                                      lambda x: integrate_samples(x, obs_traj[-1, :, :2], dt=self.dt)]
+                            relaxed_p_dist.rsample()
                         )
-                        pred_fut_traj_rel = fut_rel_pos_dist.rsample()
-                        pred_fut_traj = integrate_samples(pred_fut_traj_rel, obs_traj[-1, :, :2], dt=self.dt)
+
+                        pred_fut_traj_vel = fut_rel_pos_dist.rsample()
+                        pred_fut_traj = integrate_samples(pred_fut_traj_vel, obs_traj[-1][:, :2], dt=self.dt)
 
                         pred_data = []
                         for idx in range(len(agent_rng)):
                             one_ped = agent_rng[idx]
                             pred_real = pred_fut_traj[:, one_ped].detach().cpu().numpy()
                             pred_pixel = np.concatenate([pred_real, np.ones((self.pred_len, 1))], axis=1)
-                            pred_pixel = np.matmul(pred_pixel, inv_h_t[j])
+                            pred_pixel = np.matmul(pred_pixel, inv_h_t)
                             pred_pixel /= np.expand_dims(pred_pixel[:, 2], 1)
                             pred_data.append(pred_pixel)
 
                         pred_data = np.stack(pred_data)
+                        pred_data[:,:,[0,1]] = pred_data[:,:,[1,0]]
 
                         multi_sample_pred.append(pred_data)
 
-                    multi_sample_pred = np.array(multi_sample_pred)[:,:,:,:2]
-
                     for a in range(len(agent_rng)):
-                        obs_map = imageio.imread(map_path[j])
-                        num_viol_trajs, viol20 = self.compute_obs_violations(multi_sample_pred[:,a], obs_map)
+                        num_viol_trajs, viol20 = self.compute_obs_violations(np.array(multi_sample_pred)[:,a,:,:2], obs_map)
                         total_viol += num_viol_trajs
                         min_viol.append(np.min(viol20))
                         avg_viol.append(np.mean(viol20))
@@ -907,98 +758,29 @@ class Solver(object):
         return coll_rate
 
 
-    def plot_traj(self, data_loader, num_samples=20):
-        import matplotlib.pyplot as plt
-        from matplotlib.animation import FuncAnimation
-        gif_path = "D:\crowd\\fig\\runid" + str(self.run_id)
-        mkdirs(gif_path)
-
-        colors = ['r', 'g', 'b', 'm', 'c', 'k', 'w', 'k']
-
-        total_traj = 0
-        with torch.no_grad():
-            b=0
-            for batch in data_loader:
-                b+=1
-                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-                 obs_frames, pred_frames, obs_obst, fut_obst, map_path, inv_h_t) = batch
-                total_traj += fut_traj.size(1)
-
-                # rng = range(9, 18)
-                # rng = range(18, 38)
-                # rng = range(38, 45)
-
-                # rng = range(17)
-                # rng = range(95, 104)
-                # rng = range(100, 101)
-
-                # rng = range(19,27)
-                rng = range(1)
-                fig, ax = plt.subplots()
-                ax.imshow(imageio.imread(map_path[rng[0]]))
-                ax.imshow(imageio.imread(map_path[rng[0]]))
-                for idx in rng:
-                    obs_real = obs_traj[:, idx, :2]
-                    obs_real = np.concatenate([obs_real, np.ones((self.obs_len, 1))], axis=1)
-                    obs_pixel = np.matmul(obs_real, inv_h_t[idx])
-                    obs_pixel /= np.expand_dims(obs_pixel[:, 2], 1)
-
-                    gt_real = fut_traj[:, idx, :2]
-                    gt_real = np.concatenate([gt_real, np.ones((self.pred_len, 1))], axis=1)
-                    gt_pixel = np.matmul(gt_real, inv_h_t[idx])
-                    gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
-                    gt_data = np.concatenate([obs_pixel, gt_pixel], 0)
-
-                    # ax.plot(gt_data[:,0], gt_data[:,1])
-                    ax.scatter(gt_data[-1,0], gt_data[-1,1], s=5)
-
-                d= np.matmul(gt_data, np.linalg.inv(inv_h_t[idx]))
-                back_real = d / np.expand_dims(d[:, 2], 1)
-                fig.savefig('test.png')
-
-                im = imageio.imread(map_path[rng[0]]) / 255
-                np.expand_dims(im,-1)
-
-                ## create heatmap
-                from scipy import ndimage
-                x = np.zeros((224, 224))
-                x[74, 81] = 1
-                heat_map = ndimage.filters.gaussian_filter(x, sigma=5)
-                plt.imshow(heat_map)
-
-                ## resize to 100
-                im = Image.fromarray(heat_map)
-                image = transforms.Compose([
-                    transforms.Resize(100),
-                    transforms.ToTensor()
-                ])(im)
-                plt.imshow(image[0])
-
-                ## back to 224
-                im2 = Image.fromarray(image.numpy()[0])
-                image2 = transforms.Compose([
-                    transforms.Resize(224),
-                    transforms.ToTensor()
-                ])(im2)
-                plt.imshow(image2[0])
-
 
 
     def plot_traj_var(self, data_loader, num_samples=20):
         import matplotlib.pyplot as plt
         from matplotlib.animation import FuncAnimation
+        import cv2
         gif_path = "D:\crowd\\fig\\runid" + str(self.run_id)
         mkdirs(gif_path)
+        # read video
+        cap = cv2.VideoCapture('D:\crowd\ewap_dataset\seq_'+self.dataset_name+'\seq_'+self.dataset_name+'.avi')
 
-        colors = ['r', 'g', 'b', 'm', 'c', 'k', 'w', 'k']
+        colors = ['r', 'g', 'y', 'm', 'c', 'k', 'w', 'b']
+        h = np.loadtxt('D:\crowd\ewap_dataset\seq_'+self.dataset_name+'\H.txt')
+        inv_h_t = np.linalg.pinv(np.transpose(h))
 
         total_traj = 0
         with torch.no_grad():
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-                 obs_frames, pred_frames, obs_obst, fut_obst, map_path, inv_h_t) = batch
+                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, non_linear_ped,
+                 loss_mask, seq_start_end, obs_frames, pred_frames) = batch
+                batch_size = obs_traj_rel.size(1)
                 total_traj += fut_traj.size(1)
 
                 # path = '../datasets\hotel\\test\\biwi_hotel.txt'
@@ -1020,31 +802,46 @@ class Solver(object):
                 #     ax.text(gt_pixel[i][1], gt_pixel[i][0], str(int(d[:,1][i])), fontsize=10)
 
 
-
-                (encX_h_feat, logitX, map_featX) \
-                    = self.encoderMx(obs_traj_st, seq_start_end, obs_obst, obs_traj[:,:,2:4])
+                (encX_h_feat, logitX) \
+                    = self.encoderMx(obs_traj, seq_start_end)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
-                # (s,e) = seq_start_end[j]
-                # np.where(1658 in seq_start_end)
+                # s=seq_start_end.numpy()
+                # np.where(s[:,0]==63)
 
-                for j, (s, e) in enumerate(seq_start_end):
+                def init():
+                    ax.imshow(frame)
+
+                def update_dot(num_t):
+                    print(num_t)
+                    cap.set(1, frame_numbers[num_t])
+                    _, frame = cap.read()
+                    ax.imshow(frame)
+
+                    for i in range(n_agent):
+                        ln_gt[i].set_data(gt_data[i, :num_t, 0], gt_data[i, :num_t, 1])
+
+                        for j in range(20):
+                            all_ln_pred[i][j].set_data(multi_sample_pred[j][i, :num_t, 0],
+                                                       multi_sample_pred[j][i, :num_t, 1])
+
+                for s, e in seq_start_end:
                     agent_rng = range(s, e)
-                    seq_map = imageio.imread(map_path[j])  # seq = 한 씬에서 모든 neighbors니까. 같은 데이터셋.
 
+                    frame_numbers = np.concatenate([obs_frames[agent_rng[0]], pred_frames[agent_rng[0]]])
+                    frame_number = frame_numbers[0]
+                    cap.set(1, frame_number)
+                    ret, frame = cap.read()
                     multi_sample_pred = []
 
                     for _ in range(num_samples):
                         fut_rel_pos_dist = self.decoderMy(
-                            obs_traj_st[-1],
+                            obs_traj[-1],
                             encX_h_feat,
-                            relaxed_p_dist.rsample(),
-                            obs_obst[-1].unsqueeze(0),
-                            map_info=[seq_start_end, map_path, inv_h_t,
-                                      lambda x: integrate_samples(x, obs_traj[-1, :, :2], dt=self.dt)]
+                            relaxed_p_dist.rsample()
                         )
                         pred_fut_traj_rel = fut_rel_pos_dist.rsample()
-                        pred_fut_traj = integrate_samples(pred_fut_traj_rel, obs_traj[-1, :, :2], dt=self.dt)
+                        pred_fut_traj = integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
 
                         gt_data, pred_data = [], []
 
@@ -1052,17 +849,17 @@ class Solver(object):
                             one_ped = agent_rng[idx]
                             obs_real = obs_traj[:, one_ped,:2]
                             obs_real = np.concatenate([obs_real, np.ones((self.obs_len, 1))], axis=1)
-                            obs_pixel = np.matmul(obs_real, inv_h_t[j])
+                            obs_pixel = np.matmul(obs_real, inv_h_t)
                             obs_pixel /= np.expand_dims(obs_pixel[:, 2], 1)
 
                             gt_real = fut_traj[:, one_ped, :2]
                             gt_real = np.concatenate([gt_real, np.ones((self.pred_len, 1))], axis=1)
-                            gt_pixel = np.matmul(gt_real, inv_h_t[j])
+                            gt_pixel = np.matmul(gt_real, inv_h_t)
                             gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
 
                             pred_real = pred_fut_traj[:, one_ped].numpy()
                             pred_pixel = np.concatenate([pred_real, np.ones((self.pred_len, 1))], axis=1)
-                            pred_pixel = np.matmul(pred_pixel, inv_h_t[j])
+                            pred_pixel = np.matmul(pred_pixel, inv_h_t)
                             pred_pixel /= np.expand_dims(pred_pixel[:, 2], 1)
 
                             gt_data.append(np.concatenate([obs_pixel, gt_pixel], 0)) # (20, 3)
@@ -1072,29 +869,18 @@ class Solver(object):
                         pred_data = np.stack(pred_data)
 
                         # if self.dataset_name == 'eth':
-                        # gt_data[:,:, [0,1]] = gt_data[:,:,[1,0]]
-                        # pred_data[:,:,[0,1]] = pred_data[:,:,[1,0]]
+                        gt_data[:,:, [0,1]] = gt_data[:,:,[1,0]]
+                        pred_data[:,:,[0,1]] = pred_data[:,:,[1,0]]
 
                         multi_sample_pred.append(pred_data)
 
-                    def init():
-                        ax.imshow(seq_map)
 
-                    def update_dot(num_t):
-                        print(num_t)
-                        ax.imshow(seq_map)
-
-                        for i in range(n_agent):
-                            ln_gt[i].set_data(gt_data[i, :num_t, 0], gt_data[i, :num_t, 1])
-
-                            for j in range(20):
-                                all_ln_pred[i][j].set_data(multi_sample_pred[j][i, :num_t, 0],
-                                                           multi_sample_pred[j][i, :num_t, 1])
                     n_agent = gt_data.shape[0]
                     n_frame = gt_data.shape[1]
 
                     fig, ax = plt.subplots()
-                    title = map_path[j].split('.')[0].split('\\')[-1].replace('/', '_')
+                    title = ",".join([str(int(elt)) for elt in frame_numbers[:8]]) + ' -->\n'
+                    title += ",".join([str(int(elt)) for elt in frame_numbers[8:]])
                     ax.set_title(title, fontsize=9)
                     fig.tight_layout()
 
@@ -1104,10 +890,10 @@ class Solver(object):
 
 
                     for i in range(n_agent):
-                        ln_gt.append(ax.plot([], [], colors[i % len(colors)] + '--', linewidth=1)[0])
+                        ln_gt.append(ax.plot([], [], colors[i] + '--')[0])
                         ln_pred = []
                         for _ in range(20):
-                            ln_pred.append(ax.plot([], [], colors[i % len(colors)], alpha=0.6, linewidth=1)[0])
+                            ln_pred.append(ax.plot([], [], colors[i], alpha=0.3, linewidth=1)[0])
                         all_ln_pred.append(ln_pred)
 
 
@@ -1115,20 +901,104 @@ class Solver(object):
 
                     # writer = PillowWriter(fps=3000)
 
-                    ani.save(gif_path + "/" +self.dataset_name+ "_" + title + "_agent" + str(agent_rng[0]) +"to" +str(agent_rng[-1]) +".gif", fps=4)
+                    ani.save(gif_path + "/" +self.dataset_name+ "_f" + str(int(frame_numbers[0])) + "_agent" + str(agent_rng[0]) +"to" +str(agent_rng[-1]) +".gif", fps=4)
 
+    def plot_traj_var2(self, data_loader, num_samples=20):
+        import matplotlib.pyplot as plt
+        from matplotlib.animation import FuncAnimation
+        import cv2
+        gif_path = "D:\crowd\\fig\\runid" + str(self.run_id)
+        mkdirs(gif_path)
+        # read video
+        # cap = cv2.VideoCapture('D:\crowd\ewap_dataset\seq_' + self.dataset_name + '\seq_' + self.dataset_name + '.avi')
+        # cap = cv2.VideoCapture('D:\crowd/ucy_original\data/crowds_zara01.avi')
+        cap = cv2.VideoCapture('D:\crowd/ucy_original\data/crowds_zara01.avi')
+
+        colors = ['r', 'g', 'y', 'm', 'c', 'k', 'w', 'b']
+        h = np.loadtxt('D:\crowd\ewap_dataset\seq_' + self.dataset_name + '\H.txt')
+        # h = np.loadtxt('D:\crowd\datasets/nmap\map/zara01_H.txt')
+        inv_h_t = np.linalg.pinv(np.transpose(h))
+
+        total_traj = 0
+        with torch.no_grad():
+            b = 0
+            for batch in data_loader:
+                b += 1
+                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst) = batch
+
+
+                total_traj += fut_traj.size(1)
+
+
+                def init():
+                    ax.imshow(frame)
+
+                def update_dot(num_t):
+                    print(num_t)
+                    cap.set(1, frame_numbers[num_t])
+                    _, frame = cap.read()
+                    ax.imshow(frame)
+
+                    for i in range(n_agent):
+                        ln_gt[i].set_data(gt_data[i, :num_t, 0], gt_data[i, :num_t, 1])
+
+                for s, e in seq_start_end:
+                    agent_rng = range(s, e)
+
+                    frame_numbers = np.concatenate([fut_frames[agent_rng[0]]])
+                    frame_number = frame_numbers[0]
+                    cap.set(1, frame_number)
+                    ret, frame = cap.read()
+                    gt_data = []
+
+                    for idx in range(len(agent_rng)):
+                        one_ped = agent_rng[idx]
+
+                        gt_real = fut_traj[:, one_ped, :2]
+                        gt_real = np.concatenate([gt_real, np.ones((self.pred_len, 1))], axis=1)
+                        gt_pixel = np.matmul(gt_real, inv_h_t)
+                        gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
+                        gt_data.append(gt_pixel)  # (20, 3)
+
+                    gt_data = np.stack(gt_data)
+                    # if self.dataset_name == 'eth':
+                    gt_data[:, :, [0, 1]] = gt_data[:, :, [1, 0]]
+
+                    n_agent = gt_data.shape[0]
+                    n_frame = gt_data.shape[1]
+
+                    fig, ax = plt.subplots()
+                    # title = ",".join([str(int(elt)) for elt in frame_numbers[:8]]) + ' -->\n'
+                    # title += ",".join([str(int(elt)) for elt in frame_numbers[8:]])
+                    # ax.set_title(title, fontsize=9)
+                    ax.axis('off')
+                    fig.tight_layout()
+
+                    ln_gt = []
+
+                    colors = ['r', 'g', 'y', 'm', 'c', 'blue']
+
+                    ax.imshow(frame)
+                    for i in range(n_agent):
+                        plt.plot(gt_data[i,:,0], gt_data[i,:,1], c=colors[i])
+                        plt.scatter(gt_data[i,-1,0], gt_data[i,-1,1], c=colors[i])
+
+                    for i in range(n_agent):
+                        ln_gt.append(ax.plot([], [], colors[i])[0])
+
+                    ani = FuncAnimation(fig, update_dot, frames=n_frame, interval=1, init_func=init())
+
+                    ani.save(gif_path + "/" + self.dataset_name + "_f" + str(
+                        int(frame_numbers[0])) + "_agent" + str(agent_rng[0]) + "to" + str(
+                        agent_rng[-1]) + ".gif", fps=4)
 
     ####
     def viz_init(self):
         self.viz.close(env=self.name + '/lines', win=self.win_id['loss_recon'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['loss_kl'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['loss_map'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['loss_vel'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['total_loss'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['test_loss_recon'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['test_loss_kl'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['test_loss_map'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['test_loss_vel'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['test_total_loss'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['ade_min'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['fde_min'])
@@ -1136,13 +1006,6 @@ class Solver(object):
         self.viz.close(env=self.name + '/lines', win=self.win_id['fde_avg'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['ade_std'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['fde_std'])
-
-        self.viz.close(env=self.name + '/lines', win=self.win_id['loss_recon_prior'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['loss_recon_goal'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['loss_recon_goal_prior'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['loss_kl_goal'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['loss_kl_goal_prior'])
-
 
     ####
     def visualize_line(self):
@@ -1152,8 +1015,6 @@ class Solver(object):
         iters = torch.Tensor(data['iter'])
         loss_recon = torch.Tensor(data['loss_recon'])
         loss_kl = torch.Tensor(data['loss_kl'])
-        loss_map = torch.Tensor(data['loss_map'])
-        loss_vel = torch.Tensor(data['loss_vel'])
         total_loss = torch.Tensor(data['total_loss'])
         ade_min = torch.Tensor(data['ade_min'])
         fde_min = torch.Tensor(data['fde_min'])
@@ -1164,49 +1025,6 @@ class Solver(object):
         test_loss_recon = torch.Tensor(data['test_loss_recon'])
         test_loss_kl = torch.Tensor(data['test_loss_kl'])
         test_total_loss = torch.Tensor(data['test_total_loss'])
-        test_loss_map = torch.Tensor(data['test_loss_map'])
-        test_loss_vel = torch.Tensor(data['test_loss_vel'])
-
-        loss_recon_prior = torch.Tensor(data['loss_recon_prior'])
-        loss_recon_goal = torch.Tensor(data['loss_recon_goal'])
-        loss_recon_goal_prior = torch.Tensor(data['loss_recon_goal_prior'])
-        loss_kl_goal = torch.Tensor(data['loss_kl_goal'])
-        loss_kl_goal_prior = torch.Tensor(data['loss_kl_goal_prior'])
-
-        self.viz.line(
-            X=iters, Y=loss_recon_prior, env=self.name + '/lines',
-            win=self.win_id['loss_recon_prior'], update='append',
-            opts=dict(xlabel='iter', ylabel='loss_recon_prior',
-                      title='loss_recon_prior')
-        )
-
-        self.viz.line(
-            X=iters, Y=loss_recon_goal, env=self.name + '/lines',
-            win=self.win_id['loss_recon_goal'], update='append',
-            opts=dict(xlabel='iter', ylabel='loss_recon_goal',
-                      title='loss_recon_goal')
-        )
-
-        self.viz.line(
-            X=iters, Y=loss_kl_goal_prior, env=self.name + '/lines',
-            win=self.win_id['loss_kl_goal_prior'], update='append',
-            opts=dict(xlabel='iter', ylabel='loss_kl_goal_prior',
-                      title='loss_kl_goal_prior')
-        )
-
-        self.viz.line(
-            X=iters, Y=loss_kl_goal, env=self.name + '/lines',
-            win=self.win_id['loss_kl_goal'], update='append',
-            opts=dict(xlabel='iter', ylabel='loss_kl_goal',
-                      title='loss_kl_goal')
-        )
-
-        self.viz.line(
-            X=iters, Y=loss_recon_goal_prior, env=self.name + '/lines',
-            win=self.win_id['loss_recon_goal_prior'], update='append',
-            opts=dict(xlabel='iter', ylabel='loss_recon_goal_prior',
-                      title='loss_recon_goal_prior')
-        )
 
 
         self.viz.line(
@@ -1224,24 +1042,10 @@ class Solver(object):
         )
 
         self.viz.line(
-            X=iters, Y=loss_map, env=self.name + '/lines',
-            win=self.win_id['loss_map'], update='append',
-            opts=dict(xlabel='iter', ylabel='loss',
-                      title='Map recon loss'),
-        )
-
-        self.viz.line(
-            X=iters, Y=loss_vel, env=self.name + '/lines',
-            win=self.win_id['loss_vel'], update='append',
-            opts=dict(xlabel='iter', ylabel='loss',
-                      title='Velocity loss'),
-        )
-
-        self.viz.line(
             X=iters, Y=total_loss, env=self.name + '/lines',
             win=self.win_id['total_loss'], update='append',
-            opts=dict(xlabel='iter', ylabel='total loss',
-                      title='Total loss'),
+            opts=dict(xlabel='iter', ylabel='vae loss',
+                      title='VAE loss'),
         )
 
         self.viz.line(
@@ -1261,25 +1065,9 @@ class Solver(object):
         self.viz.line(
             X=iters, Y=test_total_loss, env=self.name + '/lines',
             win=self.win_id['test_total_loss'], update='append',
-            opts=dict(xlabel='iter', ylabel='total loss',
-                      title='Test Total loss'),
+            opts=dict(xlabel='iter', ylabel='vae loss',
+                      title='Test VAE loss'),
         )
-
-        self.viz.line(
-            X=iters, Y=test_loss_map, env=self.name + '/lines',
-            win=self.win_id['test_loss_map'], update='append',
-            opts=dict(xlabel='iter', ylabel='loss',
-                      title='Test MAP recon loss'),
-        )
-
-        self.viz.line(
-            X=iters, Y=test_loss_vel, env=self.name + '/lines',
-            win=self.win_id['test_loss_vel'], update='append',
-            opts=dict(xlabel='iter', ylabel='loss',
-                      title='Test Velocity loss'),
-        )
-
-
 
         self.viz.line(
             X=iters, Y=ade_min, env=self.name + '/lines',
@@ -1328,23 +1116,10 @@ class Solver(object):
             self.encoderMx.train()
             self.encoderMy.train()
             self.decoderMy.train()
-
-            self.map_encoder.train()
-            self.map_decoder.train()
-            self.encoderMx_goal.train()
-            self.encoderM_goal.train()
-            self.decoderM_goal.train()
-
         else:
             self.encoderMx.eval()
             self.encoderMy.eval()
             self.decoderMy.eval()
-
-            self.map_encoder.eval()
-            self.map_decoder.eval()
-            self.encoderMx_goal.eval()
-            self.encoderM_goal.eval()
-            self.decoderM_goal.eval()
 
     ####
     def save_checkpoint(self, iteration):
@@ -1361,39 +1136,13 @@ class Solver(object):
             self.ckpt_dir,
             'iter_%s_decoderMy.pt' % iteration
         )
-        map_dec_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_map_dec.pt' % iteration
-        )
-        map_enc_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_map_enc.pt' % iteration
-        )
 
-        encoderMx_goal_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_encoderMx_goal.pt' % iteration
-        )
-        encoderM_goal_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_encoderM_goal.pt' % iteration
-        )
-        decoderM_goal_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_decoderM_goal.pt' % iteration
-        )
 
         mkdirs(self.ckpt_dir)
 
         torch.save(self.encoderMx, encoderMx_path)
         torch.save(self.encoderMy, encoderMy_path)
         torch.save(self.decoderMy, decoderMy_path)
-        torch.save(self.map_decoder, map_dec_path)
-        torch.save(self.map_encoder, map_enc_path)
-
-        torch.save(self.encoderMx_goal, encoderMx_goal_path)
-        torch.save(self.encoderM_goal, encoderM_goal_path)
-        torch.save(self.decoderM_goal, decoderM_goal_path)
     ####
     def load_checkpoint(self):
 
@@ -1410,58 +1159,11 @@ class Solver(object):
             'iter_%s_decoderMy.pt' % self.ckpt_load_iter
         )
 
-        map_encoder_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_map_enc.pt' % self.ckpt_load_iter
-        )
-
-        map_decoder_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_map_dec.pt' % self.ckpt_load_iter
-        )
-
-        encoderMx_goal_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_encoderMx_goal.pt' % self.ckpt_load_iter
-        )
-        encoderM_goal_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_encoderM_goal.pt' % self.ckpt_load_iter
-        )
-        decoderM_goal_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_decoderM_goal.pt' % self.ckpt_load_iter
-        )
-
-
         if self.device == 'cuda':
             self.encoderMx = torch.load(encoderMx_path)
             self.encoderMy = torch.load(encoderMy_path)
             self.decoderMy = torch.load(decoderMy_path)
-            self.map_encoder = torch.load(map_encoder_path)
-            self.map_decoder = torch.load(map_decoder_path)
-
-            self.encoderMx_goal = torch.load(encoderMx_goal_path)
-            self.encoderM_goal = torch.load(encoderM_goal_path)
-            self.decoderM_goal = torch.load(decoderM_goal_path)
         else:
             self.encoderMx = torch.load(encoderMx_path, map_location='cpu')
             self.encoderMy = torch.load(encoderMy_path, map_location='cpu')
             self.decoderMy = torch.load(decoderMy_path, map_location='cpu')
-            self.map_encoder = torch.load(map_encoder_path, map_location='cpu')
-            self.map_decoder = torch.load(map_decoder_path, map_location='cpu')
-
-            self.encoderMx_goal = torch.load(torch.load(encoderMx_goal_path), map_location='cpu')
-            self.encoderM_goal = torch.load(torch.load(encoderM_goal_path), map_location='cpu')
-            self.decoderM_goal = torch.load(torch.load(decoderM_goal_path), map_location='cpu')
-
-
-    def load_map_encoder(self):
-        map_encoder_path = 'ckpts/A2E_map_size_16_drop_out0.1_hidden_d256_latent_d32_run_4/iter_20000_encoder.pt'
-        map_decoder_path = 'ckpts/A2E_map_size_16_drop_out0.1_hidden_d256_latent_d32_run_4/iter_20000_decoder.pt'
-        if self.device == 'cuda':
-            self.map_encoder = torch.load(map_encoder_path)
-            self.map_decoder = torch.load(map_decoder_path)
-        else:
-            self.map_encoder = torch.load(map_encoder_path, map_location='cpu')
-            self.map_decoder = torch.load(map_decoder_path, map_location='cpu')

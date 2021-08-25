@@ -42,7 +42,7 @@ def create_parser():
     
     parser = argparse.ArgumentParser()
 
-    parser.add_argument( '--run_id', default=231, type=int,
+    parser.add_argument( '--run_id', default=72, type=int,
       help='run id (default=-1 to create a new id)' )
 
     parser.add_argument( '--device', default='cpu', type=str,
@@ -92,15 +92,15 @@ def create_parser():
 
 
     # Dataset options
-    parser.add_argument('--delim', default=',', type=str)
+    parser.add_argument('--delim', default='tab', type=str)
     parser.add_argument('--loader_num_workers', default=4, type=int)
     parser.add_argument('--obs_len', default=8, type=int)
     parser.add_argument('--pred_len', default=12, type=int)
     parser.add_argument('--skip', default=1, type=int)
     # dataset
-    parser.add_argument( '--dataset_dir', default='C:\dataset\HTP-benchmark\Splits', type=str,
+    parser.add_argument( '--dataset_dir', default='../datasets', type=str,
       help='dataset directory' )
-    parser.add_argument( '--dataset_name', default='A2E', type=str,
+    parser.add_argument( '--dataset_name', default='eth', type=str,
       help='dataset name' )
     parser.add_argument( '--num_workers', default=0, type=int,
       help='dataloader num_workers' )
@@ -109,34 +109,24 @@ def create_parser():
 
 
     # model hyperparameters
-    parser.add_argument( '--zS_dim', default=32, type=int,
-      help='dimension of the shared latent representation' )
-    parser.add_argument( '--w_dim', default=20, type=int,
+    parser.add_argument( '--zS_dim', default=64, type=int,
       help='dimension of the shared latent representation' )
     # Encoder
-    parser.add_argument('--encoder_h_dim', default=64, type=int)
-    parser.add_argument('--decoder_h_dim', default=64, type=int)
-    parser.add_argument('--map_feat_dim', default=32, type=int)
-
+    parser.add_argument('--encoder_h_dim', default=32, type=int)
+    parser.add_argument('--decoder_h_dim', default=128, type=int)
     parser.add_argument('--num_layers', default=1, type=int)
     parser.add_argument('--dropout_mlp', default=0.1, type=float)
     parser.add_argument('--dropout_rnn', default=0.25, type=float)
     # Decoder
     parser.add_argument('--pool_every_timestep', default=0, type=bool_flag)
     parser.add_argument('--mlp_dim', default=32, type=int)
-    parser.add_argument('--goal_mlp_dim', default=32, type=int)
     parser.add_argument('--batch_norm', default=0, type=bool_flag)
 
     parser.add_argument( '--attention', default=0, type=bool_flag,
       help='pool/attn' )
     parser.add_argument( '--kl_weight', default=100.0, type=float,
       help='kl weight' )
-    parser.add_argument( '--kl_weight_goal', default=100.0, type=float,
-      help='kl weight' )
-    parser.add_argument( '--goal_vae_w', default=5.0, type=float,
-      help='kl weight' )
-
-    parser.add_argument('--map_size', default=16, type=int)
+    parser.add_argument('--map_size', default=180, type=int)
 
     parser.add_argument( '--desc', default='data', type=str,
       help='run description' )
@@ -219,13 +209,12 @@ def main(args):
 
 
             print('--------------------', args.dataset_name, '----------------------')
-            test_path = os.path.join(args.dataset_dir, args.dataset_name, 'Test.txt')
-            args.batch_size=200
+            test_path = os.path.join(args.dataset_dir, args.dataset_name, 'test')
+            args.batch_size=364
             _, test_loader = data_loader(args, test_path,shuffle=False)
 
-            solver.plot_traj(test_loader)
-            # solver.plot_traj_var(test_loader)
-            '''
+            solver.plot_traj_var2(test_loader)
+
             coll_rate_min, non_zero_coll_min, \
             coll_rate_avg, non_zero_coll_avg, \
             coll_rate_std, non_zero_coll_std = solver.evaluate_collision(test_loader, 20, threshold)
@@ -233,18 +222,16 @@ def main(args):
             print('min: ', coll_rate_min)
             print('avg: ', coll_rate_avg)
             print('std: ', coll_rate_std)
-            '''
-            #
-            # their_viol, min_viol, avg_viol, std_viol = solver.map_collision(test_loader, num_samples=3)
-            # print('their_viol: ', their_viol)
-            # print('min_viol: ', min_viol)
-            # print('avg_viol: ', avg_viol)
-            # print('std_viol: ', std_viol)
+
+            their_viol, min_viol, avg_viol, std_viol = solver.map_collision(test_loader)
+            print('their_viol: ', their_viol)
+            print('min_viol: ', min_viol)
+            print('avg_viol: ', avg_viol)
+            print('std_viol: ', std_viol)
 
             # solver.plot_traj_var(test_loader)
             # solver.draw_traj(test_loader, 20)
             # solver.check_dist_stat(test_loader)
-
 
 
 
