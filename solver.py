@@ -287,7 +287,7 @@ class Solver(object):
                     map = imageio.imread(map_path[idx]) / 255
                     map = ndimage.distance_transform_edt(map)
 
-                    obs_real = obs_traj[:, idx, :2]
+                    obs_real = obs_traj[:, idx, :2].cpu().detach().numpy()
                     obs_real = np.concatenate([obs_real, np.ones((self.obs_len, 1))], axis=1)
                     obs_pixel = np.matmul(obs_real, inv_h_t[idx])
                     obs_pixel /= np.expand_dims(obs_pixel[:, 2], 1)
@@ -523,7 +523,7 @@ class Solver(object):
                         map = imageio.imread(map_path[idx]) / 255
                         map = ndimage.distance_transform_edt(map)
 
-                        obs_real = obs_traj[:, idx, :2]
+                        obs_real = obs_traj[:, idx, :2].cpu().detach().numpy()
                         obs_real = np.concatenate([obs_real, np.ones((self.obs_len, 1))], axis=1)
                         obs_pixel = np.matmul(obs_real, inv_h_t[idx])
                         obs_pixel /= np.expand_dims(obs_pixel[:, 2], 1)
