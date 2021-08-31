@@ -308,9 +308,22 @@ class Solver(object):
 
                     ##### find 20 goals
                     candidate_pos_ic = np.array(np.where(circle * map > 0)).transpose((1, 0))
-                    radius = per_step_dist * (self.pred_len + 1) / self.radius_deno
-                    selected_goal_ic = find_coord(circle * map, circle * map, [], candidate_pos_ic, radius, n_goal=19)
-                    selected_goal_ic = np.array(selected_goal_ic)
+                    if len(candidate_pos_ic) == 0:
+                        # print(per_step_dist)
+                        # print(idx)
+                        # print(obs_pixel[-1] - obs_pixel[-2])
+                        # print('-------------------------------------')
+                        avg_mvmt = np.abs((obs_pixel[1:, :2] - obs_pixel[:-1, :2]).mean(0))
+                        rand_x = np.random.uniform(low=-avg_mvmt[0], high=avg_mvmt[0], size=(19,))
+                        rand_y = np.random.uniform(low=-avg_mvmt[1], high=avg_mvmt[1], size=(19,))
+
+                        selected_goal_ic = np.array([obs_pixel[-1]] * 20) + np.vstack([rand_x, rand_y]).transpose(
+                            (1, 0))
+                    else:
+                        radius = per_step_dist * (self.pred_len + 1) / self.radius_deno
+                        selected_goal_ic = find_coord(circle * map, circle * map, [], candidate_pos_ic, radius,
+                                                      n_goal=19)
+                        selected_goal_ic = np.array(selected_goal_ic)
                     # fig, ax = plt.subplots()
                     # ax.imshow(circle * map)
                     # for coord in selected_goal_ic:
@@ -532,12 +545,15 @@ class Solver(object):
                         ##### find 20 goals
                         candidate_pos_ic = np.array(np.where(circle * map > 0)).transpose((1, 0))
                         if len(candidate_pos_ic) == 0:
-                            # np.random.rand(20)
                             # print(per_step_dist)
                             # print(idx)
                             # print(obs_pixel[-1] - obs_pixel[-2])
                             # print('-------------------------------------')
-                            selected_goal_ic = np.array([obs_pixel[-1]]*20)
+                            avg_mvmt = np.abs((obs_pixel[1:, :2] - obs_pixel[:-1, :2]).mean(0))
+                            rand_x = np.random.uniform(low=-avg_mvmt[0], high=avg_mvmt[0], size=(20,))
+                            rand_y = np.random.uniform(low=-avg_mvmt[1], high=avg_mvmt[1], size=(20,))
+
+                            selected_goal_ic = np.array([obs_pixel[-1]]*20) + np.vstack([rand_x, rand_y]).transpose((1,0))
                         else:
                             radius = per_step_dist * (self.pred_len + 1) / self.radius_deno
                             selected_goal_ic = find_coord(circle * map, circle * map, [], candidate_pos_ic, radius,
