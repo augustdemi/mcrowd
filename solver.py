@@ -335,7 +335,7 @@ class Solver(object):
                     selected_goal_ic=np.concatenate([selected_goal_ic, np.ones((len(selected_goal_ic),1))], axis=1)
                     goal_wc = np.matmul(selected_goal_ic, np.linalg.inv(inv_h_t[idx]))
                     goal_wc = goal_wc / np.expand_dims(goal_wc[:, 2], 1)
-                    goal_wc = np.concatenate([goal_wc[:,:2], np.expand_dims(fut_traj[-1,idx,:2],0)], axis=0)
+                    goal_wc = np.concatenate([goal_wc[:,:2], np.expand_dims(fut_traj[-1,idx,:2].cpu().detach().numpy(),0)], axis=0)
                     # plt.scatter(obs_traj[:, idx, 0], obs_traj[:, idx, 1], c='b')
                     # plt.scatter(fut_traj[:, idx, 0], fut_traj[:, idx, 1], c='r')
                     # plt.scatter(goal_wc[:, 0], goal_wc[:, 1], c='g', marker='X')
