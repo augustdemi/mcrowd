@@ -369,6 +369,7 @@ class Solver(object):
 
                     ##### resize the map
                     global_map = circle * map
+                    '''
                     # get local map
                     context_size = (int(np.round(per_step_dist * 14 * 2)) // 2) * 2 + 2
                     expanded_obs_img = np.full(
@@ -393,11 +394,11 @@ class Solver(object):
 
                     # local_map = crop(global_map, obs_traj[-1,idx,:2].cpu().detach().numpy(), inv_h_t[idx], context_size=(int(np.round(per_step_dist*14*2))//2)*2 + 2)
                     # plt.imshow(local_map[0])
-
+                    '''
                     local_map = transforms.Compose([
                         transforms.Resize(self.map_size),
                         transforms.ToTensor()
-                    ])(Image.fromarray(local_map[0]))
+                    ])(Image.fromarray(global_map))
                     local_maps.append(local_map)
 
                     #
@@ -628,6 +629,7 @@ class Solver(object):
 
                         ##### resize the map
                         global_map = circle * map
+                        '''
                         # get local map
                         context_size = (int(np.round(per_step_dist * 14 * 2)) // 2) * 2 + 2
                         expanded_obs_img = np.full(
@@ -636,7 +638,7 @@ class Solver(object):
                         expanded_obs_img[context_size // 2:-context_size // 2,
                         context_size // 2:-context_size // 2] = global_map.astype(np.float32)  # 99~-99
 
-                        target_pos = np.expand_dims(obs_traj[-1,idx,:2].cpu().detach().numpy(), 0)
+                        target_pos = np.expand_dims(obs_traj[-1, idx, :2].cpu().detach().numpy(), 0)
                         target_pos[:, [0, 1]] = target_pos[:, [1, 0]]
                         target_pixel = np.matmul(
                             np.concatenate([target_pos, np.ones((len(target_pos), 1))], axis=1), inv_h_t[idx])
@@ -652,11 +654,11 @@ class Solver(object):
 
                         # local_map = crop(global_map, obs_traj[-1,idx,:2].cpu().detach().numpy(), inv_h_t[idx], context_size=(int(np.round(per_step_dist*14*2))//2)*2 + 2)
                         # plt.imshow(local_map[0])
-
+                        '''
                         local_map = transforms.Compose([
                             transforms.Resize(self.map_size),
                             transforms.ToTensor()
-                        ])(Image.fromarray(local_map[0]))
+                        ])(Image.fromarray(global_map))
                         local_maps.append(local_map)
 
                 local_maps = torch.stack(local_maps).to(self.device)
