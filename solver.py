@@ -607,7 +607,7 @@ class Solver(object):
                 if loss:
                     ll20 = []
                     for dist in fut_rel_pos_dist20:
-                        ll20.append(dist.log_prob(fut_traj[:, :, 2:4]).sum().div(batch))
+                        ll20.append(dist.log_prob(fut_traj[:, :, 2:4]).sum().div(batch_size))
 
                     kld = kl_divergence(q_dist, p_dist).sum().div(batch_size)
                     kld = torch.clamp(kld, min=0.07)
