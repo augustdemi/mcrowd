@@ -14,8 +14,8 @@ from torch.distributions import OneHotCategorical as discrete
 from torch.distributions import kl_divergence
 from scipy.interpolate import RectBivariateSpline
 from scipy.ndimage import binary_dilation
-from model_map_ae import Encoder as Map_Encoder
-from utils import crop
+# from model_map_ae import Decoder as Map_Decoder
+
 import numpy as np
 
 ###############################################################################
@@ -31,6 +31,37 @@ def integrate_samples(v, p_0, dt=1):
     abs_traj = torch.cumsum(v, dim=1) * dt + p_0.unsqueeze(1)
     return  abs_traj.permute((1, 0, 2))
 
+def theta(v, w):
+    return np.arccos(v.dot(w) / (np.linalg.norm(v) * np.linalg.norm(w)))
+
+
+def find_coord(goal_map, updated_map, selected_goal_ic, candidate_pos_ic, radius, n_goal=20):
+    goal_pos_idx = updated_map[candidate_pos_ic[:, 0], candidate_pos_ic[:, 1]].argmax()
+    selected_goal_ic.append(
+        [candidate_pos_ic[goal_pos_idx, 0], candidate_pos_ic[goal_pos_idx, 1]])
+    # print(selected_goal_ic)
+
+    if len(selected_goal_ic) == n_goal:
+        return selected_goal_ic
+    else:
+        # 반경의 모든 coord의 prob를 0으로.
+        updated_map[selected_goal_ic[-1][0], selected_goal_ic[-1][1]] = 0
+        for coord in candidate_pos_ic:
+            if np.linalg.norm(selected_goal_ic[-1] - coord) < radius:
+                updated_map[coord[0], coord[1]] = 0
+                # print(updated_map[coord])
+
+        if updated_map.sum() == 0:
+            # return selected_goal_ic
+            # print('>>>> replay')
+            updated_map = goal_map.copy()
+            # 선택된 coord를 제외하고 다시 시작
+            for coord in selected_goal_ic:
+                updated_map[coord[0], coord[1]] = 0
+        selected_goal_ic = find_coord(goal_map, updated_map, selected_goal_ic, candidate_pos_ic, radius, n_goal)
+    return selected_goal_ic
+
+
 
 class Solver(object):
 
@@ -39,16 +70,9 @@ class Solver(object):
 
         self.args = args
 
-        # self.name = '%s_pred_len_%s_zS_%s_embedding_dim_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_pool_dim_%s_lr_%s_klw_%s' % \
-        #             (args.dataset_name, args.pred_len, args.zS_dim, 16, args.encoder_h_dim, args.decoder_h_dim, args.mlp_dim, args.pool_dim, args.lr_VAE, args.kl_weight)
-
-        self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_pool_dim_%s_lr_%s_klw_%s' % \
+        self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_hD_%s_dec_hD_%s_mlpD_%s_map_featD_%s_map_mlpD_%s_lr_%s_klw_%s' % \
                     (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
-                     args.decoder_h_dim, args.mlp_dim, 0, args.lr_VAE, args.kl_weight)
-
-        # self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_h_dim_%s_dec_h_dim_%s_mlp_dim_%s_attn_%s_lr_%s_klw_%s' % \
-        #             (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
-        #              args.decoder_h_dim, args.mlp_dim, args.attention, args.lr_VAE, args.kl_weight)
+                     args.decoder_h_dim, args.mlp_dim, args.map_feat_dim , args.map_mlp_dim, args.lr_VAE, args.kl_weight)
 
 
         # to be appended by run_id
@@ -57,6 +81,8 @@ class Solver(object):
         self.device = args.device
         self.temp=1.99
         self.dt=0.4
+        self.eps=1e-9
+
         self.kl_weight=args.kl_weight
 
         self.max_iter = int(args.max_iter)
@@ -87,15 +113,17 @@ class Solver(object):
         self.viz_on = args.viz_on
         if self.viz_on:
             self.win_id = dict(
-                recon='win_recon', loss_kl='win_loss_kl', loss_recon='win_loss_recon', total_loss='win_total_loss'
-                , ade_min='win_ade_min', fde_min='win_fde_min', ade_avg='win_ade_avg', fde_avg='win_fde_avg',
+                recon='win_recon', loss_kl='win_loss_kl', loss_recon='win_loss_recon', total_loss='win_total_loss',
+                loss_map='win_loss_map', loss_vel='win_loss_vel', test_loss_map='win_test_loss_map', test_loss_vel='win_test_loss_vel',
+                ade_min='win_ade_min', fde_min='win_fde_min', ade_avg='win_ade_avg', fde_avg='win_fde_avg',
                 ade_std='win_ade_std', fde_std='win_fde_std',
                 test_loss_recon='win_test_loss_recon', test_loss_kl='win_test_loss_kl', test_total_loss='win_test_total_loss'
             )
             self.line_gather = DataGather(
                 'iter', 'loss_recon', 'loss_kl', 'total_loss', 'ade_min', 'fde_min',
                 'ade_avg', 'fde_avg', 'ade_std', 'fde_std',
-                'test_loss_recon', 'test_loss_kl', 'test_total_loss'
+                'test_loss_recon', 'test_loss_kl', 'test_total_loss',
+                'test_loss_map', 'test_loss_vel', 'loss_map', 'loss_vel'
             )
 
             import visdom
@@ -147,16 +175,19 @@ class Solver(object):
         self.pred_len = args.pred_len
         self.num_layers = args.num_layers
         self.decoder_h_dim = args.decoder_h_dim
+        self.radius_deno=8
 
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
             self.encoderMx = Encoder(
                 args.zS_dim,
                 enc_h_dim=args.encoder_h_dim,
                 mlp_dim=args.mlp_dim,
+                map_mlp_dim=args.map_mlp_dim,
                 batch_norm=args.batch_norm,
                 num_layers=args.num_layers,
                 dropout_mlp=args.dropout_mlp,
                 dropout_rnn=args.dropout_rnn,
+                map_feat_dim=args.map_feat_dim,
                 device=self.device).to(self.device)
             self.encoderMy = EncoderY(
                 args.zS_dim,
@@ -171,14 +202,12 @@ class Solver(object):
                 args.pred_len,
                 dec_h_dim=self.decoder_h_dim,
                 enc_h_dim=args.encoder_h_dim,
-                z_dim=args.zS_dim,
                 mlp_dim=args.mlp_dim,
+                z_dim=args.zS_dim,
                 num_layers=args.num_layers,
                 device=args.device,
-                dropout_mlp=args.dropout_mlp,
                 dropout_rnn=args.dropout_rnn,
-                batch_norm=args.batch_norm,
-                map_size=args.map_size).to(self.device)
+                batch_norm=args.batch_norm).to(self.device)
 
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
@@ -201,8 +230,10 @@ class Solver(object):
 
         # prepare dataloader (iterable)
         print('Start loading data...')
-        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'train')
-        val_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
+        # args.batch_size=4
+        # self.agrs = args
+        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'Train.txt')
+        val_path = os.path.join(self.dataset_dir, self.dataset_name, 'Test.txt')
 
         # long_dtype, float_dtype = get_dtypes(args)
 
@@ -225,12 +256,9 @@ class Solver(object):
 
         data_loader = self.train_loader
         self.N = len(data_loader.dataset)
-
-        # iterators from dataloader
         iterator = iter(data_loader)
 
         iter_per_epoch = len(iterator)
-
         start_iter = self.ckpt_load_iter + 1
         epoch = int(start_iter / iter_per_epoch)
 
@@ -247,58 +275,114 @@ class Solver(object):
             # ============================================
 
             # sample a mini-batch
-            (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-             obs_frames, pred_frames, obs_obst, fut_obst, map_path, inv_h_t) = next(iterator)
+            (obs_traj, fut_traj, seq_start_end,
+             obs_frames, pred_frames, map_path, inv_h_t) = next(iterator)
             batch = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
+            #### MAP ####
+            local_maps = []
+            goal20 = []
+            for (s, e) in seq_start_end:
+                for idx in range(s, e):
+                    map = imageio.imread(map_path[idx]) / 255
+                    map = ndimage.distance_transform_edt(map)
 
-            (encX_h_feat, logitX) \
-                = self.encoderMx(obs_traj_st, seq_start_end, obs_obst, obs_traj[:,:,2:4], train=True)
-            (encY_h_feat, logitY) \
-                = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, encX_h_feat, fut_obst, fut_traj[:,:,2:4],train=True)
+                    obs_real = obs_traj[:, idx, :2]
+                    obs_real = np.concatenate([obs_real, np.ones((self.obs_len, 1))], axis=1)
+                    obs_pixel = np.matmul(obs_real, inv_h_t[idx])
+                    obs_pixel /= np.expand_dims(obs_pixel[:, 2], 1)
+                    obs_pixel = obs_pixel[:, :2]
+                    obs_pixel[:, [1, 0]] = obs_pixel[:, [0, 1]]
+
+                    per_step_dist = (((obs_pixel[1:, :2] - obs_pixel[:-1, :2]) ** 2).sum(1) ** (1 / 2)).mean()
+                    circle = np.zeros(map.shape)
+                    for x in range(map.shape[0]):
+                        for y in range(map.shape[1]):
+                            dist_from_last_obs = np.linalg.norm([x, y] - obs_pixel[-1])
+                            if dist_from_last_obs < per_step_dist * (12 + 1):
+                                angle = theta(([x, y] - (obs_pixel[-1] - obs_pixel[-2])) - obs_pixel[-2],
+                                              obs_pixel[-1] - obs_pixel[-2])
+                                if np.cos(angle) >= 0:
+                                    circle[x, y] = np.cos(angle) * (
+                                    1 + dist_from_last_obs) + 1  # in case dist_from_last_obs < 1
+
+                    ##### find 20 goals
+                    candidate_pos_ic = np.array(np.where(circle * map > 0)).transpose((1, 0))
+                    radius = per_step_dist * (self.pred_len + 1) / self.radius_deno
+                    selected_goal_ic = find_coord(circle * map, circle * map, [], candidate_pos_ic, radius, n_goal=19)
+                    selected_goal_ic = np.array(selected_goal_ic)
+                    # fig, ax = plt.subplots()
+                    # ax.imshow(circle * map)
+                    # for coord in selected_goal_ic:
+                    #     ax.scatter(coord[1], coord[0], s=1, c='hotpink', marker='x')
+                    # ax.scatter(obs_pixel[:, 1], obs_pixel[:, 0], s=1, c='b')
+
+                    #### back to WCS goal
+                    selected_goal_ic[:, [1, 0]] = selected_goal_ic[:, [0, 1]]
+                    selected_goal_ic=np.concatenate([selected_goal_ic, np.ones((len(selected_goal_ic),1))], axis=1)
+                    goal_wc = np.matmul(selected_goal_ic, np.linalg.inv(inv_h_t[idx]))
+                    goal_wc = goal_wc / np.expand_dims(goal_wc[:, 2], 1)
+                    goal_wc = np.concatenate([goal_wc[:,:2], np.expand_dims(fut_traj[-1,idx,:2],0)], axis=0)
+                    # plt.scatter(obs_traj[:, idx, 0], obs_traj[:, idx, 1], c='b')
+                    # plt.scatter(fut_traj[:, idx, 0], fut_traj[:, idx, 1], c='r')
+                    # plt.scatter(goal_wc[:, 0], goal_wc[:, 1], c='g', marker='X')
+                    goal20.append(goal_wc)
+
+                    ##### resize the map
+                    vir_goal_map = circle * map
+                    vir_goal_map = transforms.Compose([
+                        transforms.Resize(self.map_size),
+                        transforms.ToTensor()
+                    ])(Image.fromarray(vir_goal_map))
+                    local_maps.append(vir_goal_map)
+                    # plt.imshow(vir_goal_map[0])
+
+                    #
+                    # obs_real = fut_traj[:,idx,:2]
+                    # obs_real = np.concatenate([obs_real, np.ones((12, 1))], axis=1)
+                    # obs_pixel = np.matmul(obs_real, inv_h_t[idx])
+                    # obs_pixel /= np.expand_dims(obs_pixel[:, 2], 1)
+                    # obs_pixel = obs_pixel[:, :2]
+                    # obs_pixel[:, [1, 0]] = obs_pixel[:, [0, 1]]
+                    # ax.scatter(obs_pixel[:, 1], obs_pixel[:, 0], s=1, c='r')
+            local_maps = torch.stack(local_maps).to(self.device)
+            goal20 = torch.tensor(np.stack(goal20).transpose((1,0,2))).to(self.device).float()
+
+            #############
+
+            (encX_h_feat, logitX, map_featX) \
+                = self.encoderMx(obs_traj, seq_start_end, local_maps, train=True)
+            (_, logitY) \
+                = self.encoderMy(obs_traj[-1], fut_traj[:,:,2:4], seq_start_end, encX_h_feat, train=True)
 
             p_dist = discrete(logits=logitX)
             q_dist = discrete(logits=logitY)
             relaxed_q_dist = concrete(logits=logitY, temperature=self.temp)
 
-
-            # 첫번째 iteration 디코더 인풋 = (obs_traj_rel의 마지막 값, (hidden_state, cell_state))
-            # where hidden_state = "인코더의 마지막 hidden_layer아웃풋과 그것으로 만든 max_pooled값을 concat해서 mlp 통과시켜만든 feature인 noise_input에다 noise까지 추가한값)"
-            fut_rel_pos_dist = self.decoderMy(
-                obs_traj_st[-1],
+            fut_rel_pos_dist20 = self.decoderMy(
+                obs_traj[-1],
                 encX_h_feat,
                 relaxed_q_dist.rsample(),
-                torch.cat((obs_obst[-1].unsqueeze(0), fut_obst), dim=0),
+                goal20,
                 fut_traj
             )
 
-
-            ################# validate integration #################
-            # a = integrate_samples(fut_traj_rel, obs_traj[-1][:, :2])
-            # d = a - fut_traj[:, :, :2]
-            # b = relative_to_abs(fut_traj_rel, obs_traj[-1][:, :2])
-            # e = b - fut_traj[:, :, :2]
-            # d==e
-            ####################################################################
-
-            ################## total loss for vae ####################
-            # loglikelihood = fut_rel_pos_dist.log_prob(torch.reshape(fut_traj_rel, [batch, self.pred_len, 2])).sum().div(batch)
-
-            # log_p_yt_xz=torch.clamp(fut_rel_pos_dist.log_prob(torch.reshape(fut_traj_rel, [batch, self.pred_len, 2])), max=6)
-            # print(">>>max:", log_p_yt_xz.max(), log_p_yt_xz.min(), log_p_yt_xz.mean())
-            # loglikelihood = log_p_yt_xz.sum().div(batch)
-            loglikelihood = fut_rel_pos_dist.log_prob(fut_traj[:, :, 2:4]).sum().div(batch)
+            ll20 = []
+            for dist in fut_rel_pos_dist20:
+                ll20.append(dist.log_prob(fut_traj[:, :, 2:4]).sum().div(batch))
 
             loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
             loss_kl = torch.clamp(loss_kl, min=0.07)
             # print('log_likelihood:', loglikelihood.item(), ' kl:', loss_kl.item())
 
+            loglikelihood=sum(ll20).div(20)
             elbo = loglikelihood - self.kl_weight * loss_kl
             vae_loss = -elbo
 
+            loss = vae_loss
 
             self.optim_vae.zero_grad()
-            vae_loss.backward()
+            loss.backward()
             self.optim_vae.step()
 
 
@@ -312,7 +396,7 @@ class Solver(object):
                 ade_min, fde_min, \
                 ade_avg, fde_avg, \
                 ade_std, fde_std, \
-                test_loss_recon, test_loss_kl, test_vae_loss = self.evaluate_dist(self.val_loader, 20, loss=True)
+                test_loss_recon, test_loss_kl, test_loss = self.evaluate_dist(self.val_loader, 20, loss=True)
                 self.line_gather.insert(iter=iteration,
                                         loss_recon=-loglikelihood.item(),
                                         loss_kl=loss_kl.item(),
@@ -325,7 +409,7 @@ class Solver(object):
                                         fde_std=fde_std,
                                         test_loss_recon=-test_loss_recon.item(),
                                         test_loss_kl=test_loss_kl.item(),
-                                        test_total_loss=test_vae_loss.item(),
+                                        test_total_loss=test_loss.item(),
                                         )
                 prn_str = ('[iter_%d (epoch_%d)] vae_loss: %.3f ' + \
                               '(recon: %.3f, kl: %.3f)\n' + \
@@ -401,11 +485,11 @@ class Solver(object):
 
 
 
-    def evaluate_dist(self, data_loader, num_samples, loss=False):
+    def evaluate_dist(self, data_loader, loss=False):
         self.set_mode(train=False)
         total_traj = 0
 
-        loss_recon = loss_kl = vae_loss = 0
+        loss_recon = loss_kl = total_loss = 0
 
         all_ade =[]
         all_fde =[]
@@ -413,59 +497,116 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-                 obs_frames, fut_frames, obs_obst, fut_obst, map_path, inv_h_t) = batch
+                (obs_traj, fut_traj, seq_start_end,
+                 obs_frames, pred_frames, map_path, inv_h_t) = batch
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
-                (encX_h_feat, logitX) \
-                    = self.encoderMx(obs_traj_st, seq_start_end, obs_obst, obs_traj[:,:,2:4])
+                #### MAP ####
+                local_maps = []
+                goal20 = []
+                for (s, e) in seq_start_end:
+                    for idx in range(s, e):
+                        map = imageio.imread(map_path[idx]) / 255
+                        map = ndimage.distance_transform_edt(map)
+
+                        obs_real = obs_traj[:, idx, :2]
+                        obs_real = np.concatenate([obs_real, np.ones((self.obs_len, 1))], axis=1)
+                        obs_pixel = np.matmul(obs_real, inv_h_t[idx])
+                        obs_pixel /= np.expand_dims(obs_pixel[:, 2], 1)
+                        obs_pixel = obs_pixel[:, :2]
+                        obs_pixel[:, [1, 0]] = obs_pixel[:, [0, 1]]
+
+                        per_step_dist = (((obs_pixel[1:, :2] - obs_pixel[:-1, :2]) ** 2).sum(1) ** (1 / 2)).mean()
+                        circle = np.zeros(map.shape)
+                        for x in range(map.shape[0]):
+                            for y in range(map.shape[1]):
+                                dist_from_last_obs = np.linalg.norm([x, y] - obs_pixel[-1])
+                                if dist_from_last_obs < per_step_dist * (12 + 1):
+                                    angle = theta(([x, y] - (obs_pixel[-1] - obs_pixel[-2])) - obs_pixel[-2],
+                                                  obs_pixel[-1] - obs_pixel[-2])
+                                    if np.cos(angle) >= 0:
+                                        circle[x, y] = np.cos(angle) * (
+                                            1 + dist_from_last_obs) + 1  # in case dist_from_last_obs < 1
+
+                        ##### find 20 goals
+                        candidate_pos_ic = np.array(np.where(circle * map > 0)).transpose((1, 0))
+                        if len(candidate_pos_ic) == 0:
+                            # np.random.rand(20)
+                            # print(per_step_dist)
+                            # print(idx)
+                            # print(obs_pixel[-1] - obs_pixel[-2])
+                            # print('-------------------------------------')
+                            selected_goal_ic = np.array([obs_pixel[-1]]*20)
+                        else:
+                            radius = per_step_dist * (self.pred_len + 1) / self.radius_deno
+                            selected_goal_ic = find_coord(circle * map, circle * map, [], candidate_pos_ic, radius,
+                                                          n_goal=20)
+                            selected_goal_ic = np.array(selected_goal_ic)
+                        # fig, ax = plt.subplots()
+                        # ax.imshow(circle * map)
+                        # for coord in selected_goal_ic:
+                        #     ax.scatter(coord[1], coord[0], s=1, c='hotpink', marker='x')
+                        # ax.scatter(obs_pixel[:, 1], obs_pixel[:, 0], s=1, c='b')
+
+                        #### back to WCS goal
+                        selected_goal_ic[:, [1, 0]] = selected_goal_ic[:, [0, 1]]
+                        selected_goal_ic = np.concatenate([selected_goal_ic, np.ones((len(selected_goal_ic), 1))],
+                                                          axis=1)
+                        goal_wc = np.matmul(selected_goal_ic, np.linalg.inv(inv_h_t[idx]))
+                        goal_wc = goal_wc / np.expand_dims(goal_wc[:, 2], 1)
+                        # plt.scatter(obs_traj[:, idx, 0], obs_traj[:, idx, 1], c='b')
+                        # plt.scatter(fut_traj[:, idx, 0], fut_traj[:, idx, 1], c='r')
+                        # plt.scatter(goal_wc[:, 0], goal_wc[:, 1], c='g', marker='X')
+                        goal20.append(goal_wc)
+
+                        ##### resize the map
+                        vir_goal_map = circle * map
+                        vir_goal_map = transforms.Compose([
+                            transforms.Resize(self.map_size),
+                            transforms.ToTensor()
+                        ])(Image.fromarray(vir_goal_map))
+                        local_maps.append(vir_goal_map)
+                local_maps = torch.stack(local_maps).to(self.device)
+                goal20 = torch.tensor(np.stack(goal20).transpose((1, 0, 2))).to(self.device).float()
+                #############
+
+
+                (encX_h_feat, logitX, map_featX) \
+                    = self.encoderMx(obs_traj, seq_start_end, local_maps)
                 p_dist = discrete(logits=logitX)
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
+                (_, logitY) \
+                    = self.encoderMy(obs_traj[-1], fut_traj[:, :, 2:4], seq_start_end, encX_h_feat)
+                q_dist = discrete(logits=logitY)
+                fut_rel_pos_dist20 = self.decoderMy(
+                    obs_traj[-1],
+                    encX_h_feat,
+                    relaxed_p_dist.rsample(),
+                    goal20,
+                    fut_traj
+                )
+
                 if loss:
-                    (encY_h_feat, logitY) \
-                        = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, encX_h_feat, fut_obst, fut_traj[:,:,2:4])
-
-                    q_dist = discrete(logits=logitY)
-                    fut_rel_pos_dist = self.decoderMy(
-                        obs_traj_st[-1],
-                        encX_h_feat,
-                        relaxed_p_dist.rsample(),
-                        obs_obst[-1].unsqueeze(0),
-                        map_info=[seq_start_end, map_path, inv_h_t, lambda x: integrate_samples(x, obs_traj[-1, :, :2], dt=self.dt)]
-                    )
-                    # fut_rel_pos_dist = self.decoderMy(
-                    #     obs_traj[-1],
-                    #     encX_h_feat,
-                    #     relaxed_p_dist.rsample((num_samples,)),
-                    #     num_samples=num_samples
-                    # )
-
-                    ################## total loss for vae ####################
-                    loglikelihood = fut_rel_pos_dist.log_prob(fut_traj[:, :, 2:4]).sum().div(batch_size)
+                    ll20 = []
+                    for dist in fut_rel_pos_dist20:
+                        ll20.append(dist.log_prob(fut_traj[:, :, 2:4]).sum().div(batch))
 
                     kld = kl_divergence(q_dist, p_dist).sum().div(batch_size)
                     kld = torch.clamp(kld, min=0.07)
+                    # print('log_likelihood:', loglikelihood.item(), ' kl:', loss_kl.item())
+
+                    loglikelihood = sum(ll20).div(20)
                     elbo = loglikelihood - self.kl_weight * kld
-                    vae_loss -=elbo
+
                     loss_recon +=loglikelihood
                     loss_kl +=kld
+                    total_loss += -elbo
 
                 ade, fde = [], []
-                for _ in range(num_samples):
-                    fut_rel_pos_dist = self.decoderMy(
-                        obs_traj_st[-1],
-                        encX_h_feat,
-                        relaxed_p_dist.rsample(),
-                        obs_obst[-1].unsqueeze(0),
-                        map_info=[seq_start_end, map_path, inv_h_t, lambda x: integrate_samples(x, obs_traj[-1, :, :2], dt=self.dt)]
-                    )
-                    pred_fut_traj_rel = fut_rel_pos_dist.rsample()
-
-                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[-1, :, :2], dt=self.dt)
-
-
+                for dist in fut_rel_pos_dist20:
+                    pred_fut_traj=integrate_samples(dist.rsample(), obs_traj[-1, :, :2], dt=self.dt)
                     ade.append(displacement_error(
                         pred_fut_traj, fut_traj[:,:,:2], mode='raw'
                     ))
@@ -490,56 +631,13 @@ class Solver(object):
             return ade_min, fde_min, \
                    ade_avg, fde_avg, \
                    ade_std, fde_std, \
-                   loss_recon/b, loss_kl/b, vae_loss/b
+                   loss_recon/b, loss_kl/b, total_loss/b
         else:
             return ade_min, fde_min, \
                    ade_avg, fde_avg, \
                    ade_std, fde_std
 
 
-
-
-
-    def evaluate_dtw(self, data_loader, num_samples):
-        self.set_mode(train=False)
-        all_dist = []
-        from dtaidistance import dtw_ndim
-        with torch.no_grad():
-            b=0
-            for batch in data_loader:
-                b+=1
-                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
-                 fut_obst) = batch
-                batch_size = fut_traj.size(1)
-
-                (encX_h_feat, logitX) \
-                    = self.encoderMx(obs_traj, seq_start_end)
-                relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
-
-                dist_20samples = [] # (20, # seq, 12)
-                for _ in range(num_samples):
-                    fut_rel_pos_dist = self.decoderMy(
-                        obs_traj[-1],
-                        encX_h_feat,
-                        relaxed_p_dist.rsample()
-                    )
-                    pred_fut_traj_rel = fut_rel_pos_dist.rsample()
-
-                    pred_fut_traj=integrate_samples(pred_fut_traj_rel, obs_traj[-1, :, :2], dt=self.dt)
-
-                    dtw_dist = []
-                    for i in range(batch_size):
-                        dtw_dist.append(dtw_ndim.distance(pred_fut_traj[:,i].cpu().numpy(), fut_traj[:, i,:2].cpu().numpy()))
-                    dist_20samples.append(dtw_dist)
-                all_dist.append(np.array(dist_20samples))
-
-            all_dist=np.concatenate(all_dist, axis=1) #(20,70,12)
-            print('all_coll: ', all_dist.shape)
-            dtw_min=all_dist.min(axis=0).mean()
-            dtw_avg=all_dist.mean(axis=0).mean()
-            dtw_std=all_dist.std(axis=0).mean()
-        self.set_mode(train=True)
-        return dtw_min, dtw_avg, dtw_std
 
 
 
@@ -620,25 +718,20 @@ class Solver(object):
     def compute_obs_violations(self, predicted_trajs, obs_map):
         interp_obs_map = RectBivariateSpline(range(obs_map.shape[0]),
                                              range(obs_map.shape[1]),
-                                             binary_dilation(obs_map, iterations=1),
+                                             1-binary_dilation(obs_map, iterations=1),
                                              kx=1, ky=1)
 
         old_shape = predicted_trajs.shape
         predicted_trajs = predicted_trajs.reshape((-1,2))
 
         # plt.imshow(obs_map)
-        # import cv2
-        # cap = cv2.VideoCapture(os.path.join('D:\crowd\datasets/nmap\map2', self.dataset_name + '_video.avi'))
-        # cap.set(1, int(880))
-        # _, ff = cap.read()
-        # plt.imshow(ff)
-        # for i in range(12):
-        #     plt.scatter(predicted_trajs[i,0], predicted_trajs[i,1], s=1)
+        # for i in range(12, 24):
+        #     plt.scatter(predicted_trajs[i,0], predicted_trajs[i,1], s=1, c='r')
         #
-        # a = binary_dilation(obs_map, iterations=1)
+        # a = 1-binary_dilation(obs_map, iterations=1)
         # plt.imshow(a)
         # for i in range(12):
-        #     plt.scatter(predicted_trajs[i,0], predicted_trajs[i,1], s=1)
+        #     plt.scatter(predicted_trajs[i,0], predicted_trajs[i,1], s=1, c='r')
 
         traj_obs_values = interp_obs_map(predicted_trajs[:, 1], predicted_trajs[:, 0], grid=False)
         traj_obs_values = traj_obs_values.reshape((old_shape[0], old_shape[1]))
@@ -649,10 +742,6 @@ class Solver(object):
 
     def map_collision(self, data_loader, num_samples=20):
 
-        obs_map = imageio.imread(os.path.join('../datasets/nmap/map', self.dataset_name + '_map.png'))
-        h = np.loadtxt(os.path.join('../datasets/nmap/map', self.dataset_name +'_H.txt'))
-        inv_h_t = np.linalg.pinv(np.transpose(h))
-
         total_traj = 0
         total_viol = 0
         min_viol = []
@@ -662,47 +751,50 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_vel, fut_traj_vel, seq_start_end, obs_frames, fut_frames, past_obst,
-                 fut_obst) = batch
+                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
+                 obs_frames, pred_frames, obs_obst, fut_obst, map_path, inv_h_t) = batch
                 total_traj += fut_traj.size(1)
 
-                (encX_h_feat, logitX) \
-                    = self.encoderMx(obs_traj, seq_start_end, train=False)
+
+                (encX_h_feat, logitX, map_featX) \
+                    = self.encoderMx(obs_traj_st, seq_start_end, obs_obst, obs_traj[:,:,2:4])
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
 
-
-
-                for s, e in seq_start_end:
+                for j, (s, e) in enumerate(seq_start_end):
                     agent_rng = range(s, e)
 
                     multi_sample_pred = []
                     for _ in range(num_samples):
                         fut_rel_pos_dist = self.decoderMy(
-                            obs_traj[-1],
+                            obs_traj_st[-1],
                             encX_h_feat,
-                            relaxed_p_dist.rsample()
+                            relaxed_p_dist.rsample(),
+                            obs_obst[-1].unsqueeze(0),
+                            map_info=[seq_start_end, map_path, inv_h_t,
+                                      lambda x: integrate_samples(x, obs_traj[-1, :, :2], dt=self.dt)]
                         )
-
-                        pred_fut_traj_vel = fut_rel_pos_dist.rsample()
-                        pred_fut_traj = integrate_samples(pred_fut_traj_vel, obs_traj[-1][:, :2], dt=self.dt)
+                        pred_fut_traj_rel = fut_rel_pos_dist.rsample()
+                        pred_fut_traj = integrate_samples(pred_fut_traj_rel, obs_traj[-1, :, :2], dt=self.dt)
 
                         pred_data = []
                         for idx in range(len(agent_rng)):
                             one_ped = agent_rng[idx]
                             pred_real = pred_fut_traj[:, one_ped].detach().cpu().numpy()
                             pred_pixel = np.concatenate([pred_real, np.ones((self.pred_len, 1))], axis=1)
-                            pred_pixel = np.matmul(pred_pixel, inv_h_t)
+                            pred_pixel = np.matmul(pred_pixel, inv_h_t[j])
                             pred_pixel /= np.expand_dims(pred_pixel[:, 2], 1)
                             pred_data.append(pred_pixel)
 
                         pred_data = np.stack(pred_data)
-                        pred_data[:,:,[0,1]] = pred_data[:,:,[1,0]]
 
                         multi_sample_pred.append(pred_data)
 
+                    multi_sample_pred = np.array(multi_sample_pred)[:,:,:,:2]
+
                     for a in range(len(agent_rng)):
-                        num_viol_trajs, viol20 = self.compute_obs_violations(np.array(multi_sample_pred)[:,a,:,:2], obs_map)
+                        obs_map = imageio.imread(map_path[j])
+                        num_viol_trajs, viol20 = self.compute_obs_violations(multi_sample_pred[:,a], obs_map)
                         total_viol += num_viol_trajs
                         min_viol.append(np.min(viol20))
                         avg_viol.append(np.mean(viol20))
@@ -758,7 +850,6 @@ class Solver(object):
         return coll_rate
 
 
-
     def plot_traj(self, data_loader, num_samples=20):
         import matplotlib.pyplot as plt
         from matplotlib.animation import FuncAnimation
@@ -774,133 +865,43 @@ class Solver(object):
                 b+=1
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
                  obs_frames, pred_frames, obs_obst, fut_obst, map_path, inv_h_t) = batch
+                total_traj += fut_traj.size(1)
 
-                def theta(v, w):
-                    return np.arccos(v.dot(w) / (np.linalg.norm(v) * np.linalg.norm(w)))
-
-                from scipy import ndimage
-
-                rng = range(30,31)
-                rng = range(183,184)
-                rng = range(287,288)
-                map = 1 - imageio.imread(map_path[0])/255
-                map = ndimage.distance_transform_edt(map)
-
-                # fig, ax = plt.subplots()
-                # ax.imshow(map)
+                rng = range(19,27)
+                fig, ax = plt.subplots()
+                ax.imshow(imageio.imread(map_path[rng[0]]))
                 for idx in rng:
                     obs_real = obs_traj[:, idx, :2]
                     obs_real = np.concatenate([obs_real, np.ones((self.obs_len, 1))], axis=1)
-                    obs_pixel = np.matmul(obs_real, inv_h_t[0])
+                    obs_pixel = np.matmul(obs_real, inv_h_t[idx])
                     obs_pixel /= np.expand_dims(obs_pixel[:, 2], 1)
 
                     gt_real = fut_traj[:, idx, :2]
                     gt_real = np.concatenate([gt_real, np.ones((self.pred_len, 1))], axis=1)
-                    gt_pixel = np.matmul(gt_real, inv_h_t[0])
+                    gt_pixel = np.matmul(gt_real, inv_h_t[idx])
                     gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
-                    gt_data = np.concatenate([obs_pixel, gt_pixel], 0)[:,:2]
-                    # gt_data[:, [0, 1]] = gt_data[:, [1, 0]]
+                    gt_data = np.concatenate([obs_pixel, gt_pixel], 0)
 
-                    per_step_dist = (((obs_pixel[1:, :2] - obs_pixel[:-1, :2]) ** 2).sum(1) ** (1 / 2)).mean()
-                    circle = np.zeros(map.shape)
-                    for x in range(map.shape[0]):
-                        for y in range(map.shape[1]):
-                            dist_from_last_obs = np.linalg.norm([x, y] - gt_data[7])
-                            if dist_from_last_obs < per_step_dist * (self.pred_len+1):
-                                angle = theta(([x, y] - (gt_data[7] - gt_data[6])) - gt_data[6],
-                                              gt_data[7] - gt_data[6])
-                                if np.cos(angle) >= 0:
-                                    circle[x, y] = np.cos(angle) * (1+dist_from_last_obs) + 1 # in case dist_from_last_obs < 1
-                                    # map[x, y] =  circle[x, y]
-                    # fig, ax = plt.subplots()
-                    # ax.imshow(map)
-
-                    # print only circle
-                    fig, ax = plt.subplots()
-                    ax.imshow(circle * map)
-                    ax.scatter(gt_data[:8,1], gt_data[:8,0], s=5, c='b')
-                    ax.scatter(gt_data[8:20,1], gt_data[8:20,0], s=5, c='r')
-                    # ax.scatter(gt_data[-1,0], gt_data[-1,1], s=5)
-
-
-                    candidate_pos_ic = np.array(np.where(circle * map > 0)).transpose((1,0))
-
-                    ### random selection ###
-                    # random_idx = list(range(candidate_pos_ic.shape[0]))
-                    # np.random.shuffle(random_idx)
-                    # selected_goal_ic = candidate_pos_ic[random_idx[:19]]
-                    # for coord in selected_goal_ic:
-                    #     ax.scatter(coord[1], coord[0], s=5, c='hotpink', marker='^')
-
-
-                    ### highest 19 prob ###
-                    # prob = (circle * map)[candidate_pos_ic[:,0],candidate_pos_ic[:,1]]
-                    # prob = np.exp(prob)/sum(np.exp(prob))
-                    # random_idx_with_prob = np.random.choice(range(candidate_pos_ic.shape[0]), 19 , replace=False, p=prob)
-                    # selected_goal_ic = candidate_pos_ic[random_idx_with_prob]
-                    # for coord in selected_goal_ic:
-                    #     ax.scatter(coord[1], coord[0], s=5, c='hotpink', marker='^')
-
-                    ### reculrsive greed ###
-
-                    radius = per_step_dist * (self.pred_len + 1) / 8
-
-                    def find_coord(goal_map, updated_map, selected_goal_ic, candidate_pos_ic, radius):
-                        goal_pos_idx = updated_map[candidate_pos_ic[:, 0], candidate_pos_ic[:, 1]].argmax()
-                        selected_goal_ic.append(
-                            [candidate_pos_ic[goal_pos_idx, 0], candidate_pos_ic[goal_pos_idx, 1]])
-                        # print(selected_goal_ic)
-
-                        if len(selected_goal_ic) == 19:
-                            return selected_goal_ic
-                        else:
-                            # 반경의 모든 coord의 prob를 0으로.
-                            updated_map[selected_goal_ic[-1][0], selected_goal_ic[-1][1]] = 0
-                            for coord in candidate_pos_ic:
-                                if np.linalg.norm(selected_goal_ic[-1] - coord) < radius:
-                                    updated_map[coord[0], coord[1]] = 0
-                                    # print(updated_map[coord])
-
-                            if updated_map.sum() == 0:
-                                # return selected_goal_ic
-                                print('>>>> replay')
-                                updated_map = goal_map.copy()
-                                # 선택된 coord를 제외하고 다시 시작
-                                for coord in selected_goal_ic:
-                                    updated_map[coord[0], coord[1]] = 0
-                            selected_goal_ic = find_coord(goal_map, updated_map, selected_goal_ic, candidate_pos_ic, radius)
-                        return selected_goal_ic
-
-                    selected_goal_ic = find_coord(circle * map, circle * map, [], candidate_pos_ic, radius)
-
-                    for coord in selected_goal_ic:
-                        ax.scatter(coord[1], coord[0], s=5, c='hotpink', marker='^')
-                        # ax.scatter(coord[1], coord[0], s=5, c='black', marker='^')
-                        # ax.scatter(coord[1], coord[0], s=5, c='#88c999', marker='X')
+                    ax.plot(gt_data[:,0], gt_data[:,1])
+                    ax.scatter(gt_data[0,0], gt_data[0,1], s=5)
 
 
 
     def plot_traj_var(self, data_loader, num_samples=20):
         import matplotlib.pyplot as plt
         from matplotlib.animation import FuncAnimation
-        import cv2
         gif_path = "D:\crowd\\fig\\runid" + str(self.run_id)
         mkdirs(gif_path)
-        # read video
-        cap = cv2.VideoCapture('D:\crowd\ewap_dataset\seq_'+self.dataset_name+'\seq_'+self.dataset_name+'.avi')
 
-        colors = ['r', 'g', 'y', 'm', 'c', 'k', 'w', 'b']
-        h = np.loadtxt('D:\crowd\ewap_dataset\seq_'+self.dataset_name+'\H.txt')
-        inv_h_t = np.linalg.pinv(np.transpose(h))
+        colors = ['r', 'g', 'b', 'm', 'c', 'k', 'w', 'k']
 
         total_traj = 0
         with torch.no_grad():
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, non_linear_ped,
-                 loss_mask, seq_start_end, obs_frames, pred_frames) = batch
-                batch_size = obs_traj_rel.size(1)
+                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
+                 obs_frames, pred_frames, obs_obst, fut_obst, map_path, inv_h_t) = batch
                 total_traj += fut_traj.size(1)
 
                 # path = '../datasets\hotel\\test\\biwi_hotel.txt'
@@ -922,46 +923,31 @@ class Solver(object):
                 #     ax.text(gt_pixel[i][1], gt_pixel[i][0], str(int(d[:,1][i])), fontsize=10)
 
 
-                (encX_h_feat, logitX) \
-                    = self.encoderMx(obs_traj, seq_start_end)
+
+                (encX_h_feat, logitX, map_featX) \
+                    = self.encoderMx(obs_traj_st, seq_start_end, obs_obst, obs_traj[:,:,2:4])
                 relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
-                # s=seq_start_end.numpy()
-                # np.where(s[:,0]==63)
+                # (s,e) = seq_start_end[j]
+                # np.where(1658 in seq_start_end)
 
-                def init():
-                    ax.imshow(frame)
-
-                def update_dot(num_t):
-                    print(num_t)
-                    cap.set(1, frame_numbers[num_t])
-                    _, frame = cap.read()
-                    ax.imshow(frame)
-
-                    for i in range(n_agent):
-                        ln_gt[i].set_data(gt_data[i, :num_t, 0], gt_data[i, :num_t, 1])
-
-                        for j in range(20):
-                            all_ln_pred[i][j].set_data(multi_sample_pred[j][i, :num_t, 0],
-                                                       multi_sample_pred[j][i, :num_t, 1])
-
-                for s, e in seq_start_end:
+                for j, (s, e) in enumerate(seq_start_end):
                     agent_rng = range(s, e)
+                    seq_map = imageio.imread(map_path[j])  # seq = 한 씬에서 모든 neighbors니까. 같은 데이터셋.
 
-                    frame_numbers = np.concatenate([obs_frames[agent_rng[0]], pred_frames[agent_rng[0]]])
-                    frame_number = frame_numbers[0]
-                    cap.set(1, frame_number)
-                    ret, frame = cap.read()
                     multi_sample_pred = []
 
                     for _ in range(num_samples):
                         fut_rel_pos_dist = self.decoderMy(
-                            obs_traj[-1],
+                            obs_traj_st[-1],
                             encX_h_feat,
-                            relaxed_p_dist.rsample()
+                            relaxed_p_dist.rsample(),
+                            obs_obst[-1].unsqueeze(0),
+                            map_info=[seq_start_end, map_path, inv_h_t,
+                                      lambda x: integrate_samples(x, obs_traj[-1, :, :2], dt=self.dt)]
                         )
                         pred_fut_traj_rel = fut_rel_pos_dist.rsample()
-                        pred_fut_traj = integrate_samples(pred_fut_traj_rel, obs_traj[-1][:, :2], dt=self.dt)
+                        pred_fut_traj = integrate_samples(pred_fut_traj_rel, obs_traj[-1, :, :2], dt=self.dt)
 
                         gt_data, pred_data = [], []
 
@@ -969,17 +955,17 @@ class Solver(object):
                             one_ped = agent_rng[idx]
                             obs_real = obs_traj[:, one_ped,:2]
                             obs_real = np.concatenate([obs_real, np.ones((self.obs_len, 1))], axis=1)
-                            obs_pixel = np.matmul(obs_real, inv_h_t)
+                            obs_pixel = np.matmul(obs_real, inv_h_t[j])
                             obs_pixel /= np.expand_dims(obs_pixel[:, 2], 1)
 
                             gt_real = fut_traj[:, one_ped, :2]
                             gt_real = np.concatenate([gt_real, np.ones((self.pred_len, 1))], axis=1)
-                            gt_pixel = np.matmul(gt_real, inv_h_t)
+                            gt_pixel = np.matmul(gt_real, inv_h_t[j])
                             gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
 
                             pred_real = pred_fut_traj[:, one_ped].numpy()
                             pred_pixel = np.concatenate([pred_real, np.ones((self.pred_len, 1))], axis=1)
-                            pred_pixel = np.matmul(pred_pixel, inv_h_t)
+                            pred_pixel = np.matmul(pred_pixel, inv_h_t[j])
                             pred_pixel /= np.expand_dims(pred_pixel[:, 2], 1)
 
                             gt_data.append(np.concatenate([obs_pixel, gt_pixel], 0)) # (20, 3)
@@ -989,18 +975,29 @@ class Solver(object):
                         pred_data = np.stack(pred_data)
 
                         # if self.dataset_name == 'eth':
-                        gt_data[:,:, [0,1]] = gt_data[:,:,[1,0]]
-                        pred_data[:,:,[0,1]] = pred_data[:,:,[1,0]]
+                        # gt_data[:,:, [0,1]] = gt_data[:,:,[1,0]]
+                        # pred_data[:,:,[0,1]] = pred_data[:,:,[1,0]]
 
                         multi_sample_pred.append(pred_data)
 
+                    def init():
+                        ax.imshow(seq_map)
 
+                    def update_dot(num_t):
+                        print(num_t)
+                        ax.imshow(seq_map)
+
+                        for i in range(n_agent):
+                            ln_gt[i].set_data(gt_data[i, :num_t, 0], gt_data[i, :num_t, 1])
+
+                            for j in range(20):
+                                all_ln_pred[i][j].set_data(multi_sample_pred[j][i, :num_t, 0],
+                                                           multi_sample_pred[j][i, :num_t, 1])
                     n_agent = gt_data.shape[0]
                     n_frame = gt_data.shape[1]
 
                     fig, ax = plt.subplots()
-                    title = ",".join([str(int(elt)) for elt in frame_numbers[:8]]) + ' -->\n'
-                    title += ",".join([str(int(elt)) for elt in frame_numbers[8:]])
+                    title = map_path[j].split('.')[0].split('\\')[-1].replace('/', '_')
                     ax.set_title(title, fontsize=9)
                     fig.tight_layout()
 
@@ -1010,10 +1007,10 @@ class Solver(object):
 
 
                     for i in range(n_agent):
-                        ln_gt.append(ax.plot([], [], colors[i] + '--')[0])
+                        ln_gt.append(ax.plot([], [], colors[i % len(colors)] + '--', linewidth=1)[0])
                         ln_pred = []
                         for _ in range(20):
-                            ln_pred.append(ax.plot([], [], colors[i], alpha=0.3, linewidth=1)[0])
+                            ln_pred.append(ax.plot([], [], colors[i % len(colors)], alpha=0.6, linewidth=1)[0])
                         all_ln_pred.append(ln_pred)
 
 
@@ -1021,96 +1018,8 @@ class Solver(object):
 
                     # writer = PillowWriter(fps=3000)
 
-                    ani.save(gif_path + "/" +self.dataset_name+ "_f" + str(int(frame_numbers[0])) + "_agent" + str(agent_rng[0]) +"to" +str(agent_rng[-1]) +".gif", fps=4)
+                    ani.save(gif_path + "/" +self.dataset_name+ "_" + title + "_agent" + str(agent_rng[0]) +"to" +str(agent_rng[-1]) +".gif", fps=4)
 
-    def plot_traj_var2(self, data_loader, num_samples=20):
-        import matplotlib.pyplot as plt
-        from matplotlib.animation import FuncAnimation
-        import cv2
-        gif_path = "D:\crowd\\fig\\runid" + str(self.run_id)
-        mkdirs(gif_path)
-        # read video
-        # cap = cv2.VideoCapture('D:\crowd\ewap_dataset\seq_' + self.dataset_name + '\seq_' + self.dataset_name + '.avi')
-        # cap = cv2.VideoCapture('D:\crowd/ucy_original\data/crowds_zara01.avi')
-        cap = cv2.VideoCapture('D:\crowd/ucy_original\data/crowds_zara01.avi')
-
-        colors = ['r', 'g', 'y', 'm', 'c', 'k', 'w', 'b']
-        h = np.loadtxt('D:\crowd\ewap_dataset\seq_' + self.dataset_name + '\H.txt')
-        # h = np.loadtxt('D:\crowd\datasets/nmap\map/zara01_H.txt')
-        inv_h_t = np.linalg.pinv(np.transpose(h))
-
-        total_traj = 0
-        with torch.no_grad():
-            b = 0
-            for batch in data_loader:
-                b += 1
-                (obs_traj, fut_traj, obs_traj_rel, fut_traj_rel, seq_start_end, obs_frames, fut_frames, past_obst, fut_obst) = batch
-
-
-                total_traj += fut_traj.size(1)
-
-
-                def init():
-                    ax.imshow(frame)
-
-                def update_dot(num_t):
-                    print(num_t)
-                    cap.set(1, frame_numbers[num_t])
-                    _, frame = cap.read()
-                    ax.imshow(frame)
-
-                    for i in range(n_agent):
-                        ln_gt[i].set_data(gt_data[i, :num_t, 0], gt_data[i, :num_t, 1])
-
-                for s, e in seq_start_end:
-                    agent_rng = range(s, e)
-
-                    frame_numbers = np.concatenate([fut_frames[agent_rng[0]]])
-                    frame_number = frame_numbers[0]
-                    cap.set(1, frame_number)
-                    ret, frame = cap.read()
-                    gt_data = []
-
-                    for idx in range(len(agent_rng)):
-                        one_ped = agent_rng[idx]
-
-                        gt_real = fut_traj[:, one_ped, :2]
-                        gt_real = np.concatenate([gt_real, np.ones((self.pred_len, 1))], axis=1)
-                        gt_pixel = np.matmul(gt_real, inv_h_t)
-                        gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
-                        gt_data.append(gt_pixel)  # (20, 3)
-
-                    gt_data = np.stack(gt_data)
-                    # if self.dataset_name == 'eth':
-                    gt_data[:, :, [0, 1]] = gt_data[:, :, [1, 0]]
-
-                    n_agent = gt_data.shape[0]
-                    n_frame = gt_data.shape[1]
-
-                    fig, ax = plt.subplots()
-                    # title = ",".join([str(int(elt)) for elt in frame_numbers[:8]]) + ' -->\n'
-                    # title += ",".join([str(int(elt)) for elt in frame_numbers[8:]])
-                    # ax.set_title(title, fontsize=9)
-                    ax.axis('off')
-                    fig.tight_layout()
-
-                    ln_gt = []
-
-                    colors = ['r', 'g', 'y', 'm', 'c', 'blue']
-
-                    ax.imshow(frame)
-                    for i in range(n_agent):
-                        plt.plot(gt_data[i,:,0], gt_data[i,:,1], c=colors[i])
-                        plt.scatter(gt_data[i,-1,0], gt_data[i,-1,1], c=colors[i])
-
-                    for i in range(n_agent):
-                        ln_gt.append(ax.plot([], [], colors[i])[0])
-
-                    ani = FuncAnimation(fig, update_dot, frames=n_frame, interval=1, init_func=init())
-
-                    ani.save(gif_path + "/" + self.dataset_name + "_f" + str(
-                        int(frame_numbers[0])) + "_agent" + str(agent_rng[0]) + "to" + str(
-                        agent_rng[-1]) + ".gif", fps=4)
 
     ####
     def viz_init(self):
@@ -1146,7 +1055,6 @@ class Solver(object):
         test_loss_kl = torch.Tensor(data['test_loss_kl'])
         test_total_loss = torch.Tensor(data['test_total_loss'])
 
-
         self.viz.line(
             X=iters, Y=loss_recon, env=self.name + '/lines',
             win=self.win_id['loss_recon'], update='append',
@@ -1164,8 +1072,8 @@ class Solver(object):
         self.viz.line(
             X=iters, Y=total_loss, env=self.name + '/lines',
             win=self.win_id['total_loss'], update='append',
-            opts=dict(xlabel='iter', ylabel='vae loss',
-                      title='VAE loss'),
+            opts=dict(xlabel='iter', ylabel='total loss',
+                      title='Total loss'),
         )
 
         self.viz.line(
@@ -1185,9 +1093,10 @@ class Solver(object):
         self.viz.line(
             X=iters, Y=test_total_loss, env=self.name + '/lines',
             win=self.win_id['test_total_loss'], update='append',
-            opts=dict(xlabel='iter', ylabel='vae loss',
-                      title='Test VAE loss'),
+            opts=dict(xlabel='iter', ylabel='total loss',
+                      title='Test Total loss'),
         )
+
 
         self.viz.line(
             X=iters, Y=ade_min, env=self.name + '/lines',
@@ -1257,7 +1166,6 @@ class Solver(object):
             'iter_%s_decoderMy.pt' % iteration
         )
 
-
         mkdirs(self.ckpt_dir)
 
         torch.save(self.encoderMx, encoderMx_path)
@@ -1278,6 +1186,7 @@ class Solver(object):
             self.ckpt_dir,
             'iter_%s_decoderMy.pt' % self.ckpt_load_iter
         )
+
 
         if self.device == 'cuda':
             self.encoderMx = torch.load(encoderMx_path)
