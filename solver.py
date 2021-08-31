@@ -339,7 +339,7 @@ class Solver(object):
                     # plt.scatter(obs_traj[:, idx, 0], obs_traj[:, idx, 1], c='b')
                     # plt.scatter(fut_traj[:, idx, 0], fut_traj[:, idx, 1], c='r')
                     # plt.scatter(goal_wc[:, 0], goal_wc[:, 1], c='g', marker='X')
-                    goal20.append(goal_wc)
+                    goal20.append(goal_wc[:,:2])
 
                     ##### resize the map
                     vir_goal_map = circle * map
@@ -574,7 +574,7 @@ class Solver(object):
                         # plt.scatter(obs_traj[:, idx, 0], obs_traj[:, idx, 1], c='b')
                         # plt.scatter(fut_traj[:, idx, 0], fut_traj[:, idx, 1], c='r')
                         # plt.scatter(goal_wc[:, 0], goal_wc[:, 1], c='g', marker='X')
-                        goal20.append(goal_wc)
+                        goal20.append(goal_wc[:,:2])
 
                         ##### resize the map
                         vir_goal_map = circle * map
