@@ -62,6 +62,32 @@ def find_coord(goal_map, updated_map, selected_goal_ic, candidate_pos_ic, radius
     return selected_goal_ic
 
 
+def crop(global_map, target_pos, homo, context_size=198):
+    # context_size=32
+    expanded_obs_img = np.full((global_map.shape[0] + context_size, global_map.shape[1] + context_size),
+                               False, dtype=np.float32)
+    expanded_obs_img[context_size // 2:-context_size // 2,
+    context_size // 2:-context_size // 2] = global_map.astype(np.float32)  # 99~-99
+
+    target_pos = np.expand_dims(target_pos, 0)
+    target_pos[:, [0, 1]] = target_pos[:, [1, 0]]
+    target_pixel = np.matmul(
+        np.concatenate([target_pos, np.ones((len(target_pos), 1))], axis=1), homo)
+    target_pixel /= np.expand_dims(target_pixel[:, 2], 1)
+    target_pixel = target_pixel[:, :2]
+    img_pts = context_size // 2 + np.round(target_pixel).astype(int)
+
+    nearby_area = context_size // 2
+    cropped_img = np.stack(
+        [expanded_obs_img[img_pts[i, 1] - nearby_area: img_pts[i, 1] + nearby_area,
+         img_pts[i, 0] - nearby_area: img_pts[i, 0] + nearby_area]
+         for i in range(target_pos.shape[0])], axis=0)
+
+    # cropped_img[:, nearby_area, nearby_area] = cropped_img.max()
+    # plt.imshow(cropped_img[0])
+    # plt.show()
+    return cropped_img
+
 
 class Solver(object):
 
@@ -342,13 +368,37 @@ class Solver(object):
                     goal20.append(goal_wc[:,:2])
 
                     ##### resize the map
-                    vir_goal_map = circle * map
-                    vir_goal_map = transforms.Compose([
+                    global_map = circle * map
+                    # get local map
+                    context_size = (int(np.round(per_step_dist * 14 * 2)) // 2) * 2 + 2
+                    expanded_obs_img = np.full(
+                        (global_map.shape[0] + context_size, global_map.shape[1] + context_size),
+                        False, dtype=np.float32)
+                    expanded_obs_img[context_size // 2:-context_size // 2,
+                    context_size // 2:-context_size // 2] = global_map.astype(np.float32)  # 99~-99
+
+                    target_pos = np.expand_dims(obs_traj[-1, idx, :2].cpu().detach().numpy(), 0)
+                    target_pos[:, [0, 1]] = target_pos[:, [1, 0]]
+                    target_pixel = np.matmul(
+                        np.concatenate([target_pos, np.ones((len(target_pos), 1))], axis=1), inv_h_t[idx])
+                    target_pixel /= np.expand_dims(target_pixel[:, 2], 1)
+                    target_pixel = target_pixel[:, :2]
+                    img_pts = context_size // 2 + np.round(target_pixel).astype(int)
+
+                    nearby_area = context_size // 2
+                    local_map = np.stack(
+                        [expanded_obs_img[img_pts[i, 1] - nearby_area: img_pts[i, 1] + nearby_area,
+                         img_pts[i, 0] - nearby_area: img_pts[i, 0] + nearby_area]
+                         for i in range(target_pos.shape[0])], axis=0)
+
+                    # local_map = crop(global_map, obs_traj[-1,idx,:2].cpu().detach().numpy(), inv_h_t[idx], context_size=(int(np.round(per_step_dist*14*2))//2)*2 + 2)
+                    # plt.imshow(local_map[0])
+
+                    local_map = transforms.Compose([
                         transforms.Resize(self.map_size),
                         transforms.ToTensor()
-                    ])(Image.fromarray(vir_goal_map))
-                    local_maps.append(vir_goal_map)
-                    # plt.imshow(vir_goal_map[0])
+                    ])(Image.fromarray(local_map[0]))
+                    local_maps.append(local_map)
 
                     #
                     # obs_real = fut_traj[:,idx,:2]
@@ -577,12 +627,38 @@ class Solver(object):
                         goal20.append(goal_wc[:,:2])
 
                         ##### resize the map
-                        vir_goal_map = circle * map
-                        vir_goal_map = transforms.Compose([
+                        global_map = circle * map
+                        # get local map
+                        context_size = (int(np.round(per_step_dist * 14 * 2)) // 2) * 2 + 2
+                        expanded_obs_img = np.full(
+                            (global_map.shape[0] + context_size, global_map.shape[1] + context_size),
+                            False, dtype=np.float32)
+                        expanded_obs_img[context_size // 2:-context_size // 2,
+                        context_size // 2:-context_size // 2] = global_map.astype(np.float32)  # 99~-99
+
+                        target_pos = np.expand_dims(obs_traj[-1,idx,:2].cpu().detach().numpy(), 0)
+                        target_pos[:, [0, 1]] = target_pos[:, [1, 0]]
+                        target_pixel = np.matmul(
+                            np.concatenate([target_pos, np.ones((len(target_pos), 1))], axis=1), inv_h_t[idx])
+                        target_pixel /= np.expand_dims(target_pixel[:, 2], 1)
+                        target_pixel = target_pixel[:, :2]
+                        img_pts = context_size // 2 + np.round(target_pixel).astype(int)
+
+                        nearby_area = context_size // 2
+                        local_map = np.stack(
+                            [expanded_obs_img[img_pts[i, 1] - nearby_area: img_pts[i, 1] + nearby_area,
+                             img_pts[i, 0] - nearby_area: img_pts[i, 0] + nearby_area]
+                             for i in range(target_pos.shape[0])], axis=0)
+
+                        # local_map = crop(global_map, obs_traj[-1,idx,:2].cpu().detach().numpy(), inv_h_t[idx], context_size=(int(np.round(per_step_dist*14*2))//2)*2 + 2)
+                        # plt.imshow(local_map[0])
+
+                        local_map = transforms.Compose([
                             transforms.Resize(self.map_size),
                             transforms.ToTensor()
-                        ])(Image.fromarray(vir_goal_map))
-                        local_maps.append(vir_goal_map)
+                        ])(Image.fromarray(local_map[0]))
+                        local_maps.append(local_map)
+
                 local_maps = torch.stack(local_maps).to(self.device)
                 goal20 = torch.tensor(np.stack(goal20).transpose((1, 0, 2))).to(self.device).float()
                 #############
