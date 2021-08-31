@@ -317,7 +317,7 @@ class Solver(object):
                         rand_x = np.random.uniform(low=-avg_mvmt[0], high=avg_mvmt[0], size=(19,))
                         rand_y = np.random.uniform(low=-avg_mvmt[1], high=avg_mvmt[1], size=(19,))
 
-                        selected_goal_ic = np.array([obs_pixel[-1]] * 20) + np.vstack([rand_x, rand_y]).transpose(
+                        selected_goal_ic = np.array([obs_pixel[-1]] * 19) + np.vstack([rand_x, rand_y]).transpose(
                             (1, 0))
                     else:
                         radius = per_step_dist * (self.pred_len + 1) / self.radius_deno
