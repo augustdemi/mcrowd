@@ -42,7 +42,7 @@ def create_parser():
     
     parser = argparse.ArgumentParser()
 
-    parser.add_argument( '--run_id', default=200, type=int,
+    parser.add_argument( '--run_id', default=302, type=int,
       help='run id (default=-1 to create a new id)' )
 
     parser.add_argument( '--device', default='cpu', type=str,
@@ -109,27 +109,27 @@ def create_parser():
 
 
     # model hyperparameters
-    parser.add_argument( '--zS_dim', default=64, type=int,
+    parser.add_argument( '--zS_dim', default=32, type=int,
       help='dimension of the shared latent representation' )
     # Encoder
-    parser.add_argument('--encoder_h_dim', default=32, type=int)
-    parser.add_argument('--decoder_h_dim', default=128, type=int)
-    parser.add_argument('--map_feat_dim', default=8, type=int)
+    parser.add_argument('--encoder_h_dim', default=64, type=int)
+    parser.add_argument('--decoder_h_dim', default=256, type=int)
+    parser.add_argument('--map_feat_dim', default=32, type=int)
 
     parser.add_argument('--num_layers', default=1, type=int)
     parser.add_argument('--dropout_mlp', default=0.1, type=float)
     parser.add_argument('--dropout_rnn', default=0.25, type=float)
     # Decoder
     parser.add_argument('--pool_every_timestep', default=0, type=bool_flag)
-    parser.add_argument('--mlp_dim', default=32, type=int)
-    parser.add_argument('--map_mlp_dim', default=512, type=int)
+    parser.add_argument('--mlp_dim', default=256, type=int)
+    parser.add_argument('--map_mlp_dim', default=128, type=int)
     parser.add_argument('--batch_norm', default=0, type=bool_flag)
 
-    parser.add_argument( '--attention', default=0, type=bool_flag,
-      help='pool/attn' )
-    parser.add_argument( '--kl_weight', default=100.0, type=float,
+    parser.add_argument( '--kl_weight', default=1000.0, type=float,
       help='kl weight' )
-    parser.add_argument('--map_size', default=100, type=int)
+    parser.add_argument('--map_size', default=32, type=int)
+    parser.add_argument('--radius_deno', default=8, type=int)
+    parser.add_argument('--ll_prior_w', default=0.5, type=float)
 
     parser.add_argument( '--desc', default='data', type=str,
       help='run description' )
@@ -213,10 +213,10 @@ def main(args):
 
             print('--------------------', args.dataset_name, '----------------------')
             test_path = os.path.join(args.dataset_dir, args.dataset_name, 'Test.txt')
-            args.batch_size=364
+            args.batch_size=4
             _, test_loader = data_loader(args, test_path,shuffle=False)
 
-            # solver.plot_traj_var2(test_loader)
+            # solver.plot_traj_var(test_loader)
             '''
             coll_rate_min, non_zero_coll_min, \
             coll_rate_avg, non_zero_coll_avg, \

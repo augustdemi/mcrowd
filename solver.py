@@ -96,9 +96,9 @@ class Solver(object):
 
         self.args = args
 
-        self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_hD_%s_dec_hD_%s_mlpD_%s_map_size_%s_map_featD_%s_map_mlpD_%s_lr_%s_klw_%s' % \
+        self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_hD_%s_dec_hD_%s_mlpD_%s_map_size_%s_map_featD_%s_map_mlpD_%s_lr_%s_klw_%s_ll_prior_w_%s_r_deno_%s' % \
                     (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
-                     args.decoder_h_dim, args.mlp_dim, args.map_size, args.map_feat_dim , args.map_mlp_dim, args.lr_VAE, args.kl_weight)
+                     args.decoder_h_dim, args.mlp_dim, args.map_size, args.map_feat_dim , args.map_mlp_dim, args.lr_VAE, args.kl_weight, args.ll_prior_w, args.radius_deno)
 
 
         # to be appended by run_id
@@ -108,6 +108,9 @@ class Solver(object):
         self.temp=1.99
         self.dt=0.4
         self.eps=1e-9
+        self.radius_deno =args.radius_deno
+        self.ll_prior_w =args.ll_prior_w
+
 
         self.kl_weight=args.kl_weight
 
@@ -143,10 +146,11 @@ class Solver(object):
                 loss_map='win_loss_map', loss_vel='win_loss_vel', test_loss_map='win_test_loss_map', test_loss_vel='win_test_loss_vel',
                 ade_min='win_ade_min', fde_min='win_fde_min', ade_avg='win_ade_avg', fde_avg='win_fde_avg',
                 ade_std='win_ade_std', fde_std='win_fde_std',
-                test_loss_recon='win_test_loss_recon', test_loss_kl='win_test_loss_kl', test_total_loss='win_test_total_loss'
+                test_loss_recon='win_test_loss_recon', test_loss_kl='win_test_loss_kl', test_total_loss='win_test_total_loss',
+                loss_recon_prior='win_loss_recon_prior'
             )
             self.line_gather = DataGather(
-                'iter', 'loss_recon', 'loss_kl', 'total_loss', 'ade_min', 'fde_min',
+                'iter', 'loss_recon', 'loss_kl', 'total_loss', 'ade_min', 'fde_min', 'loss_recon_prior',
                 'ade_avg', 'fde_avg', 'ade_std', 'fde_std',
                 'test_loss_recon', 'test_loss_kl', 'test_total_loss',
                 'test_loss_map', 'test_loss_vel', 'loss_map', 'loss_vel'
@@ -201,7 +205,6 @@ class Solver(object):
         self.pred_len = args.pred_len
         self.num_layers = args.num_layers
         self.decoder_h_dim = args.decoder_h_dim
-        self.radius_deno=8
 
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
             self.encoderMx = Encoder(
@@ -329,6 +332,26 @@ class Solver(object):
                     expanded_obs_img[context_size // 2:-context_size // 2,
                     context_size // 2:-context_size // 2] = global_map.astype(np.float32)  # 99~-99
 
+
+                    # plt.imshow(expanded_obs_img)
+                    # img_pts = context_size//2 + np.round(obs_pixel).astype(int)
+                    # for p in range(len(img_pts)):
+                    #     plt.scatter(img_pts[p][1], img_pts[p][0], c='b', s=1)
+                    #     expanded_obs_img[img_pts[p][0], img_pts[p][1]] = 0
+
+                    # fut_real = fut_traj[:, idx, :2].cpu().detach().numpy()
+                    # fut_real = np.concatenate([fut_real, np.ones((12, 1))], axis=1)
+                    # fut_pixel = np.matmul(fut_real, inv_h_t[idx])
+                    # fut_pixel /= np.expand_dims(fut_pixel[:, 2], 1)
+                    # fut_pixel = fut_pixel[:, :2]
+                    # fut_pixel[:, [1, 0]] = fut_pixel[:, [0, 1]]
+                    # img_pts = context_size//2 + np.round(fut_pixel).astype(int)
+                    # for p in range(len(img_pts)):
+                    #     plt.scatter(img_pts[p][1], img_pts[p][0], c='r', s=1)
+                    #     expanded_obs_img[img_pts[p][0], img_pts[p][1]] = 0
+                    # plt.show()
+
+
                     target_pos = obs_traj[-1, idx, :2].cpu().detach().numpy()
                     target_pos[[0, 1]]= target_pos[[1, 0]]
                     target_pixel = np.matmul(
@@ -387,7 +410,7 @@ class Solver(object):
             loss_kl = torch.clamp(loss_kl, min=0.07)
             # print('log_likelihood:', loglikelihood.item(), ' kl:', loss_kl.item())
 
-            loglikelihood= ll_tf_post + ll_prior
+            loglikelihood= ll_tf_post + self.ll_prior_w * ll_prior
             elbo = loglikelihood - self.kl_weight * loss_kl
             vae_loss = -elbo
 
@@ -410,7 +433,8 @@ class Solver(object):
                 ade_std, fde_std, \
                 test_loss_recon, test_loss_kl, test_loss = self.evaluate_dist(self.val_loader, loss=True)
                 self.line_gather.insert(iter=iteration,
-                                        loss_recon=-loglikelihood.item(),
+                                        loss_recon=-ll_tf_post.item(),
+                                        loss_recon_prior=-ll_prior.item(),
                                         loss_kl=loss_kl.item(),
                                         total_loss=vae_loss.item(),
                                         ade_min=ade_min,
@@ -505,6 +529,7 @@ class Solver(object):
 
         all_ade =[]
         all_fde =[]
+        est_goal_fde=[]
         with torch.no_grad():
             b=0
             for batch in data_loader:
@@ -654,6 +679,7 @@ class Solver(object):
                     ))
                 all_ade.append(torch.stack(ade))
                 all_fde.append(torch.stack(fde))
+                est_goal_fde.append(torch.sqrt(((goal20 - fut_traj[-1,:,:2].unsqueeze(0).repeat((20,1,1)))**2).sum(2)))
 
 
             all_ade=torch.cat(all_ade, dim=1).cpu().numpy()
@@ -665,6 +691,10 @@ class Solver(object):
             fde_avg = np.mean(all_fde, axis=0).mean()
             ade_std = np.std(all_ade, axis=0).mean()/self.pred_len
             fde_std = np.std(all_fde, axis=0).mean()
+
+            print('est fde min:', np.min(est_goal_fde, axis=0).mean())
+            print('est fde avg:', np.mean(est_goal_fde, axis=0).mean())
+            print('est fde std:', np.std(est_goal_fde, axis=0).mean())
         self.set_mode(train=True)
         if loss:
             return ade_min, fde_min, \
@@ -1113,6 +1143,7 @@ class Solver(object):
     ####
     def viz_init(self):
         self.viz.close(env=self.name + '/lines', win=self.win_id['loss_recon'])
+        self.viz.close(env=self.name + '/lines', win=self.win_id['loss_recon_prior'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['loss_kl'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['total_loss'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['test_loss_recon'])
@@ -1132,6 +1163,7 @@ class Solver(object):
         data = self.line_gather.data
         iters = torch.Tensor(data['iter'])
         loss_recon = torch.Tensor(data['loss_recon'])
+        loss_recon_prior = torch.Tensor(data['loss_recon_prior'])
         loss_kl = torch.Tensor(data['loss_kl'])
         total_loss = torch.Tensor(data['total_loss'])
         ade_min = torch.Tensor(data['ade_min'])
@@ -1150,6 +1182,14 @@ class Solver(object):
             opts=dict(xlabel='iter', ylabel='-loglikelihood',
                       title='Recon. loss of predicted future traj')
         )
+
+        self.viz.line(
+            X=iters, Y=loss_recon_prior, env=self.name + '/lines',
+            win=self.win_id['loss_recon_prior'], update='append',
+            opts=dict(xlabel='iter', ylabel='-loglikelihood',
+                      title='Recon. loss - prior')
+        )
+
 
         self.viz.line(
             X=iters, Y=loss_kl, env=self.name + '/lines',
