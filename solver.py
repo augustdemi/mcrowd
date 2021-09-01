@@ -302,74 +302,26 @@ class Solver(object):
 
             # sample a mini-batch
             (obs_traj, fut_traj, seq_start_end,
-             obs_frames, pred_frames, map_path, inv_h_t) = next(iterator)
+             obs_frames, pred_frames, map_path, inv_h_t,
+             _, _) = next(iterator)
             batch = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
-
             #### MAP ####
             local_maps = []
-            goal20 = []
             for (s, e) in seq_start_end:
+                map = imageio.imread(map_path[s]) / 255
+                map = ndimage.distance_transform_edt(map)
                 for idx in range(s, e):
-                    map = imageio.imread(map_path[idx]) / 255
-                    map = ndimage.distance_transform_edt(map)
-
                     obs_real = obs_traj[:, idx, :2].cpu().detach().numpy()
                     obs_real = np.concatenate([obs_real, np.ones((self.obs_len, 1))], axis=1)
                     obs_pixel = np.matmul(obs_real, inv_h_t[idx])
                     obs_pixel /= np.expand_dims(obs_pixel[:, 2], 1)
                     obs_pixel = obs_pixel[:, :2]
                     obs_pixel[:, [1, 0]] = obs_pixel[:, [0, 1]]
-
                     per_step_dist = (((obs_pixel[1:, :2] - obs_pixel[:-1, :2]) ** 2).sum(1) ** (1 / 2)).mean()
-                    circle = np.zeros(map.shape)
-                    for x in range(map.shape[0]):
-                        for y in range(map.shape[1]):
-                            dist_from_last_obs = np.linalg.norm([x, y] - obs_pixel[-1])
-                            if dist_from_last_obs < per_step_dist * (12 + 1):
-                                angle = theta(([x, y] - (obs_pixel[-1] - obs_pixel[-2])) - obs_pixel[-2],
-                                              obs_pixel[-1] - obs_pixel[-2])
-                                if np.cos(angle) >= 0:
-                                    circle[x, y] = np.cos(angle) * (
-                                    1 + dist_from_last_obs) + 1  # in case dist_from_last_obs < 1
 
-                    ##### find 20 goals
-                    candidate_pos_ic = np.array(np.where(circle * map > 0)).transpose((1, 0))
-                    if len(candidate_pos_ic) == 0:
-                        # print(per_step_dist)
-                        # print(idx)
-                        # print(obs_pixel[-1] - obs_pixel[-2])
-                        # print('-------------------------------------')
-                        avg_mvmt = np.abs((obs_pixel[1:, :2] - obs_pixel[:-1, :2]).mean(0))
-                        rand_x = np.random.uniform(low=-avg_mvmt[0], high=avg_mvmt[0], size=(19,))
-                        rand_y = np.random.uniform(low=-avg_mvmt[1], high=avg_mvmt[1], size=(19,))
-
-                        selected_goal_ic = np.array([obs_pixel[-1]] * 19) + np.vstack([rand_x, rand_y]).transpose(
-                            (1, 0))
-                    else:
-                        radius = per_step_dist * (self.pred_len + 1) / self.radius_deno
-                        selected_goal_ic = find_coord(circle * map, circle * map, [], candidate_pos_ic, radius,
-                                                      n_goal=19)
-                        selected_goal_ic = np.array(selected_goal_ic)
-                    fig, ax = plt.subplots()
-                    ax.imshow(circle * map)
-                    for coord in selected_goal_ic:
-                        ax.scatter(coord[1], coord[0], s=1, c='hotpink', marker='x')
-                    ax.scatter(obs_pixel[:, 1], obs_pixel[:, 0], s=1, c='b')
-
-                    #### back to WCS goal
-                    selected_goal_ic[:, [1, 0]] = selected_goal_ic[:, [0, 1]]
-                    selected_goal_ic=np.concatenate([selected_goal_ic, np.ones((len(selected_goal_ic),1))], axis=1)
-                    goal_wc = np.matmul(selected_goal_ic, np.linalg.inv(inv_h_t[idx]))
-                    goal_wc = goal_wc / np.expand_dims(goal_wc[:, 2], 1)
-                    goal_wc = np.concatenate([goal_wc[:,:2], np.expand_dims(fut_traj[-1,idx,:2].cpu().detach().numpy(),0)], axis=0)
-                    # plt.scatter(obs_traj[:, idx, 0], obs_traj[:, idx, 1], c='b')
-                    # plt.scatter(fut_traj[:, idx, 0], fut_traj[:, idx, 1], c='r')
-                    # plt.scatter(goal_wc[:, 0], goal_wc[:, 1], c='g', marker='X')
-                    goal20.append(goal_wc[:,:2])
-
-                    ##### resize the map
-                    global_map = circle * map
-                    '''
+                    ##### local map & resize
+                    # global_map = circles[idx] * map
+                    global_map = map
                     # get local map
                     context_size = (int(np.round(per_step_dist * 14 * 2)) // 2) * 2 + 2
                     expanded_obs_img = np.full(
@@ -378,41 +330,29 @@ class Solver(object):
                     expanded_obs_img[context_size // 2:-context_size // 2,
                     context_size // 2:-context_size // 2] = global_map.astype(np.float32)  # 99~-99
 
-                    target_pos = np.expand_dims(obs_traj[-1, idx, :2].cpu().detach().numpy(), 0)
-                    target_pos[:, [0, 1]] = target_pos[:, [1, 0]]
+                    target_pos = obs_traj[-1, idx, :2].cpu().detach().numpy()
+                    target_pos[[0, 1]]= target_pos[[1, 0]]
                     target_pixel = np.matmul(
-                        np.concatenate([target_pos, np.ones((len(target_pos), 1))], axis=1), inv_h_t[idx])
-                    target_pixel /= np.expand_dims(target_pixel[:, 2], 1)
-                    target_pixel = target_pixel[:, :2]
+                        np.concatenate([target_pos, (1,)], axis=0), inv_h_t[idx])
+                    target_pixel /= target_pixel[ 2]
+                    target_pixel = target_pixel[:2]
                     img_pts = context_size // 2 + np.round(target_pixel).astype(int)
 
-                    nearby_area = context_size // 2
-                    local_map = np.stack(
-                        [expanded_obs_img[img_pts[i, 1] - nearby_area: img_pts[i, 1] + nearby_area,
-                         img_pts[i, 0] - nearby_area: img_pts[i, 0] + nearby_area]
-                         for i in range(target_pos.shape[0])], axis=0)
+                    # plt.imshow(expanded_obs_img)
+                    # plt.scatter(img_pts[1], img_pts[0], c='r')
 
-                    # local_map = crop(global_map, obs_traj[-1,idx,:2].cpu().detach().numpy(), inv_h_t[idx], context_size=(int(np.round(per_step_dist*14*2))//2)*2 + 2)
-                    # plt.imshow(local_map[0])
-                    '''
+                    nearby_area = context_size // 2
+                    local_map = expanded_obs_img[img_pts[0] - nearby_area: img_pts[0] + nearby_area,
+                         img_pts[1] - nearby_area: img_pts[1] + nearby_area]
+
+                    # plt.imshow(local_map)
+
                     local_map = transforms.Compose([
                         transforms.Resize(self.map_size),
                         transforms.ToTensor()
-                    ])(Image.fromarray(global_map))
+                    ])(Image.fromarray(local_map))
                     local_maps.append(local_map)
-
-                    #
-                    # obs_real = fut_traj[:,idx,:2]
-                    # obs_real = np.concatenate([obs_real, np.ones((12, 1))], axis=1)
-                    # obs_pixel = np.matmul(obs_real, inv_h_t[idx])
-                    # obs_pixel /= np.expand_dims(obs_pixel[:, 2], 1)
-                    # obs_pixel = obs_pixel[:, :2]
-                    # obs_pixel[:, [1, 0]] = obs_pixel[:, [0, 1]]
-                    # ax.scatter(obs_pixel[:, 1], obs_pixel[:, 0], s=1, c='r')
             local_maps = torch.stack(local_maps).to(self.device)
-            goal20 = torch.tensor(np.stack(goal20).transpose((1,0,2))).to(self.device).float()
-
-            #############
 
             (encX_h_feat, logitX, map_featX) \
                 = self.encoderMx(obs_traj, seq_start_end, local_maps, train=True)
@@ -422,24 +362,33 @@ class Solver(object):
             p_dist = discrete(logits=logitX)
             q_dist = discrete(logits=logitY)
             relaxed_q_dist = concrete(logits=logitY, temperature=self.temp)
+            relaxed_p_dist = concrete(logits=logitX, temperature=self.temp)
 
-            fut_rel_pos_dist20 = self.decoderMy(
+            # TF, goal, z~posterior
+            fut_rel_pos_dist_tf_post = self.decoderMy(
                 obs_traj[-1],
                 encX_h_feat,
                 relaxed_q_dist.rsample(),
-                goal20,
-                fut_traj
+                fut_traj[-1, :, :2], # goal
+                fut_traj # TF
             )
 
-            ll20 = []
-            for dist in fut_rel_pos_dist20:
-                ll20.append(dist.log_prob(fut_traj[:, :, 2:4]).sum().div(batch))
+            # NO TF, goal, z~prior
+            fut_rel_pos_dist_prior = self.decoderMy(
+                obs_traj[-1],
+                encX_h_feat,
+                relaxed_p_dist.rsample(),
+                fut_traj[-1, :, :2] # goal
+            )
+
+            ll_tf_post = fut_rel_pos_dist_tf_post.log_prob(fut_traj[:, :, 2:4]).sum().div(batch)
+            ll_prior = fut_rel_pos_dist_prior.log_prob(fut_traj[:, :, 2:4]).sum().div(batch)
 
             loss_kl = kl_divergence(q_dist, p_dist).sum().div(batch)
             loss_kl = torch.clamp(loss_kl, min=0.07)
             # print('log_likelihood:', loglikelihood.item(), ' kl:', loss_kl.item())
 
-            loglikelihood=sum(ll20).div(20)
+            loglikelihood= ll_tf_post + ll_prior
             elbo = loglikelihood - self.kl_weight * loss_kl
             vae_loss = -elbo
 
@@ -561,40 +510,29 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, seq_start_end,
-                 obs_frames, pred_frames, map_path, inv_h_t) = batch
+                (obs_traj, fut_traj, seq_start_end, obs_frames, pred_frames, map_path, inv_h_t,
+                 circles, distances) = batch
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
+                circle_goal = circles * (distances + 1) + 1  # in case dist_from_last_obs < 1
 
                 #### MAP ####
                 local_maps = []
                 goal20 = []
                 for (s, e) in seq_start_end:
+                    map = imageio.imread(map_path[s]) / 255
+                    map = ndimage.distance_transform_edt(map)
                     for idx in range(s, e):
-                        map = imageio.imread(map_path[idx]) / 255
-                        map = ndimage.distance_transform_edt(map)
-
                         obs_real = obs_traj[:, idx, :2].cpu().detach().numpy()
                         obs_real = np.concatenate([obs_real, np.ones((self.obs_len, 1))], axis=1)
                         obs_pixel = np.matmul(obs_real, inv_h_t[idx])
                         obs_pixel /= np.expand_dims(obs_pixel[:, 2], 1)
                         obs_pixel = obs_pixel[:, :2]
                         obs_pixel[:, [1, 0]] = obs_pixel[:, [0, 1]]
-
                         per_step_dist = (((obs_pixel[1:, :2] - obs_pixel[:-1, :2]) ** 2).sum(1) ** (1 / 2)).mean()
-                        circle = np.zeros(map.shape)
-                        for x in range(map.shape[0]):
-                            for y in range(map.shape[1]):
-                                dist_from_last_obs = np.linalg.norm([x, y] - obs_pixel[-1])
-                                if dist_from_last_obs < per_step_dist * (12 + 1):
-                                    angle = theta(([x, y] - (obs_pixel[-1] - obs_pixel[-2])) - obs_pixel[-2],
-                                                  obs_pixel[-1] - obs_pixel[-2])
-                                    if np.cos(angle) >= 0:
-                                        circle[x, y] = np.cos(angle) * (
-                                            1 + dist_from_last_obs) + 1  # in case dist_from_last_obs < 1
 
                         ##### find 20 goals
-                        candidate_pos_ic = np.array(np.where(circle * map > 0)).transpose((1, 0))
+                        candidate_pos_ic = np.array(np.where(circle_goal[idx] * map > 0)).transpose((1, 0))
                         if len(candidate_pos_ic) == 0:
                             # print(per_step_dist)
                             # print(idx)
@@ -607,7 +545,7 @@ class Solver(object):
                             selected_goal_ic = np.array([obs_pixel[-1]]*20) + np.vstack([rand_x, rand_y]).transpose((1,0))
                         else:
                             radius = per_step_dist * (self.pred_len + 1) / self.radius_deno
-                            selected_goal_ic = find_coord(circle * map, circle * map, [], candidate_pos_ic, radius,
+                            selected_goal_ic = find_coord(circle_goal[idx] * map, circle_goal[idx] * map, [], candidate_pos_ic, radius,
                                                           n_goal=20)
                             selected_goal_ic = np.array(selected_goal_ic)
                         # fig, ax = plt.subplots()
@@ -627,9 +565,8 @@ class Solver(object):
                         # plt.scatter(goal_wc[:, 0], goal_wc[:, 1], c='g', marker='X')
                         goal20.append(goal_wc[:,:2])
 
-                        ##### resize the map
-                        global_map = circle * map
-                        '''
+                        ##### local map & resize
+                        global_map = circles[idx] * map
                         # get local map
                         context_size = (int(np.round(per_step_dist * 14 * 2)) // 2) * 2 + 2
                         expanded_obs_img = np.full(
@@ -638,27 +575,27 @@ class Solver(object):
                         expanded_obs_img[context_size // 2:-context_size // 2,
                         context_size // 2:-context_size // 2] = global_map.astype(np.float32)  # 99~-99
 
-                        target_pos = np.expand_dims(obs_traj[-1, idx, :2].cpu().detach().numpy(), 0)
-                        target_pos[:, [0, 1]] = target_pos[:, [1, 0]]
+                        target_pos = obs_traj[-1, idx, :2].cpu().detach().numpy()
+                        target_pos[[0, 1]] = target_pos[[1, 0]]
                         target_pixel = np.matmul(
-                            np.concatenate([target_pos, np.ones((len(target_pos), 1))], axis=1), inv_h_t[idx])
-                        target_pixel /= np.expand_dims(target_pixel[:, 2], 1)
-                        target_pixel = target_pixel[:, :2]
+                            np.concatenate([target_pos, (1,)], axis=0), inv_h_t[idx])
+                        target_pixel /= target_pixel[2]
+                        target_pixel = target_pixel[:2]
                         img_pts = context_size // 2 + np.round(target_pixel).astype(int)
 
-                        nearby_area = context_size // 2
-                        local_map = np.stack(
-                            [expanded_obs_img[img_pts[i, 1] - nearby_area: img_pts[i, 1] + nearby_area,
-                             img_pts[i, 0] - nearby_area: img_pts[i, 0] + nearby_area]
-                             for i in range(target_pos.shape[0])], axis=0)
+                        # plt.imshow(expanded_obs_img)
+                        # plt.scatter(img_pts[1], img_pts[0], c='r')
 
-                        # local_map = crop(global_map, obs_traj[-1,idx,:2].cpu().detach().numpy(), inv_h_t[idx], context_size=(int(np.round(per_step_dist*14*2))//2)*2 + 2)
-                        # plt.imshow(local_map[0])
-                        '''
+                        nearby_area = context_size // 2
+                        local_map = expanded_obs_img[img_pts[0] - nearby_area: img_pts[0] + nearby_area,
+                                    img_pts[1] - nearby_area: img_pts[1] + nearby_area]
+
+                        # plt.imshow(local_map)
+
                         local_map = transforms.Compose([
                             transforms.Resize(self.map_size),
                             transforms.ToTensor()
-                        ])(Image.fromarray(global_map))
+                        ])(Image.fromarray(local_map))
                         local_maps.append(local_map)
 
                 local_maps = torch.stack(local_maps).to(self.device)
@@ -674,13 +611,15 @@ class Solver(object):
                 (_, logitY) \
                     = self.encoderMy(obs_traj[-1], fut_traj[:, :, 2:4], seq_start_end, encX_h_feat)
                 q_dist = discrete(logits=logitY)
-                fut_rel_pos_dist20 = self.decoderMy(
-                    obs_traj[-1],
-                    encX_h_feat,
-                    relaxed_p_dist.rsample(),
-                    goal20,
-                    fut_traj
-                )
+
+                fut_rel_pos_dist20= []
+                for goal in goal20:
+                    fut_rel_pos_dist20.append(self.decoderMy(
+                        obs_traj[-1],
+                        encX_h_feat,
+                        relaxed_p_dist.rsample(),
+                        goal
+                    ))
 
                 if loss:
                     ll20 = []
@@ -1005,7 +944,7 @@ class Solver(object):
 
                     local_maps = []
                     goal20 = []
-                    for idx in range(s, e):
+                    for idx in agent_rng:
                         map = imageio.imread(map_path[idx]) / 255
                         map = ndimage.distance_transform_edt(map)
 
@@ -1095,8 +1034,8 @@ class Solver(object):
 
                         gt_data, pred_data = [], []
 
-                        for idx in range(len(agent_rng)):
-                            one_ped = agent_rng[idx]
+                        for j in range(len(agent_rng)):
+                            one_ped = agent_rng[j]
                             obs_real = obs_traj[:, one_ped,:2]
                             obs_real = np.concatenate([obs_real, np.ones((self.obs_len, 1))], axis=1)
                             obs_pixel = np.matmul(obs_real, inv_h_t[j])

@@ -100,12 +100,12 @@ class MapEncoder(nn.Module):
     def __init__(self, fc_hidden_dim, output_dim, drop_out):
         super(MapEncoder, self).__init__()
         self.drop_out = drop_out
-        self.conv1 = nn.Conv2d(1, 4, 7, stride=2, bias=False)
+        self.conv1 = nn.Conv2d(1, 4, 3, stride=1, bias=False)
         self.pool = nn.MaxPool2d(2, 2)
-        self.conv2 = nn.Conv2d(4, 16, 5, stride=1, bias=False)
-        self.conv3 = nn.Conv2d(16, 32, 4, stride=1, bias=False)
-        self.conv4 = nn.Conv2d(32, 32, 4, stride=1, bias=False)
-        self.fc1 = nn.Linear(32 * 7 * 7 + 2, fc_hidden_dim, bias=False)
+        self.conv2 = nn.Conv2d(4, 16, 3, stride=1, bias=False)
+        self.conv3 = nn.Conv2d(16, 32, 3, stride=1, bias=False)
+        self.conv4 = nn.Conv2d(32, 32, 3, stride=1, bias=False)
+        self.fc1 = nn.Linear(32 * 5 * 5 + 2, fc_hidden_dim, bias=False)
         self.fc2 = nn.Linear(fc_hidden_dim, output_dim, bias=False)
 
         # self.conv1 = nn.Conv2d(1, 4, 7, stride=3, bias=False)
@@ -123,7 +123,7 @@ class MapEncoder(nn.Module):
         """
 
         x = F.relu(self.conv1(map)) # 14
-        # x = F.relu(self.conv1(vir_goal_map.unsqueeze(0))) # 14
+        # x = F.relu(self.conv1(m.unsqueeze(0))) # 14
         x = self.pool(F.relu(self.conv2(x)))  # 12
         if self.drop_out > 0:
             x = F.dropout(x,
@@ -132,7 +132,7 @@ class MapEncoder(nn.Module):
 
         x = F.relu(self.conv3(x))  # 10
         x = self.pool(F.relu(self.conv4(x))) # 8->4
-        x = x.view(-1, 32 * 7 * 7)
+        x = x.view(-1, 32 * 5 * 5)
         x = torch.cat((x, last_obs_vel), -1)
         x = F.relu(self.fc1(x))
         obst_feat = self.fc2(x)
@@ -301,7 +301,7 @@ class Decoder(nn.Module):
         self.fc_std = nn.Linear(dec_h_dim, n_pred_state)
 
 
-    def forward(self, last_obs_traj_st, enc_h_feat, z, goal20, fut_traj=None):
+    def forward(self, last_obs_traj_st, enc_h_feat, z, goal, fut_traj=None):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
@@ -320,25 +320,22 @@ class Decoder(nn.Module):
         a = self.to_vel(last_obs_traj_st)
         # a = self.to_vel(torch.cat((last_obs_traj_st, map[0]), dim=-1)) # map[0] = last observed map
 
-        rel_pos_dist = []
-        for goal in goal20:
-            mus = []
-            stds = []
-            for i in range(self.seq_len):
-                decoder_h= self.rnn_decoder(torch.cat([zx, a, goal], dim=1), decoder_h) #493, 128
-                mu= self.fc_mu(decoder_h)
-                logVar = self.fc_std(decoder_h)
-                std = torch.sqrt(torch.exp(logVar))
-                mus.append(mu)
-                stds.append(std)
+        mus = []
+        stds = []
+        for i in range(self.seq_len):
+            decoder_h= self.rnn_decoder(torch.cat([zx, a, goal], dim=1), decoder_h) #493, 128
+            mu= self.fc_mu(decoder_h)
+            logVar = self.fc_std(decoder_h)
+            std = torch.sqrt(torch.exp(logVar))
+            mus.append(mu)
+            stds.append(std)
 
-                if fut_traj is not None:
-                    a = fut_traj[i,:,2:4]
-                else:
-                    a = Normal(mu, std).rsample()
+            if fut_traj is not None:
+                a = fut_traj[i,:,2:4]
+            else:
+                a = Normal(mu, std).rsample()
 
-            mus = torch.stack(mus, dim=0)
-            stds = torch.stack(stds, dim=0)
-            rel_pos_dist.append(Normal(mus, stds))
-        return rel_pos_dist
+        mus = torch.stack(mus, dim=0)
+        stds = torch.stack(stds, dim=0)
+        return Normal(mus, stds)
 
