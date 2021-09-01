@@ -692,6 +692,7 @@ class Solver(object):
             ade_std = np.std(all_ade, axis=0).mean()/self.pred_len
             fde_std = np.std(all_fde, axis=0).mean()
 
+            est_goal_fde = torch.cat(est_goal_fde, dim=1).cpu().numpy()
             print('est fde min:', np.min(est_goal_fde, axis=0).mean())
             print('est fde avg:', np.mean(est_goal_fde, axis=0).mean())
             print('est fde std:', np.std(est_goal_fde, axis=0).mean())
