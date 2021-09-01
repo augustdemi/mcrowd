@@ -302,8 +302,7 @@ class Solver(object):
 
             # sample a mini-batch
             (obs_traj, fut_traj, seq_start_end,
-             obs_frames, pred_frames, map_path, inv_h_t,
-             _, _) = next(iterator)
+             obs_frames, pred_frames, map_path, inv_h_t) = next(iterator)
             batch = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
             #### MAP ####
             local_maps = []
@@ -510,11 +509,9 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, seq_start_end, obs_frames, pred_frames, map_path, inv_h_t,
-                 circles, distances) = batch
+                (obs_traj, fut_traj, seq_start_end, obs_frames, pred_frames, map_path, inv_h_t) = batch
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
-                circle_goal = circles * (distances + 1) + 1  # in case dist_from_last_obs < 1
 
                 #### MAP ####
                 local_maps = []
@@ -530,9 +527,18 @@ class Solver(object):
                         obs_pixel = obs_pixel[:, :2]
                         obs_pixel[:, [1, 0]] = obs_pixel[:, [0, 1]]
                         per_step_dist = (((obs_pixel[1:, :2] - obs_pixel[:-1, :2]) ** 2).sum(1) ** (1 / 2)).mean()
-
+                        circle = np.zeros(map.shape)
+                        for x in range(map.shape[0]):
+                            for y in range(map.shape[1]):
+                                dist_from_last_obs = np.linalg.norm([x, y] - obs_pixel[-1])
+                                if dist_from_last_obs < per_step_dist * (12 + 1):
+                                    angle = theta(([x, y] - (obs_pixel[-1] - obs_pixel[-2])) - obs_pixel[-2],
+                                                  obs_pixel[-1] - obs_pixel[-2])
+                                    if np.cos(angle) >= 0:
+                                        circle[x, y] = np.cos(angle) * (
+                                            1 + dist_from_last_obs) + 1  # in case dist_from_last_obs < 1
                         ##### find 20 goals
-                        candidate_pos_ic = np.array(np.where(circle_goal[idx] * map > 0)).transpose((1, 0))
+                        candidate_pos_ic = np.array(np.where(circle * map > 0)).transpose((1, 0))
                         if len(candidate_pos_ic) == 0:
                             # print(per_step_dist)
                             # print(idx)
@@ -545,7 +551,7 @@ class Solver(object):
                             selected_goal_ic = np.array([obs_pixel[-1]]*20) + np.vstack([rand_x, rand_y]).transpose((1,0))
                         else:
                             radius = per_step_dist * (self.pred_len + 1) / self.radius_deno
-                            selected_goal_ic = find_coord(circle_goal[idx] * map, circle_goal[idx] * map, [], candidate_pos_ic, radius,
+                            selected_goal_ic = find_coord(circle * map, circle * map, [], candidate_pos_ic, radius,
                                                           n_goal=20)
                             selected_goal_ic = np.array(selected_goal_ic)
                         # fig, ax = plt.subplots()
@@ -566,7 +572,7 @@ class Solver(object):
                         goal20.append(goal_wc[:,:2])
 
                         ##### local map & resize
-                        global_map = circles[idx] * map
+                        global_map = map
                         # get local map
                         context_size = (int(np.round(per_step_dist * 14 * 2)) // 2) * 2 + 2
                         expanded_obs_img = np.full(

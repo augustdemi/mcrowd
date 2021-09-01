@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 def seq_collate(data):
     (obs_seq_list, pred_seq_list, obs_frames, fut_frames,
-     map_path, inv_h_t, circles, distances) = zip(*data)
+     map_path, inv_h_t) = zip(*data)
 
     _len = [len(seq) for seq in obs_seq_list]
     cum_start_idx = [0] + np.cumsum(_len).tolist()
@@ -31,8 +31,6 @@ def seq_collate(data):
     obs_traj = torch.cat(obs_seq_list, dim=0).permute(2, 0, 1)
     pred_traj = torch.cat(pred_seq_list, dim=0).permute(2, 0, 1)
 
-    circles = np.concatenate(circles, 0)
-    distances = np.concatenate(distances, 0)
 
     seq_start_end = torch.LongTensor(seq_start_end)
 
@@ -44,7 +42,7 @@ def seq_collate(data):
 
     out = [
         obs_traj, pred_traj, seq_start_end,
-        obs_frames, fut_frames, map_path, inv_h_t, circles, distances
+        obs_frames, fut_frames, map_path, inv_h_t
     ]
 
 
@@ -207,33 +205,6 @@ class TrajectoryDataset(Dataset):
                     # Make coordinates relative
                     _idx = num_peds_considered
                     curr_seq[_idx, :, pad_front:pad_end] = np.stack([x, y, vx, vy, ax, ay])
-
-
-                    ##### circle and distance for local map ####
-
-                    if 'Text.txt' in  self.data_dir:
-                        obs_real = np.stack([x, y])[:,:self.obs_len].transpose((1,0))
-                        obs_real = np.concatenate([obs_real, np.ones((self.obs_len, 1))], axis=1)
-                        obs_pixel = np.matmul(obs_real, inv_h_t)
-                        obs_pixel /= np.expand_dims(obs_pixel[:, 2], 1)
-                        obs_pixel = obs_pixel[:, :2]
-                        obs_pixel[:, [1, 0]] = obs_pixel[:, [0, 1]]
-
-                        per_step_dist = (((obs_pixel[1:, :2] - obs_pixel[:-1, :2]) ** 2).sum(1) ** (1 / 2)).mean()
-                        circle = np.zeros(map.shape)
-                        distance = np.zeros(map.shape)
-                        for xc in range(map.shape[0]):
-                            for yc in range(map.shape[1]):
-                                dist_from_last_obs = np.linalg.norm([xc, yc] - obs_pixel[-1])
-                                if dist_from_last_obs < per_step_dist * (12 + 1):
-                                    angle = theta(([xc, yc] - (obs_pixel[-1] - obs_pixel[-2])) - obs_pixel[-2],
-                                                  obs_pixel[-1] - obs_pixel[-2])
-                                    if np.cos(angle) >= 0:
-                                        circle[xc, yc] = np.cos(angle)
-                                        distance[xc, yc] = dist_from_last_obs
-                        curr_seq_circle[_idx] = circle
-                        curr_seq_dist[_idx] = distance
-
                     num_peds_considered += 1
 
 
@@ -284,8 +255,6 @@ class TrajectoryDataset(Dataset):
 
         self.num_seq = len(seq_list) # = slide (seq. of 16 frames) 수 = 2692
         seq_list = np.concatenate(seq_list, axis=0) # (32686, 2, 16)
-        self.circle_list = np.concatenate(circle_list, axis=0) # (32686, 2, 16)
-        self.distance_list = np.concatenate(distance_list, axis=0) # (32686, 2, 16)
         self.obs_frame_num = np.concatenate(obs_frame_num, axis=0)
         self.fut_frame_num = np.concatenate(fut_frame_num, axis=0)
 
@@ -317,7 +286,6 @@ class TrajectoryDataset(Dataset):
         out = [
             self.obs_traj[start:end].to(self.device) , self.pred_traj[start:end].to(self.device),
             self.obs_frame_num[start:end], self.fut_frame_num[start:end],
-            np.array([self.map_file_name[index]] * (end - start)) , np.array([inv_h_t] * (end - start)),
-            self.circle_list[start:end], self.distance_list[start:end]
+            np.array([self.map_file_name[index]] * (end - start)) , np.array([inv_h_t] * (end - start))
         ]
         return out
