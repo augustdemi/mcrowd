@@ -96,9 +96,9 @@ class Solver(object):
 
         self.args = args
 
-        self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_hD_%s_dec_hD_%s_mlpD_%s_map_featD_%s_map_mlpD_%s_lr_%s_klw_%s' % \
+        self.name = '%s_pred_len_%s_zS_%s_dr_mlp_%s_dr_rnn_%s_enc_hD_%s_dec_hD_%s_mlpD_%s_map_size_%s_map_featD_%s_map_mlpD_%s_lr_%s_klw_%s' % \
                     (args.dataset_name, args.pred_len, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
-                     args.decoder_h_dim, args.mlp_dim, args.map_feat_dim , args.map_mlp_dim, args.lr_VAE, args.kl_weight)
+                     args.decoder_h_dim, args.mlp_dim, args.map_size, args.map_feat_dim , args.map_mlp_dim, args.lr_VAE, args.kl_weight)
 
 
         # to be appended by run_id
