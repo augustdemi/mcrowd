@@ -100,12 +100,12 @@ class MapEncoder(nn.Module):
     def __init__(self, fc_hidden_dim, output_dim, drop_out):
         super(MapEncoder, self).__init__()
         self.drop_out = drop_out
-        self.conv1 = nn.Conv2d(1, 4, 4, stride=2, bias=False)
+        self.conv1 = nn.Conv2d(1, 4, 7, stride=2, bias=False)
         self.pool = nn.MaxPool2d(2, 2)
-        self.conv2 = nn.Conv2d(4, 16, 4, stride=1, bias=False)
+        self.conv2 = nn.Conv2d(4, 16, 5, stride=1, bias=False)
         self.conv3 = nn.Conv2d(16, 32, 4, stride=1, bias=False)
         self.conv4 = nn.Conv2d(32, 32, 4, stride=1, bias=False)
-        self.fc1 = nn.Linear(32 * 4 * 4 + 2, fc_hidden_dim, bias=False)
+        self.fc1 = nn.Linear(32 * 7 * 7 + 2, fc_hidden_dim, bias=False)
         self.fc2 = nn.Linear(fc_hidden_dim, output_dim, bias=False)
 
         # self.conv1 = nn.Conv2d(1, 4, 7, stride=3, bias=False)
@@ -123,7 +123,7 @@ class MapEncoder(nn.Module):
         """
 
         x = F.relu(self.conv1(map)) # 14
-        # x = F.relu(self.conv1(m.unsqueeze(0))) # 14
+        # x = F.relu(self.conv1(vir_goal_map.unsqueeze(0))) # 14
         x = self.pool(F.relu(self.conv2(x)))  # 12
         if self.drop_out > 0:
             x = F.dropout(x,
@@ -132,7 +132,7 @@ class MapEncoder(nn.Module):
 
         x = F.relu(self.conv3(x))  # 10
         x = self.pool(F.relu(self.conv4(x))) # 8->4
-        x = x.view(-1, 32 * 4 * 4)
+        x = x.view(-1, 32 * 7 * 7)
         x = torch.cat((x, last_obs_vel), -1)
         x = F.relu(self.fc1(x))
         obst_feat = self.fc2(x)
