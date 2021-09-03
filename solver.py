@@ -825,14 +825,14 @@ class Solver(object):
                 all_fde =[]
                 rng=range(364)
                 for idx in rng:
-                    obs_real = obs_traj[:, idx, :2]
+                    obs_real = obs_traj[:, idx, :2].cpu().detach().numpy()
                     obs_real = np.concatenate([obs_real, np.ones((self.obs_len, 1))], axis=1)
                     obs_pixel = np.matmul(obs_real, inv_h_t[0])
                     obs_pixel /= np.expand_dims(obs_pixel[:, 2], 1)
                     obs_pixel = obs_pixel[:, :2]
                     # obs_pixel[:, [1, 0]] = obs_pixel[:, [0, 1]]
 
-                    gt_real = fut_traj[:, idx, :2]
+                    gt_real = fut_traj[:, idx, :2].cpu().detach().numpy()
                     gt_real = np.concatenate([gt_real, np.ones((self.pred_len, 1))], axis=1)
                     gt_pixel = np.matmul(gt_real, inv_h_t[0])
                     gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
@@ -896,7 +896,7 @@ class Solver(object):
                                                       axis=1)
                     goal_wc = np.matmul(selected_goal_ic, np.linalg.inv(inv_h_t[0]))
                     goal_wc = goal_wc / np.expand_dims(goal_wc[:, 2], 1)
-                    fde20 = np.sqrt(((goal_wc[:,:2] - fut_traj[-1, idx, :2].unsqueeze(0).repeat((20,1)).numpy()) ** 2).sum(1))
+                    fde20 = np.sqrt(((goal_wc[:,:2] - fut_traj[-1, idx, :2].unsqueeze(0).repeat((20,1)).cpu().detach().numpy()) ** 2).sum(1))
                     all_fde.append(fde20)
 
                 all_fde = np.stack(all_fde)
