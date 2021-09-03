@@ -896,8 +896,7 @@ class Solver(object):
                                                       axis=1)
                     goal_wc = np.matmul(selected_goal_ic, np.linalg.inv(inv_h_t[0]))
                     goal_wc = goal_wc / np.expand_dims(goal_wc[:, 2], 1)
-                    goal_wc = goal_wc[:,:2]
-                    fde20 = np.sqrt(((goal_wc - fut_traj[-1, idx, :2].unsqueeze(0).repeat((20,1)).numpy()) ** 2).sum(1))
+                    fde20 = np.sqrt(((goal_wc[:,:2] - fut_traj[-1, idx, :2].unsqueeze(0).repeat((20,1)).numpy()) ** 2).sum(1))
                     all_fde.append(fde20)
 
                 all_fde = np.stack(all_fde)
