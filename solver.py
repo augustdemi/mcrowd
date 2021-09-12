@@ -560,9 +560,9 @@ class Solver(object):
 
 
                 if loss:
-                    # self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
+                    self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
 
-                    # lg_kl += self.lg_cvae.kl_divergence(analytic=True).sum().div(batch_size)
+                    lg_kl += self.lg_cvae.kl_divergence(analytic=True).sum().div(batch_size)
                     lg_recon += self.recon_loss_with_logit(input=pred_lg_heat, target=lg_heat_map).sum().div(
                         np.prod([*lg_heat_map.size()[:3]]))
                     # lg_elbo = -lg_recon_loss - self.lg_kl_weight * lg_kl
