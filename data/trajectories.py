@@ -181,7 +181,7 @@ class TrajectoryDataset(Dataset):
         all_files = np.array(sorted(all_files, key=lambda x: int(x.split('.')[0])))
 
         if data_dir.endswith('Train.txt'):
-            all_files = all_files[:3]
+            all_files = all_files[:40]
             per_agent=5
         elif data_dir.endswith('Val.txt'):
             all_files = all_files[[42,44]]
@@ -330,7 +330,7 @@ class TrajectoryDataset(Dataset):
             # plt.imshow(global_map)
             # plt.scatter(all_traj[:8,0], all_traj[:8,1], s=1, c='b')
             # plt.scatter(all_traj[8:,0], all_traj[8:,1], s=1, c='r')
-            plt.show()
+            # plt.show()
             local_map, local_ic, local_h = get_local_map_ic(global_map, all_traj, zoom=10, radius=8)
             local_maps.append(local_map)
             local_ics.append(local_ic)
@@ -396,10 +396,10 @@ def get_local_map_ic(map, all_traj, zoom=10, radius=8):
 
     fake_pt = [all_traj[7]]
     for i in range(1, 6):
-        fake_pt.append(all_traj[7] + i + np.random.rand(2))
-        fake_pt.append(all_traj[7] - i + np.random.rand(2))
-        fake_pt.append(all_traj[7] + [i, -i] + np.random.rand(2))
-        fake_pt.append(all_traj[7] + [-i, i] + np.random.rand(2))
+        fake_pt.append(all_traj[7] + [i, i] + np.random.rand(2)*0.3)
+        fake_pt.append(all_traj[7] + [-i, -i] + np.random.rand(2)*0.3)
+        fake_pt.append(all_traj[7] + [i, -i] + np.random.rand(2)*0.3)
+        fake_pt.append(all_traj[7] + [-i, i] + np.random.rand(2)*0.3)
     fake_pt = np.array(fake_pt)
     fake_pixel = fake_pt[:,[1, 0]] * zoom
     fake_pixel = radius + np.round(fake_pixel).astype(int)
