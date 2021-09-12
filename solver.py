@@ -258,7 +258,7 @@ class Solver(object):
             ohm = [local_map[i, 0]]
             fhm = [local_map[i, 0]]
             for t in range(self.obs_len + self.pred_len):
-                heat_map_traj = np.zeros_like(local_map[i, 0])
+                heat_map_traj = np.zeros((160,160))
                 heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
                 heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj,
                                                                 sigma=2)  # as Y-net used variance 4 for the GT heatmap representation.
