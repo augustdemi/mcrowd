@@ -60,8 +60,8 @@ class Unet(nn.Module):
         del blocks
 
         #Used for saving the activations and plotting
-        if not training:
-            self.activation_maps.append(x)
+        # if not training:
+        #     self.activation_maps.append(x)
         
         if self.apply_last_layer:
             x =  self.last_layer(x)
