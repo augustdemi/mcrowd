@@ -255,9 +255,10 @@ class Solver(object):
         obs_heat_map = []
         fut_heat_map = []
         for i in range(len(local_ic)):
-            ohm = [local_map[i, 0]]
-            fhm = [local_map[i, 0]]
+            ohm = [local_map[i, 0].detach().cpu().numpy()]
+            fhm = [local_map[i, 0].detach().cpu().numpy()]
             for t in range(self.obs_len + self.pred_len):
+                # heat_map_traj = np.zeros_like(local_map[i, 0])
                 heat_map_traj = np.zeros((160,160))
                 heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
                 heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj,
@@ -268,7 +269,7 @@ class Solver(object):
                     fhm.append(heat_map_traj)
             obs_heat_map.append(np.stack(ohm))
             fut_heat_map.append(np.stack(fhm))
-        obs_heat_map = torch.tensor(np.stack(obs_heat_map))
+        obs_heat_map = torch.tensor(np.stack(obs_heat_map)).float().to(self.device)
         fut_heat_map = np.stack(fut_heat_map)
         return obs_heat_map, fut_heat_map
 
@@ -304,8 +305,8 @@ class Solver(object):
 
 ###########
             obs_heat_map, fut_heat_map =  self.make_heatmap(local_ic, local_map)
-            lg_heat_map = torch.tensor(fut_heat_map[:,[0,12]])
-            sg_heat_map = torch.tensor(fut_heat_map[:, np.concatenate([[0], self.sg_idx + 1])])
+            lg_heat_map = torch.tensor(fut_heat_map[:,[0,12]]).float().to(self.device)
+            sg_heat_map = torch.tensor(fut_heat_map[:, np.concatenate([[0], self.sg_idx + 1])]).float().to(self.device)
 
             # idx=0
             # heat_map_traj = np.zeros_like(local_map[idx, 0])
@@ -382,7 +383,9 @@ class Solver(object):
                     ))
                 pred_sg_ic = torch.stack(pred_sg_ic)
                 # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
-                back_wc = torch.matmul(torch.cat([pred_sg_ic, torch.ones((len(pred_sg_ic), 1))], dim=1), torch.transpose(local_homo[i], 1, 0))
+                back_wc = torch.matmul(
+                    torch.cat([pred_sg_ic, torch.ones((len(pred_sg_ic), 1)).to(self.device)], dim=1),
+                    torch.transpose(local_homo[i], 1, 0))
                 back_wc /= back_wc[:, 2].unsqueeze(1)
                 pred_sg_wc.append(back_wc[:,:2])
                 # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
@@ -507,8 +510,8 @@ class Solver(object):
                 total_traj += fut_traj.size(1)
 
                 obs_heat_map, fut_heat_map = self.make_heatmap(local_ic, local_map)
-                lg_heat_map = torch.tensor(fut_heat_map[:, [0, 12]])
-                sg_heat_map = torch.tensor(fut_heat_map[:, np.concatenate([[0], self.sg_idx + 1])])
+                lg_heat_map = torch.tensor(fut_heat_map[:, [0, 12]]).float().to(self.device)
+                sg_heat_map = torch.tensor(fut_heat_map[:, np.concatenate([[0], self.sg_idx + 1])]).float().to(self.device)
 
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
@@ -532,11 +535,12 @@ class Solver(object):
                         pred_sg_ic = []
                         for heat_map in pred_sg_heat[i, 1:]:
                             pred_sg_ic.append((heat_map == torch.max(heat_map)).nonzero()[0])
-                        pred_sg_ic = torch.stack(pred_sg_ic)
+                        pred_sg_ic = torch.stack(pred_sg_ic).float()
 
                         # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
-                        back_wc = torch.matmul(torch.cat([pred_sg_ic, torch.ones((len(pred_sg_ic), 1))], dim=1),
-                                               torch.transpose(local_homo[i], 1, 0))
+                        back_wc = torch.matmul(
+                            torch.cat([pred_sg_ic, torch.ones((len(pred_sg_ic), 1)).to(self.device)], dim=1),
+                            torch.transpose(local_homo[i], 1, 0))
                         back_wc /= back_wc[:, 2].unsqueeze(1)
                         pred_sg_wc.append(back_wc[:, :2])
                         # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()

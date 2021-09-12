@@ -173,20 +173,22 @@ class TrajectoryDataset(Dataset):
         self.device = device
         self.context_size=context_size
 
-        n_pred_state=2
         n_state=6
         root_dir = '/dresden/users/ml1323/crowd/datasets/Trajectories'
         # root_dir = 'D:\crowd\datasets\Trajectories\Trajectories'
 
         all_files = [e for e in os.listdir(root_dir) if ('.csv' in e) and ('homo' not in e)]
-        all_files = sorted(all_files, key=lambda x: int(x.split('.')[0]))
+        all_files = np.array(sorted(all_files, key=lambda x: int(x.split('.')[0])))
 
         if data_dir.endswith('Train.txt'):
-            all_files = all_files[:30]
+            all_files = all_files[:3]
+            per_agent=5
         elif data_dir.endswith('Val.txt'):
-            all_files = all_files[30:40]
+            all_files = all_files[[42,44]]
+            per_agent=10
         else:
-            all_files = all_files[40:50]
+            all_files = all_files[[43,47,48,49]]
+            per_agent=10
 
         # with open(os.path.join(root_dir, 'exit_wc.json')) as data_file:
         #     all_exit_wc = json.load(data_file)
@@ -221,7 +223,7 @@ class TrajectoryDataset(Dataset):
             data1.sort_values(by=['f', 'a'], inplace=True)
 
             uniq_agents = data1['a'].unique()
-            for agent_idx in uniq_agents[::10]:
+            for agent_idx in uniq_agents[::per_agent]:
                 data = data1[data1['a'] == agent_idx][:50]
             # data = data1[data1['a'] < 10]
                 frames = data['f'].unique().tolist()
