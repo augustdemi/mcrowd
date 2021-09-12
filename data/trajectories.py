@@ -174,21 +174,21 @@ class TrajectoryDataset(Dataset):
         self.context_size=context_size
 
         n_state=6
-        root_dir = '/dresden/users/ml1323/crowd/datasets/Trajectories'
-        # root_dir = 'D:\crowd\datasets\Trajectories\Trajectories'
+        # root_dir = '/dresden/users/ml1323/crowd/datasets/Trajectories'
+        root_dir = 'D:\crowd\datasets\Trajectories\Trajectories'
 
         all_files = [e for e in os.listdir(root_dir) if ('.csv' in e) and ('homo' not in e)]
         all_files = np.array(sorted(all_files, key=lambda x: int(x.split('.')[0])))
 
         if data_dir.endswith('Train.txt'):
-            all_files = all_files[:40]
+            all_files = all_files[:2]
             per_agent=5
         elif data_dir.endswith('Val.txt'):
             all_files = all_files[[42,44]]
             per_agent=10
         else:
             all_files = all_files[[43,47,48,49]]
-            per_agent=10
+            per_agent=20
 
         # with open(os.path.join(root_dir, 'exit_wc.json')) as data_file:
         #     all_exit_wc = json.load(data_file)
