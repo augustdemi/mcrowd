@@ -183,12 +183,15 @@ class TrajectoryDataset(Dataset):
         if data_dir.endswith('Train.txt'):
             all_files = all_files[:2]
             per_agent=5
+            num_data=100
         elif data_dir.endswith('Val.txt'):
             all_files = all_files[[42,44]]
             per_agent=10
+            num_data=50
         else:
             all_files = all_files[[43,47,48,49]]
             per_agent=20
+            num_data = 50
 
         # with open(os.path.join(root_dir, 'exit_wc.json')) as data_file:
         #     all_exit_wc = json.load(data_file)
@@ -224,7 +227,7 @@ class TrajectoryDataset(Dataset):
 
             uniq_agents = data1['a'].unique()
             for agent_idx in uniq_agents[::per_agent]:
-                data = data1[data1['a'] == agent_idx][:50]
+                data = data1[data1['a'] == agent_idx][:num_data]
             # data = data1[data1['a'] < 10]
                 frames = data['f'].unique().tolist()
 
