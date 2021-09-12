@@ -89,7 +89,7 @@ class AxisAlignedConvGaussian(nn.Module):
             self.sum_input = torch.sum(input)
 
         encoding = self.encoder(input) # [4, 128, 10, 10]
-        self.show_enc = encoding
+        # self.show_enc = encoding
 
         #We only want the mean of the resulting hxw image
         encoding = torch.mean(encoding, dim=2, keepdim=True)
