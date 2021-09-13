@@ -261,8 +261,8 @@ class Solver(object):
                 # heat_map_traj = np.zeros_like(local_map[i, 0])
                 heat_map_traj = np.zeros((160,160))
                 heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
-                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj,
-                                                                sigma=2)  # as Y-net used variance 4 for the GT heatmap representation.
+                # as Y-net used variance 4 for the GT heatmap representation.
+                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2) * 100
                 if t < self.obs_len:
                     ohm.append(heat_map_traj)
                 else:
@@ -322,6 +322,8 @@ class Solver(object):
             self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
             recon_lg_heat = self.lg_cvae.reconstruct(use_posterior_mean=False,
                                                    calculate_posterior=True)
+            # pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True))
+
             lg_kl = self.lg_cvae.kl_divergence(analytic=True).sum().div(batch_size)
             lg_recon_loss = self.recon_loss_with_logit(input=recon_lg_heat, target=lg_heat_map).sum().div(np.prod([*lg_heat_map.size()[:3]]))
             lg_elbo = -lg_recon_loss - self.lg_kl_weight * lg_kl
@@ -330,8 +332,12 @@ class Solver(object):
             #-------- short term goal --------
             # obs_lg_heat = torch.cat([obs_heat_map, lg_heat_map[:,-1].unsqueeze(1)], dim=1)
             recon_sg_heat = self.sg_unet.forward(torch.cat([obs_heat_map, lg_heat_map[:,-1].unsqueeze(1)], dim=1), training=True)
-            sg_recon_loss = self.recon_loss_with_logit(input=recon_sg_heat, target=sg_heat_map).sum().div(np.prod([*sg_heat_map.size()[:3]]))
+            # recon_sg_heat = self.sg_unet.forward(torch.cat([obs_heat_map[:,2:], sg_heat_map[:,1:]], dim=1), training=True)
 
+            sg_recon_loss = self.recon_loss_with_logit(input=recon_sg_heat, target=sg_heat_map).sum().div(np.prod([*sg_heat_map.size()[:3]]))
+            # plt.imshow(F.sigmoid(pred_lg_heat[0][1]).detach().numpy())
+            # a = F.sigmoid(recon_sg_heat[0][0]) * local_map[0,0]
+            # plt.imshow(a.detach().numpy())
 
             #-------- trajectories --------
             (hx, mux, log_varx) \
