@@ -42,16 +42,16 @@ def create_parser():
     
     parser = argparse.ArgumentParser()
 
-    parser.add_argument( '--run_id', default=302, type=int,
+    parser.add_argument( '--run_id', default=405, type=int,
       help='run id (default=-1 to create a new id)' )
 
     parser.add_argument( '--device', default='cpu', type=str,
       help='cpu/cuda' )
 
     # training hyperparameters
-    parser.add_argument( '--batch_size', default=2, type=int,
+    parser.add_argument( '--batch_size', default=64, type=int,
       help='batch size' )
-    parser.add_argument( '--lr_VAE', default=1e-3, type=float,
+    parser.add_argument( '--lr_VAE', default=1e-4, type=float,
       help='learning rate of the VAE' )
     parser.add_argument( '--beta1_VAE', default=0.9, type=float,
       help='beta1 parameter of the Adam optimizer for the VAE' )
@@ -62,10 +62,10 @@ def create_parser():
 
 
     # saving directories and checkpoint/sample iterations
-    parser.add_argument( '--ckpt_load_iter', default=0, type=int,
+    parser.add_argument( '--ckpt_load_iter', default=2100, type=int,
       help='iter# to load the previously saved model ' +
         '(default=0 to start from the scratch)' )
-    parser.add_argument( '--max_iter', default=10, type=float,
+    parser.add_argument( '--max_iter', default=2100, type=float,
       help='maximum number of batch iterations' )
     parser.add_argument( '--ckpt_save_iter', default=100, type=int,
       help='checkpoint saved every # iters' )
@@ -100,7 +100,7 @@ def create_parser():
     # dataset
     parser.add_argument( '--dataset_dir', default='C:\dataset\HTP-benchmark\Splits', type=str,
       help='dataset directory' )
-    parser.add_argument( '--dataset_name', default='A2E', type=str,
+    parser.add_argument( '--dataset_name', default='path', type=str,
       help='dataset name' )
     parser.add_argument( '--num_workers', default=0, type=int,
       help='dataloader num_workers' )
@@ -109,11 +109,11 @@ def create_parser():
 
 
     # model hyperparameters
-    parser.add_argument( '--zS_dim', default=32, type=int,
+    parser.add_argument( '--zS_dim', default=20, type=int,
       help='dimension of the shared latent representation' )
     # Encoder
     parser.add_argument('--encoder_h_dim', default=64, type=int)
-    parser.add_argument('--decoder_h_dim', default=256, type=int)
+    parser.add_argument('--decoder_h_dim', default=128, type=int)
     parser.add_argument('--map_feat_dim', default=32, type=int)
 
     parser.add_argument('--num_layers', default=1, type=int)
@@ -121,15 +121,15 @@ def create_parser():
     parser.add_argument('--dropout_rnn', default=0.25, type=float)
     # Decoder
     parser.add_argument('--pool_every_timestep', default=0, type=bool_flag)
-    parser.add_argument('--mlp_dim', default=256, type=int)
-    parser.add_argument('--map_mlp_dim', default=256, type=int)
+    parser.add_argument('--mlp_dim', default=32, type=int)
+    parser.add_argument('--map_mlp_dim', default=128, type=int)
     parser.add_argument('--batch_norm', default=0, type=bool_flag)
 
     parser.add_argument( '--kl_weight', default=100.0, type=float,
       help='kl weight' )
-    parser.add_argument('--lg_kl_weight', default=50, type=int)
-    parser.add_argument('--w_dim', default=20, type=int)
-    parser.add_argument('--ll_prior_w', default=0.5, type=float)
+    parser.add_argument('--lg_kl_weight', default=10, type=int)
+    parser.add_argument('--w_dim', default=128, type=int)
+    parser.add_argument('--ll_prior_w', default=1.0, type=float)
 
     parser.add_argument( '--desc', default='data', type=str,
       help='run description' )
@@ -217,7 +217,9 @@ def main(args):
             _, test_loader = data_loader(args, test_path,shuffle=False)
 
             # solver.plot_traj_var(test_loader)
+            solver.evaluate_dist_gt_goal(test_loader)
 
+            '''
             ade_min, fde_min, \
             ade_avg, fde_avg, \
             ade_std, fde_std, \
@@ -233,7 +235,7 @@ def main(args):
             print('fde avg: ', fde_avg)
             print('fde std: ', fde_std)
             print('------------------------------------------')
-
+            '''
 
     else:
         solver = Solver(args)

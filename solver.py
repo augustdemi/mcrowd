@@ -694,6 +694,77 @@ class Solver(object):
 
 
 
+    def evaluate_dist_gt_goal(self, data_loader):
+        self.set_mode(train=False)
+        total_traj = 0
+
+        all_ade =[]
+        all_fde =[]
+        with torch.no_grad():
+            b=0
+            for batch in data_loader:
+                b+=1
+                (obs_traj, fut_traj, seq_start_end,
+                 obs_frames, pred_frames, map_path, inv_h_t,
+                 local_map, local_ic, local_homo) = batch
+                total_traj += fut_traj.size(1)
+
+                obs_heat_map, fut_heat_map = self.make_heatmap(local_ic, local_map)
+                lg_heat_map = torch.tensor(fut_heat_map[:, 1]).float().to(self.device).unsqueeze(1)
+
+                self.lg_cvae.forward(obs_heat_map, None, training=False)
+
+                # -------- trajectories --------
+                self.sg_unet.forward(torch.cat([obs_heat_map, lg_heat_map], dim=1), training=False)
+
+                (hx, mux, log_varx) \
+                    = self.encoderMx(obs_traj, seq_start_end, self.sg_unet.enc_feat, local_homo)
+                p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
+
+
+                # TF, goals, z~posterior
+
+
+                ade, fde = [], []
+                for _ in range(20):
+                    fut_rel_pos_dist_prior = self.decoderMy(
+                        obs_traj[-1],
+                        hx,
+                        p_dist.rsample(),
+                        fut_traj[self.sg_idx, :, :2].permute(1, 0, 2),  # goal
+                        self.sg_idx - 3,
+                    )
+
+                    pred_fut_traj = integrate_samples(fut_rel_pos_dist_prior.rsample(), obs_traj[-1, :, :2], dt=self.dt)
+                    ade.append(displacement_error(
+                        pred_fut_traj, fut_traj[:,:,:2], mode='raw'
+                    ))
+                    fde.append(final_displacement_error(
+                        pred_fut_traj[-1], fut_traj[-1,:,:2], mode='raw'
+                    ))
+
+                all_ade.append(torch.stack(ade))
+                all_fde.append(torch.stack(fde))
+
+
+            all_ade=torch.cat(all_ade, dim=1).cpu().numpy()
+            all_fde=torch.cat(all_fde, dim=1).cpu().numpy()
+
+            ade_min = np.min(all_ade, axis=0).mean()/self.pred_len
+            fde_min = np.min(all_fde, axis=0).mean()
+            ade_avg = np.mean(all_ade, axis=0).mean()/self.pred_len
+            fde_avg = np.mean(all_fde, axis=0).mean()
+            ade_std = np.std(all_ade, axis=0).mean()/self.pred_len
+            fde_std = np.std(all_fde, axis=0).mean()
+
+            print('ade min: ', ade_min)
+            print('ade avg: ', ade_avg)
+            print('ade std: ', ade_std)
+            print('fde min: ', fde_min)
+            print('fde avg: ', fde_avg)
+            print('fde std: ', fde_std)
+
+
 
 
     def evaluate_collision(self, data_loader, num_samples, threshold):
