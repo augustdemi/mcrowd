@@ -354,10 +354,7 @@ class Decoder(nn.Module):
             if fut_traj is not None:
                 a = fut_traj[i,:,2:4]
             else:
-                if tf:
-                    a = self.to_vel(goal)
-                else:
-                    a = Normal(mu, std).rsample()
+                a = Normal(mu, std).rsample()
 
         mus = torch.stack(mus, dim=0)
         stds = torch.stack(stds, dim=0)
