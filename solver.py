@@ -172,11 +172,11 @@ class Solver(object):
 
             # input = env + 8 past / output = env + lg
             num_filters = [32,32,64,64,64,128]
-            self.lg_cvae = ProbabilisticUnet(input_channels=9, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
+            self.lg_cvae = ProbabilisticUnet(input_channels=9, num_classes=2, num_filters=num_filters, latent_dim=self.w_dim,
                                     no_convs_fcomb=4, beta=self.lg_kl_weight).to(self.device)
 
             # input = env + 8 past + lg / output = env + sg(including lg)
-            self.sg_unet = Unet(input_channels=10, num_classes=3, num_filters=num_filters,
+            self.sg_unet = Unet(input_channels=10, num_classes=4, num_filters=num_filters,
                              apply_last_layer=True, padding=True).to(self.device)
 
 
@@ -251,6 +251,7 @@ class Solver(object):
         print('...done')
 
         self.recon_loss_with_logit = nn.BCEWithLogitsLoss(size_average = False, reduce=False, reduction=None)
+        self.l1_loss = nn.L1Loss(size_average = False, reduce=False, reduction=None)
 
 
     def make_heatmap(self, local_ic, local_map):
@@ -258,12 +259,12 @@ class Solver(object):
         fut_heat_map = []
         for i in range(len(local_ic)):
             ohm = [local_map[i, 0].detach().cpu().numpy()]
-            fhm = []
+            fhm = [local_map[i, 0].detach().cpu().numpy()]
             for t in range(self.obs_len + self.pred_len):
                 # heat_map_traj = np.zeros_like(local_map[i, 0])
                 heat_map_traj = np.zeros((160,160))
                 # heat_map_traj = local_map[i, 0].detach().cpu().numpy() / 20
-                heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
+                heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 50
                 # as Y-net used variance 4 for the GT heatmap representation.
                 heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
                 # plt.imshow(heat_map_traj)
@@ -276,7 +277,6 @@ class Solver(object):
             fut_heat_map.append(np.stack(fhm))
         obs_heat_map = torch.tensor(np.stack(obs_heat_map)).float().to(self.device)
         fut_heat_map = np.stack(fut_heat_map)
-        obs_heat_map[:,0] *= obs_heat_map[:,1].max() * 0.5
         return obs_heat_map, fut_heat_map
 
     ####
@@ -311,8 +311,8 @@ class Solver(object):
 
 ###########
             obs_heat_map, fut_heat_map =  self.make_heatmap(local_ic, local_map)
-            lg_heat_map = torch.tensor(fut_heat_map[:,11]).float().to(self.device).unsqueeze(1)
-            sg_heat_map = torch.tensor(fut_heat_map[:, self.sg_idx]).float().to(self.device)
+            lg_heat_map = torch.tensor(fut_heat_map[:,[0,12]]).float().to(self.device)
+            sg_heat_map = torch.tensor(fut_heat_map[:, np.concatenate([[0], self.sg_idx + 1])]).float().to(self.device)
 
             # idx=0
             # heat_map_traj = np.zeros_like(local_map[idx, 0])
@@ -325,25 +325,22 @@ class Solver(object):
             # plt.imshow(local_map[idx, 0])
 
             #-------- long term goal --------
-            # a = torch.cat([obs_heat_map[:, 0].unsqueeze(1), obs_heat_map[:, 1:] * 10], dim=1)
-            # a = torch.cat([obs_heat_map[:, 0].unsqueeze(1) * 0.039 * 0.1, obs_heat_map[:, 1:]], dim=1)
             self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
             recon_lg_heat = self.lg_cvae.reconstruct(use_posterior_mean=False,
                                                    calculate_posterior=True)
-            # pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True))
 
             lg_kl = self.lg_cvae.kl_divergence(analytic=True).sum().div(batch_size)
-            lg_recon_loss = self.recon_loss_with_logit(input=recon_lg_heat, target=lg_heat_map).sum().div(np.prod([*lg_heat_map.size()[:3]]))
+            # lg_recon_loss = self.recon_loss_with_logit(input=recon_lg_heat, target=lg_heat_map).sum().div(np.prod([*lg_heat_map.size()[:3]]))
+            lg_recon_loss = self.l1_loss(input=F.sigmoid(recon_lg_heat), target=lg_heat_map).sum().div(np.prod([*lg_heat_map.size()[:3]]))
             lg_elbo = -lg_recon_loss - self.lg_kl_weight * lg_kl
 
 
             #-------- short term goal --------
-            # obs_lg_heat = torch.cat([obs_heat_map, lg_heat_map[:,-1].unsqueeze(1)], dim=1)
-            recon_sg_heat = self.sg_unet.forward(torch.cat([obs_heat_map, lg_heat_map], dim=1), training=True)
-            # recon_sg_heat = self.sg_unet.forward(torch.cat([obs_heat_map[:,2:], sg_heat_map[:,1:]], dim=1), training=True)
+            recon_sg_heat = self.sg_unet.forward(torch.cat([obs_heat_map, lg_heat_map[:,-1].unsqueeze(1)], dim=1), training=True)
+            # sg_recon_loss = self.recon_loss_with_logit(input=recon_sg_heat, target=sg_heat_map).sum().div(np.prod([*sg_heat_map.size()[:3]]))
+            sg_recon_loss = self.l1_loss(input=F.sigmoid(recon_sg_heat), target=sg_heat_map).sum().div(np.prod([*sg_heat_map.size()[:3]]))
 
-            sg_recon_loss = self.recon_loss_with_logit(input=recon_sg_heat, target=sg_heat_map).sum().div(np.prod([*sg_heat_map.size()[:3]]))
-            # plt.imshow(F.sigmoid(recon_sg_heat[0][0]).detach().numpy())
+            # plt.imshow(F.sigmoid(recon_sg_heat[0][1]).detach().numpy())
             # a = F.sigmoid(recon_sg_heat[0][0]) * local_map[0,0]
             # plt.imshow(a.detach().numpy())
 
@@ -384,7 +381,7 @@ class Solver(object):
 
                 ## soft argmax
                 pred_sg_ic = []
-                for heat_map in sg_heat_map[i]:
+                for heat_map in sg_heat_map[i, 1:]:
                     # heat_map /=200
                     x_goal_pixel = 0
                     y_goal_pixel = 0
@@ -533,8 +530,8 @@ class Solver(object):
                 total_traj += fut_traj.size(1)
 
                 obs_heat_map, fut_heat_map = self.make_heatmap(local_ic, local_map)
-                lg_heat_map = torch.tensor(fut_heat_map[:, 1]).float().to(self.device).unsqueeze(1)
-                sg_heat_map = torch.tensor(fut_heat_map[:, self.sg_idx]).float().to(self.device)
+                lg_heat_map = torch.tensor(fut_heat_map[:, [0, 12]]).float().to(self.device)
+                sg_heat_map = torch.tensor(fut_heat_map[:, np.concatenate([[0], self.sg_idx + 1])]).float().to(self.device)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 fut_rel_pos_dist20 = []
@@ -547,7 +544,7 @@ class Solver(object):
                     pred_lg_wc = []
                     for i in range(batch_size):
                         pred_lg_ic = []
-                        for heat_map in pred_lg_heat[i]:
+                        for heat_map in pred_lg_heat[i, 1:]:
                             pred_lg_ic.append((heat_map == torch.max(heat_map)).nonzero()[0])
                         pred_lg_ic = torch.stack(pred_lg_ic).float()
 
@@ -564,7 +561,7 @@ class Solver(object):
 
                     # -------- short term goal --------
                     # obs_lg_heat = torch.cat([obs_heat_map, pred_lg_heat[:, -1].unsqueeze(1)], dim=1)
-                    pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat], dim=1), training=False))
+                    pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat[:, -1].unsqueeze(1)], dim=1), training=False))
 
                     # -------- trajectories --------
                     (hx, mux, log_varx) \
@@ -574,7 +571,7 @@ class Solver(object):
                     pred_sg_wc = []
                     for i in range(batch_size):
                         pred_sg_ic = []
-                        for heat_map in pred_sg_heat[i]:
+                        for heat_map in pred_sg_heat[i, 1:]:
                             pred_sg_ic.append((heat_map == torch.max(heat_map)).nonzero()[0])
                         pred_sg_ic = torch.stack(pred_sg_ic).float()
 
@@ -604,13 +601,13 @@ class Solver(object):
                     self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
 
                     lg_kl += self.lg_cvae.kl_divergence(analytic=True).sum().div(batch_size)
-                    lg_recon += self.recon_loss_with_logit(input=pred_lg_heat, target=lg_heat_map).sum().div(
+                    lg_recon += self.l1_loss(input=F.sigmoid(pred_lg_heat), target=lg_heat_map).sum().div(
                         np.prod([*lg_heat_map.size()[:3]]))
                     # lg_elbo = -lg_recon_loss - self.lg_kl_weight * lg_kl
 
-                    sg_recon += self.recon_loss_with_logit(input=pred_sg_heat, target=sg_heat_map).sum().div(
-                        np.prod([*sg_heat_map.size()[:3]]))
 
+                    sg_recon += self.l1_loss(input=F.sigmoid(pred_sg_heat), target=sg_heat_map).sum().div(
+                        np.prod([*sg_heat_map.size()[:3]]))
 
                     (muy, log_vary) \
                         = self.encoderMy(obs_traj[-1], fut_traj[:, :, 2:4], seq_start_end, hx, train=False)
