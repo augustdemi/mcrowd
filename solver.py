@@ -172,11 +172,11 @@ class Solver(object):
 
             # input = env + 8 past / output = env + lg
             num_filters = [32,32,64,64,64,128]
-            self.lg_cvae = ProbabilisticUnet(input_channels=9, num_classes=2, num_filters=num_filters, latent_dim=self.w_dim,
+            self.lg_cvae = ProbabilisticUnet(input_channels=9, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
                                     no_convs_fcomb=4, beta=self.lg_kl_weight).to(self.device)
 
             # input = env + 8 past + lg / output = env + sg(including lg)
-            self.sg_unet = Unet(input_channels=10, num_classes=4, num_filters=num_filters,
+            self.sg_unet = Unet(input_channels=10, num_classes=3, num_filters=num_filters,
                              apply_last_layer=True, padding=True).to(self.device)
 
 
@@ -258,7 +258,7 @@ class Solver(object):
         fut_heat_map = []
         for i in range(len(local_ic)):
             ohm = [local_map[i, 0].detach().cpu().numpy()]
-            fhm = [local_map[i, 0].detach().cpu().numpy()]
+            fhm = []
             for t in range(self.obs_len + self.pred_len):
                 # heat_map_traj = np.zeros_like(local_map[i, 0])
                 heat_map_traj = np.zeros((160,160))
@@ -310,8 +310,8 @@ class Solver(object):
 
 ###########
             obs_heat_map, fut_heat_map =  self.make_heatmap(local_ic, local_map)
-            lg_heat_map = torch.tensor(fut_heat_map[:,[0,12]]).float().to(self.device)
-            sg_heat_map = torch.tensor(fut_heat_map[:, np.concatenate([[0], self.sg_idx + 1])]).float().to(self.device)
+            lg_heat_map = torch.tensor(fut_heat_map[:,11]).float().to(self.device).unsqueeze(1)
+            sg_heat_map = torch.tensor(fut_heat_map[:, self.sg_idx]).float().to(self.device)
 
             # idx=0
             # heat_map_traj = np.zeros_like(local_map[idx, 0])
@@ -336,7 +336,7 @@ class Solver(object):
 
             #-------- short term goal --------
             # obs_lg_heat = torch.cat([obs_heat_map, lg_heat_map[:,-1].unsqueeze(1)], dim=1)
-            recon_sg_heat = self.sg_unet.forward(torch.cat([obs_heat_map, lg_heat_map[:,-1].unsqueeze(1)], dim=1), training=True)
+            recon_sg_heat = self.sg_unet.forward(torch.cat([obs_heat_map, lg_heat_map], dim=1), training=True)
             # recon_sg_heat = self.sg_unet.forward(torch.cat([obs_heat_map[:,2:], sg_heat_map[:,1:]], dim=1), training=True)
 
             sg_recon_loss = self.recon_loss_with_logit(input=recon_sg_heat, target=sg_heat_map).sum().div(np.prod([*sg_heat_map.size()[:3]]))
@@ -381,7 +381,7 @@ class Solver(object):
 
                 ## soft argmax
                 pred_sg_ic = []
-                for heat_map in sg_heat_map[i, 1:]:
+                for heat_map in sg_heat_map[i]:
                     # heat_map /=200
                     x_goal_pixel = 0
                     y_goal_pixel = 0
@@ -530,8 +530,8 @@ class Solver(object):
                 total_traj += fut_traj.size(1)
 
                 obs_heat_map, fut_heat_map = self.make_heatmap(local_ic, local_map)
-                lg_heat_map = torch.tensor(fut_heat_map[:, [0, 12]]).float().to(self.device)
-                sg_heat_map = torch.tensor(fut_heat_map[:, np.concatenate([[0], self.sg_idx + 1])]).float().to(self.device)
+                lg_heat_map = torch.tensor(fut_heat_map[:, 1]).float().to(self.device).unsqueeze(1)
+                sg_heat_map = torch.tensor(fut_heat_map[:, self.sg_idx]).float().to(self.device)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 fut_rel_pos_dist20 = []
@@ -544,7 +544,7 @@ class Solver(object):
                     pred_lg_wc = []
                     for i in range(batch_size):
                         pred_lg_ic = []
-                        for heat_map in pred_lg_heat[i, 1:]:
+                        for heat_map in pred_lg_heat[i]:
                             pred_lg_ic.append((heat_map == torch.max(heat_map)).nonzero()[0])
                         pred_lg_ic = torch.stack(pred_lg_ic).float()
 
@@ -571,7 +571,7 @@ class Solver(object):
                     pred_sg_wc = []
                     for i in range(batch_size):
                         pred_sg_ic = []
-                        for heat_map in pred_sg_heat[i, 1:]:
+                        for heat_map in pred_sg_heat[i]:
                             pred_sg_ic.append((heat_map == torch.max(heat_map)).nonzero()[0])
                         pred_sg_ic = torch.stack(pred_sg_ic).float()
 
