@@ -262,13 +262,16 @@ class Solver(object):
             for t in range(self.obs_len + self.pred_len):
                 # heat_map_traj = np.zeros_like(local_map[i, 0])
                 heat_map_traj = np.zeros((160,160))
-                heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
+                # heat_map_traj = local_map[i, 0].detach().cpu().numpy() / 20
+                heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 50
                 # as Y-net used variance 4 for the GT heatmap representation.
-                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2) * 100
+                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+                # plt.imshow(heat_map_traj)
+
                 if t < self.obs_len:
                     ohm.append(heat_map_traj)
                 else:
-                    fhm.append(heat_map_traj*2)
+                    fhm.append(heat_map_traj)
             obs_heat_map.append(np.stack(ohm))
             fut_heat_map.append(np.stack(fhm))
         obs_heat_map = torch.tensor(np.stack(obs_heat_map)).float().to(self.device)
@@ -337,7 +340,7 @@ class Solver(object):
             # recon_sg_heat = self.sg_unet.forward(torch.cat([obs_heat_map[:,2:], sg_heat_map[:,1:]], dim=1), training=True)
 
             sg_recon_loss = self.recon_loss_with_logit(input=recon_sg_heat, target=sg_heat_map).sum().div(np.prod([*sg_heat_map.size()[:3]]))
-            # plt.imshow(F.sigmoid(pred_lg_heat[0][1]).detach().numpy())
+            # plt.imshow(F.sigmoid(recon_sg_heat[0][1]).detach().numpy())
             # a = F.sigmoid(recon_sg_heat[0][0]) * local_map[0,0]
             # plt.imshow(a.detach().numpy())
 
@@ -379,6 +382,7 @@ class Solver(object):
                 ## soft argmax
                 pred_sg_ic = []
                 for heat_map in sg_heat_map[i, 1:]:
+                    # heat_map /=200
                     x_goal_pixel = 0
                     y_goal_pixel = 0
                     exp_recon = torch.exp(heat_map * (20 / heat_map.max()))
@@ -396,7 +400,7 @@ class Solver(object):
                     torch.transpose(local_homo[i], 1, 0))
                 back_wc /= back_wc[:, 2].unsqueeze(1)
                 pred_sg_wc.append(back_wc[:,:2])
-                # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
+                # ((back_wc[:,:2] - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
             pred_sg_wc = torch.stack(pred_sg_wc)
 
             # NO TF, predicted goals, z~prior
@@ -424,6 +428,9 @@ class Solver(object):
             self.optim_vae.zero_grad()
             loss.backward()
             self.optim_vae.step()
+
+            if iteration % 10 ==0:
+                print(sg_recon_loss)
 
 
             # save model parameters
