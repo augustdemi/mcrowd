@@ -183,11 +183,11 @@ class TrajectoryDataset(Dataset):
         if data_dir.endswith('Train.txt'):
             all_files = all_files[:2]
             per_agent=5
-            num_data=100
+            num_data=50
         elif data_dir.endswith('Val.txt'):
             all_files = all_files[[42,44]]
             per_agent=10
-            num_data=50
+            num_data= 50
         else:
             all_files = all_files[[43,47,48,49]]
             per_agent=20
@@ -444,6 +444,6 @@ def get_local_map_ic(map, all_traj, zoom=10, radius=8):
 
     local_map = transforms.Compose([
         transforms.ToTensor()
-    ])(Image.fromarray(local_map/255))
+    ])(Image.fromarray(1-local_map/255))
 
     return local_map, torch.tensor(all_pixel_local), torch.tensor(h).float()

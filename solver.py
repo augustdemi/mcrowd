@@ -100,7 +100,8 @@ class Solver(object):
                 loss_recon_prior='win_loss_recon_prior',
                 lg_recon='win_lg_recon', sg_recon='win_sg_recon', lg_kl='win_lg_kl',
                 test_lg_recon='win_test_lg_recon', test_sg_recon='win_test_sg_recon', test_lg_kl='win_test_lg_kl',
-                sg_ade_min='win_sg_ade_min', sg_ade_avg='win_sg_ade_avg', sg_ade_std='win_sg_ade_std'
+                sg_ade_min='win_sg_ade_min', sg_ade_avg='win_sg_ade_avg', sg_ade_std='win_sg_ade_std',
+                lg_fde_min='win_lg_fde_min', lg_fde_avg='win_lg_fde_avg', lg_fde_std='win_lg_fde_std'
             )
             self.line_gather = DataGather(
                 'iter', 'loss_recon', 'loss_kl',  'loss_recon_prior',
@@ -109,6 +110,7 @@ class Solver(object):
                 'lg_recon', 'sg_recon', 'lg_kl',
                 'test_lg_recon', 'test_sg_recon', 'test_lg_kl',
                 'sg_ade_min', 'sg_ade_avg', 'sg_ade_std',
+                'lg_fde_min', 'lg_fde_avg', 'lg_fde_std'
             )
 
 
@@ -233,7 +235,7 @@ class Solver(object):
         # args.batch_size=4
         # self.agrs = args
         train_path = os.path.join(self.dataset_dir, self.dataset_name, 'Train.txt')
-        val_path = os.path.join(self.dataset_dir, self.dataset_name, 'Test.txt')
+        val_path = os.path.join(self.dataset_dir, self.dataset_name, 'Val.txt')
 
         # long_dtype, float_dtype = get_dtypes(args)
 
@@ -434,6 +436,7 @@ class Solver(object):
                 ade_avg, fde_avg, \
                 ade_std, fde_std, \
                 sg_ade_min, sg_ade_avg, sg_ade_std, \
+                lg_fde_min, lg_fde_avg, lg_fde_std, \
                 test_loss_recon, test_loss_kl,\
                 test_lg_recon, test_lg_kl, test_sg_recon = self.evaluate_dist(self.val_loader, loss=True)
                 self.line_gather.insert(iter=iteration,
@@ -446,10 +449,13 @@ class Solver(object):
                                         sg_ade_min=sg_ade_min,
                                         sg_ade_avg=sg_ade_avg,
                                         sg_ade_std=sg_ade_std,
+                                        lg_fde_min=lg_fde_min,
+                                        lg_fde_avg=lg_fde_avg,
+                                        lg_fde_std=lg_fde_std,
                                         loss_recon=-ll_tf_post.item(),
                                         loss_recon_prior=-ll_prior.item(),
                                         loss_kl=loss_kl.item(),
-                                        test_loss_recon=-test_loss_recon.item(),
+                                        test_loss_recon=test_loss_recon.item(),
                                         test_loss_kl=test_loss_kl.item(),
                                         lg_recon=lg_recon_loss.item(),
                                         lg_kl=lg_kl.item(),
@@ -505,6 +511,7 @@ class Solver(object):
         all_ade =[]
         all_fde =[]
         sg_ade=[]
+        lg_fde=[]
         with torch.no_grad():
             b=0
             for batch in data_loader:
@@ -519,13 +526,31 @@ class Solver(object):
                 lg_heat_map = torch.tensor(fut_heat_map[:, [0, 12]]).float().to(self.device)
                 sg_heat_map = torch.tensor(fut_heat_map[:, np.concatenate([[0], self.sg_idx + 1])]).float().to(self.device)
 
-
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 fut_rel_pos_dist20 = []
+                pred_lg_wc20 = []
                 pred_sg_wc20 = []
                 for _ in range(20):
                     # -------- long term goal --------
                     pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True))
+
+                    pred_lg_wc = []
+                    for i in range(batch_size):
+                        pred_lg_ic = []
+                        for heat_map in pred_lg_heat[i, 1:]:
+                            pred_lg_ic.append((heat_map == torch.max(heat_map)).nonzero()[0])
+                        pred_lg_ic = torch.stack(pred_lg_ic).float()
+
+                        # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
+                        back_wc = torch.matmul(
+                            torch.cat([pred_lg_ic, torch.ones((len(pred_lg_ic), 1)).to(self.device)], dim=1),
+                            torch.transpose(local_homo[i], 1, 0))
+                        pred_lg_wc.append(back_wc[0,:2] / back_wc[0,2])
+                        # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
+                    pred_lg_wc = torch.stack(pred_lg_wc)
+                    pred_lg_wc20.append(pred_lg_wc)
+
+
 
                     # -------- short term goal --------
                     # obs_lg_heat = torch.cat([obs_heat_map, pred_lg_heat[:, -1].unsqueeze(1)], dim=1)
@@ -603,6 +628,8 @@ class Solver(object):
                 all_fde.append(torch.stack(fde))
                 sg_ade.append(torch.sqrt(((torch.stack(pred_sg_wc20).permute(0, 2, 1, 3)
                                            - fut_traj[self.sg_idx,:,:2].unsqueeze(0).repeat((20,1,1,1)))**2).sum(-1)).sum(1)) # 20, 3, 4, 2
+                lg_fde.append(torch.sqrt(((torch.stack(pred_lg_wc20)
+                                           - fut_traj[-1,:,:2].unsqueeze(0).repeat((20,1,1)))**2).sum(-1))) # 20, 3, 4, 2
                 del pred_lg_heat
                 del pred_sg_heat
                 del obs_heat_map
@@ -616,6 +643,7 @@ class Solver(object):
             all_ade=torch.cat(all_ade, dim=1).cpu().numpy()
             all_fde=torch.cat(all_fde, dim=1).cpu().numpy()
             sg_ade=torch.cat(sg_ade, dim=1).cpu().numpy()
+            lg_fde=torch.cat(lg_fde, dim=1).cpu().numpy() # all batches are concatenated
 
             ade_min = np.min(all_ade, axis=0).mean()/self.pred_len
             fde_min = np.min(all_fde, axis=0).mean()
@@ -628,18 +656,24 @@ class Solver(object):
             sg_ade_avg = np.mean(sg_ade, axis=0).mean()/len(self.sg_idx)
             sg_ade_std = np.std(sg_ade, axis=0).mean()/len(self.sg_idx)
 
+            lg_fde_min = np.min(lg_fde, axis=0).mean()
+            lg_fde_avg = np.mean(lg_fde, axis=0).mean()
+            lg_fde_std = np.std(lg_fde, axis=0).mean()
+
         self.set_mode(train=True)
         if loss:
             return ade_min, fde_min, \
                    ade_avg, fde_avg, \
                    ade_std, fde_std, \
                    sg_ade_min, sg_ade_avg, sg_ade_std, \
+                   lg_fde_min, lg_fde_avg, lg_fde_std, \
                    loss_recon/b, loss_kl/b, lg_recon/b, lg_kl/b, sg_recon/b
         else:
             return ade_min, fde_min, \
                    ade_avg, fde_avg, \
                    ade_std, fde_std, \
-                   sg_ade_min, sg_ade_avg, sg_ade_std
+                   sg_ade_min, sg_ade_avg, sg_ade_std, \
+                   lg_fde_min, lg_fde_avg, lg_fde_std
 
 
 
@@ -1115,7 +1149,9 @@ class Solver(object):
         self.viz.close(env=self.name + '/lines', win=self.win_id['sg_ade_min'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['sg_ade_avg'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['sg_ade_std'])
-
+        self.viz.close(env=self.name + '/lines', win=self.win_id['lg_fde_min'])
+        self.viz.close(env=self.name + '/lines', win=self.win_id['lg_fde_avg'])
+        self.viz.close(env=self.name + '/lines', win=self.win_id['lg_fde_std'])
     ####
     def visualize_line(self):
 
@@ -1134,6 +1170,9 @@ class Solver(object):
         sg_ade_min = torch.Tensor(data['sg_ade_min'])
         sg_ade_avg = torch.Tensor(data['sg_ade_avg'])
         sg_ade_std = torch.Tensor(data['sg_ade_std'])
+        lg_fde_min = torch.Tensor(data['lg_fde_min'])
+        lg_fde_avg = torch.Tensor(data['lg_fde_avg'])
+        lg_fde_std = torch.Tensor(data['lg_fde_std'])
         test_loss_recon = torch.Tensor(data['test_loss_recon'])
         test_loss_kl = torch.Tensor(data['test_loss_kl'])
 
@@ -1287,6 +1326,25 @@ class Solver(object):
             opts=dict(xlabel='iter', ylabel='sg_ade_std',
                       title='sg_ade_std'),
         )
+        self.viz.line(
+            X=iters, Y=lg_fde_min, env=self.name + '/lines',
+            win=self.win_id['lg_fde_min'], update='append',
+            opts=dict(xlabel='iter', ylabel='lg_fde_min',
+                      title='lg_fde_min'),
+        )
+        self.viz.line(
+            X=iters, Y=lg_fde_avg, env=self.name + '/lines',
+            win=self.win_id['lg_fde_avg'], update='append',
+            opts=dict(xlabel='iter', ylabel='lg_fde_avg',
+                      title='lg_fde_avg'),
+        )
+        self.viz.line(
+            X=iters, Y=lg_fde_std, env=self.name + '/lines',
+            win=self.win_id['lg_fde_std'], update='append',
+            opts=dict(xlabel='iter', ylabel='lg_fde_std',
+                      title='lg_fde_std'),
+        )
+
 
     def set_mode(self, train=True):
 

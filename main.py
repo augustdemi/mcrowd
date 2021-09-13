@@ -78,7 +78,7 @@ def create_parser():
 
     # visdom
     parser.add_argument( '--viz_on',
-      default=True, type=str2bool, help='enable visdom visualization' )
+      default=False, type=str2bool, help='enable visdom visualization' )
     parser.add_argument( '--viz_port',
       default=8002, type=int, help='visdom port number' )
     parser.add_argument( '--viz_ll_iter',
@@ -216,33 +216,15 @@ def main(args):
             args.batch_size=50
             _, test_loader = data_loader(args, test_path,shuffle=False)
 
-            solver.plot_traj_var(test_loader)
-            '''
-            coll_rate_min, non_zero_coll_min, \
-            coll_rate_avg, non_zero_coll_avg, \
-            coll_rate_std, non_zero_coll_std = solver.evaluate_collision(test_loader, 20, threshold)
-            print('-------------------- collision rate of ', args.dataset_name, '----------------------')
-            print('min: ', coll_rate_min)
-            print('avg: ', coll_rate_avg)
-            print('std: ', coll_rate_std)
-
-            their_viol, min_viol, avg_viol, std_viol = solver.map_collision(test_loader)
-            print('their_viol: ', their_viol)
-            print('min_viol: ', min_viol)
-            print('avg_viol: ', avg_viol)
-            print('std_viol: ', std_viol)
-
             # solver.plot_traj_var(test_loader)
-            # solver.draw_traj(test_loader, 20)
-            # solver.check_dist_stat(test_loader)
-            '''
-
-
-
 
             ade_min, fde_min, \
             ade_avg, fde_avg, \
-            ade_std, fde_std = solver.evaluate_dist(test_loader, loss=False)
+            ade_std, fde_std, \
+            sg_ade_min, sg_ade_avg, sg_ade_std, \
+            lg_fde_min, lg_fde_avg, lg_fde_std = solver.evaluate_dist(test_loader, loss=False)
+
+
 
             print('ade min: ', ade_min)
             print('ade avg: ', ade_avg)
