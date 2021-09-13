@@ -181,7 +181,7 @@ class TrajectoryDataset(Dataset):
         all_files = np.array(sorted(all_files, key=lambda x: int(x.split('.')[0])))
 
         if data_dir.endswith('Train.txt'):
-            all_files = all_files[:2]
+            all_files = all_files[:40]
             per_agent=5
             num_data=50
         elif data_dir.endswith('Val.txt'):
