@@ -263,7 +263,7 @@ class Solver(object):
                 # heat_map_traj = np.zeros_like(local_map[i, 0])
                 heat_map_traj = np.zeros((160,160))
                 # heat_map_traj = local_map[i, 0].detach().cpu().numpy() / 20
-                heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 50
+                heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
                 # as Y-net used variance 4 for the GT heatmap representation.
                 heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
                 # plt.imshow(heat_map_traj)
@@ -276,6 +276,7 @@ class Solver(object):
             fut_heat_map.append(np.stack(fhm))
         obs_heat_map = torch.tensor(np.stack(obs_heat_map)).float().to(self.device)
         fut_heat_map = np.stack(fut_heat_map)
+        obs_heat_map[:,0] *= obs_heat_map[:,1].max() * 0.5
         return obs_heat_map, fut_heat_map
 
     ####
@@ -324,6 +325,8 @@ class Solver(object):
             # plt.imshow(local_map[idx, 0])
 
             #-------- long term goal --------
+            # a = torch.cat([obs_heat_map[:, 0].unsqueeze(1), obs_heat_map[:, 1:] * 10], dim=1)
+            # a = torch.cat([obs_heat_map[:, 0].unsqueeze(1) * 0.039 * 0.1, obs_heat_map[:, 1:]], dim=1)
             self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
             recon_lg_heat = self.lg_cvae.reconstruct(use_posterior_mean=False,
                                                    calculate_posterior=True)
@@ -340,7 +343,7 @@ class Solver(object):
             # recon_sg_heat = self.sg_unet.forward(torch.cat([obs_heat_map[:,2:], sg_heat_map[:,1:]], dim=1), training=True)
 
             sg_recon_loss = self.recon_loss_with_logit(input=recon_sg_heat, target=sg_heat_map).sum().div(np.prod([*sg_heat_map.size()[:3]]))
-            # plt.imshow(F.sigmoid(recon_sg_heat[0][1]).detach().numpy())
+            # plt.imshow(F.sigmoid(recon_sg_heat[0][0]).detach().numpy())
             # a = F.sigmoid(recon_sg_heat[0][0]) * local_map[0,0]
             # plt.imshow(a.detach().numpy())
 
@@ -561,7 +564,7 @@ class Solver(object):
 
                     # -------- short term goal --------
                     # obs_lg_heat = torch.cat([obs_heat_map, pred_lg_heat[:, -1].unsqueeze(1)], dim=1)
-                    pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat[:, -1].unsqueeze(1)], dim=1), training=False))
+                    pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat], dim=1), training=False))
 
                     # -------- trajectories --------
                     (hx, mux, log_varx) \
