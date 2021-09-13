@@ -339,7 +339,9 @@ class Decoder(nn.Module):
         stds = []
         j=0
         for i in range(self.seq_len):
+            tf=False
             if (i < 9) and (i == sg_idx[j]):
+                tf=True
                 goal = sg[:, j]
                 j+=1
             decoder_h= self.rnn_decoder(torch.cat([zx, a, goal], dim=1), decoder_h) #493, 128
@@ -352,7 +354,10 @@ class Decoder(nn.Module):
             if fut_traj is not None:
                 a = fut_traj[i,:,2:4]
             else:
-                a = Normal(mu, std).rsample()
+                if tf:
+                    a = self.to_vel(goal)
+                else:
+                    a = Normal(mu, std).rsample()
 
         mus = torch.stack(mus, dim=0)
         stds = torch.stack(stds, dim=0)
