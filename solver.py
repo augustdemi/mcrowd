@@ -268,7 +268,7 @@ class Solver(object):
                 if t < self.obs_len:
                     ohm.append(heat_map_traj)
                 else:
-                    fhm.append(heat_map_traj)
+                    fhm.append(heat_map_traj*2)
             obs_heat_map.append(np.stack(ohm))
             fut_heat_map.append(np.stack(fhm))
         obs_heat_map = torch.tensor(np.stack(obs_heat_map)).float().to(self.device)
