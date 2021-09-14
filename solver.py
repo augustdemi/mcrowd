@@ -283,7 +283,7 @@ class Solver(object):
             '''
         obs_heat_map = torch.tensor(np.stack(obs_heat_map)).float().to(self.device)
         fut_heat_map = np.stack(fut_heat_map)
-        obs_heat_map[:,0] *= obs_heat_map[:,1].max() * 0.5
+        # obs_heat_map[:,0] *= obs_heat_map[:,1].max() * 0.5
         return obs_heat_map, fut_heat_map
 
     ####
@@ -439,9 +439,6 @@ class Solver(object):
             loss.backward()
             self.optim_vae.step()
 
-            if iteration % 10 ==0:
-                print(sg_recon_loss)
-
 
             # save model parameters
             if iteration % self.ckpt_save_iter == 0:
@@ -540,7 +537,7 @@ class Solver(object):
                 total_traj += fut_traj.size(1)
 
                 obs_heat_map, fut_heat_map = self.make_heatmap(local_ic, local_map)
-                lg_heat_map = torch.tensor(fut_heat_map[:, 1]).float().to(self.device).unsqueeze(1)
+                lg_heat_map = torch.tensor(fut_heat_map[:, 11]).float().to(self.device).unsqueeze(1)
                 sg_heat_map = torch.tensor(fut_heat_map[:, self.sg_idx]).float().to(self.device)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
