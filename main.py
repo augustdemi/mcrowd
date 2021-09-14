@@ -42,7 +42,7 @@ def create_parser():
     
     parser = argparse.ArgumentParser()
 
-    parser.add_argument( '--run_id', default=405, type=int,
+    parser.add_argument( '--run_id', default=407, type=int,
       help='run id (default=-1 to create a new id)' )
 
     parser.add_argument( '--device', default='cpu', type=str,
@@ -62,10 +62,10 @@ def create_parser():
 
 
     # saving directories and checkpoint/sample iterations
-    parser.add_argument( '--ckpt_load_iter', default=2100, type=int,
+    parser.add_argument( '--ckpt_load_iter', default=5100, type=int,
       help='iter# to load the previously saved model ' +
         '(default=0 to start from the scratch)' )
-    parser.add_argument( '--max_iter', default=2100, type=float,
+    parser.add_argument( '--max_iter', default=5100, type=float,
       help='maximum number of batch iterations' )
     parser.add_argument( '--ckpt_save_iter', default=100, type=int,
       help='checkpoint saved every # iters' )
@@ -128,7 +128,7 @@ def create_parser():
     parser.add_argument( '--kl_weight', default=100.0, type=float,
       help='kl weight' )
     parser.add_argument('--lg_kl_weight', default=10, type=int)
-    parser.add_argument('--w_dim', default=128, type=int)
+    parser.add_argument('--w_dim', default=64, type=int)
     parser.add_argument('--ll_prior_w', default=1.0, type=float)
 
     parser.add_argument( '--desc', default='data', type=str,
@@ -213,13 +213,15 @@ def main(args):
 
             print('--------------------', args.dataset_name, '----------------------')
             test_path = os.path.join(args.dataset_dir, args.dataset_name, 'Test.txt')
-            args.batch_size=50
+            args.batch_size=30
             _, test_loader = data_loader(args, test_path,shuffle=False)
 
             # solver.plot_traj_var(test_loader)
-            solver.evaluate_dist_gt_goal(test_loader)
+            # solver.evaluate_dist_gt_goal(test_loader)
+            solver.check_feat(test_loader)
 
-            '''
+
+
             ade_min, fde_min, \
             ade_avg, fde_avg, \
             ade_std, fde_std, \
@@ -234,8 +236,14 @@ def main(args):
             print('fde min: ', fde_min)
             print('fde avg: ', fde_avg)
             print('fde std: ', fde_std)
+            print('sg_ade_min: ', sg_ade_min)
+            print('sg_ade_avg: ', sg_ade_avg)
+            print('sg_ade_std: ', sg_ade_std)
+            print('lg_fde_min: ', lg_fde_min)
+            print('lg_fde_avg: ', lg_fde_avg)
+            print('lg_fde_std: ', lg_fde_std)
             print('------------------------------------------')
-            '''
+
 
     else:
         solver = Solver(args)
