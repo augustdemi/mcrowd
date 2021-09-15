@@ -360,8 +360,7 @@ class Decoder(nn.Module):
             # tf=False
             # if (i < sg_update_idx[-1]+1) and (i == sg_update_idx[j]):
             if (i < sg_update_idx[-1]+1) and (i == sg_update_idx[j]):
-                goal = sg[:, j]
-                rel_to_goal = (goal - last_ob_sg[j]) / dt
+                rel_to_goal = (last_ob_sg[:,j+1] - last_ob_sg[:,j]) / dt
                 j+=1
                 # pred_pos = integrate_samples(a, last_obs_state[:, :2], dt=self.dt)
 
