@@ -415,9 +415,9 @@ class Solver(object):
                                         lg_recon=0,
                                         lg_kl=0,
                                         sg_recon=0,
-                                        test_lg_recon=test_lg_recon.item(),
-                                        test_lg_kl=test_lg_kl.item(),
-                                        test_sg_recon=test_sg_recon.item()
+                                        test_lg_recon=0,
+                                        test_lg_kl=0,
+                                        test_sg_recon=0
                                         )
                 prn_str = ('[iter_%d (epoch_%d)] vae_loss: %.3f ' + \
                               '(recon: %.3f, kl: %.3f)\n' + \
