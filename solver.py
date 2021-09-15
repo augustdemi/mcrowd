@@ -172,11 +172,11 @@ class Solver(object):
 
             # input = env + 8 past / output = env + lg
             num_filters = [32,32,64,64,64,128]
-            self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
+            self.lg_cvae = ProbabilisticUnet(input_channels=3, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
                                     no_convs_fcomb=4, beta=self.lg_kl_weight).to(self.device)
 
             # input = env + 8 past + lg / output = env + sg(including lg)
-            self.sg_unet = Unet(input_channels=3, num_classes=3, num_filters=num_filters,
+            self.sg_unet = Unet(input_channels=4, num_classes=3, num_filters=num_filters,
                              apply_last_layer=True, padding=True).to(self.device)
 
 
@@ -260,7 +260,13 @@ class Solver(object):
             ohm = [local_map[i, 0].detach().cpu().numpy()]
 
             heat_map_traj = np.zeros((160, 160))
-            for t in range(self.obs_len):
+            for t in range(self.obs_len//2):
+                heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
+                # as Y-net used variance 4 for the GT heatmap representation.
+            ohm.append(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2))
+
+            heat_map_traj = np.zeros((160, 160))
+            for t in range(self.obs_len//2, self.obs_len):
                 heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
                 # as Y-net used variance 4 for the GT heatmap representation.
             ohm.append(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2))
