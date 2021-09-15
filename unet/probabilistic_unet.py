@@ -33,8 +33,8 @@ class Encoder(nn.Module):
             input_dim = self.input_channels if i == 0 else output_dim
             output_dim = num_filters[i]
             
-            if i != 0:
-                layers.append(nn.AvgPool2d(kernel_size=2, stride=2, padding=0, ceil_mode=True))
+            # if i != 0:
+            #     layers.append(nn.AvgPool2d(kernel_size=2, stride=2, padding=0, ceil_mode=True))
             
             layers.append(nn.Conv2d(input_dim, output_dim, kernel_size=3, padding=int(padding)))
             layers.append(nn.ReLU(inplace=True))
@@ -92,18 +92,20 @@ class AxisAlignedConvGaussian(nn.Module):
         # self.show_enc = encoding
 
         #We only want the mean of the resulting hxw image
-        encoding = torch.mean(encoding, dim=2, keepdim=True)
-        encoding = torch.mean(encoding, dim=3, keepdim=True)
+        # encoding = torch.mean(encoding, dim=2, keepdim=True)
+        # encoding = torch.mean(encoding, dim=3, keepdim=True)
 
         #Convert encoding to 2 x latent dim and split up for mu and log_sigma
-        mu_log_sigma = self.conv_layer(encoding)
+        mu_log_sigma = self.conv_layer(encoding) # [4, 128, 1, 1]
 
         #We squeeze the second dimension twice, since otherwise it won't work when batch size is equal to 1
-        mu_log_sigma = torch.squeeze(mu_log_sigma, dim=2)
-        mu_log_sigma = torch.squeeze(mu_log_sigma, dim=2)
+        # mu_log_sigma = torch.squeeze(mu_log_sigma, dim=2)
+        # mu_log_sigma = torch.squeeze(mu_log_sigma, dim=2)
 
-        mu = mu_log_sigma[:,:self.latent_dim]
-        log_var = mu_log_sigma[:,self.latent_dim:]
+        bs = encoding.shape[0]
+        mu = mu_log_sigma[:,:self.latent_dim].view((bs, self.latent_dim,-1))
+        log_var = mu_log_sigma[:,self.latent_dim:].view((bs, self.latent_dim,-1))
+
 
         #This is a multivariate normal with diagonal covariance matrix sigma
         #https://github.com/pytorch/pytorch/pull/11178
@@ -127,27 +129,27 @@ class Fcomb(nn.Module):
         self.no_convs_fcomb = no_convs_fcomb 
         self.name = 'Fcomb'
 
-        if self.use_tile:
-            layers = []
+        # if self.use_tile:
+        layers = []
 
-            #Decoder of N x a 1x1 convolution followed by a ReLU activation function except for the last layer
-            layers.append(nn.Conv2d(self.num_filters[0]+self.latent_dim, self.num_filters[0], kernel_size=1))
+        #Decoder of N x a 1x1 convolution followed by a ReLU activation function except for the last layer
+        layers.append(nn.Conv2d(self.num_filters[0] + self.latent_dim, self.num_filters[0], kernel_size=1))
+        layers.append(nn.ReLU(inplace=True))
+
+        for _ in range(no_convs_fcomb-2):
+            layers.append(nn.Conv2d(self.num_filters[0], self.num_filters[0], kernel_size=1))
             layers.append(nn.ReLU(inplace=True))
 
-            for _ in range(no_convs_fcomb-2):
-                layers.append(nn.Conv2d(self.num_filters[0], self.num_filters[0], kernel_size=1))
-                layers.append(nn.ReLU(inplace=True))
+        self.layers = nn.Sequential(*layers)
 
-            self.layers = nn.Sequential(*layers)
+        self.last_layer = nn.Conv2d(self.num_filters[0], self.num_classes, kernel_size=1)
 
-            self.last_layer = nn.Conv2d(self.num_filters[0], self.num_classes, kernel_size=1)
-
-            if initializers['w'] == 'orthogonal':
-                self.layers.apply(init_weights_orthogonal_normal)
-                self.last_layer.apply(init_weights_orthogonal_normal)
-            else:
-                self.layers.apply(init_weights)
-                self.last_layer.apply(init_weights)
+        if initializers['w'] == 'orthogonal':
+            self.layers.apply(init_weights_orthogonal_normal)
+            self.last_layer.apply(init_weights_orthogonal_normal)
+        else:
+            self.layers.apply(init_weights)
+            self.last_layer.apply(init_weights)
 
     def tile(self, a, dim, n_tile):
         """
@@ -176,6 +178,12 @@ class Fcomb(nn.Module):
             feature_map = torch.cat((feature_map, z), dim=self.channel_axis)
             output = self.layers(feature_map)
             return self.last_layer(output)
+        else:
+            # z = z.unsqueeze(1).repeat(1, feature_map.shape[self.channel_axis], 1, 1)
+            z = z.view((z.shape[0], self.latent_dim, 160, 160))
+            feature_map = torch.cat((feature_map, z), dim=self.channel_axis)
+            output = self.layers(feature_map)
+            return self.last_layer(output)
 
 
 class ProbabilisticUnet(nn.Module):
@@ -194,7 +202,7 @@ class ProbabilisticUnet(nn.Module):
         self.num_classes = num_classes
         self.num_filters = num_filters
         self.latent_dim = latent_dim
-        self.no_convs_per_block = 3
+        self.no_convs_per_block = 1
         self.no_convs_fcomb = no_convs_fcomb
         self.initializers = {'w':'he_normal', 'b':'normal'}
         self.beta = beta
@@ -203,7 +211,7 @@ class ProbabilisticUnet(nn.Module):
         self.unet = Unet(self.input_channels, self.num_classes, self.num_filters, apply_last_layer=False, padding=True).to(device)
         self.prior = AxisAlignedConvGaussian(self.input_channels, self.num_filters, self.no_convs_per_block, self.latent_dim).to(device)
         self.posterior = AxisAlignedConvGaussian(self.input_channels, self.num_filters, self.no_convs_per_block, self.latent_dim, num_classes=num_classes, posterior=True).to(device)
-        self.fcomb = Fcomb(self.num_filters, self.latent_dim, self.input_channels, self.num_classes, self.no_convs_fcomb, {'w':'orthogonal', 'b':'normal'}, use_tile=True).to(device)
+        self.fcomb = Fcomb(self.num_filters, self.latent_dim, self.input_channels, self.num_classes, self.no_convs_fcomb, {'w':'orthogonal', 'b':'normal'}, use_tile=False).to(device)
 
     def forward(self, patch, segm, training=True):
         """

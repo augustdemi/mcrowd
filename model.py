@@ -316,7 +316,7 @@ class Decoder(nn.Module):
         self.fc_std = nn.Linear(dec_h_dim, n_pred_state)
 
 
-    def forward(self, last_obs_traj_st, enc_h_feat, z, sg, sg_idx, fut_traj=None):
+    def forward(self, last_obs_state, enc_h_feat, z, sg, sg_update_idx, fut_traj=None):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
@@ -332,19 +332,39 @@ class Decoder(nn.Module):
         zx = torch.cat([enc_h_feat, z], dim=1) # 493, 89(64+25)
         decoder_h=self.dec_hidden(zx) # 493, 128
         # Infer initial action state for node from current state
-        a = self.to_vel(last_obs_traj_st)
+        a = self.to_vel(last_obs_state)
         # a = self.to_vel(torch.cat((last_obs_traj_st, map[0]), dim=-1)) # map[0] = last observed map
+
+        dt = 0.4*4
+        last_ob_sg = torch.cat([last_obs_state[:, :2].unsqueeze(1), sg], dim=1) # bs, 4, 2
+
+        # sg_vel_x = []
+        # sg_vel_y = []
+        # for pos in last_ob_sg:
+        #     sg_vel_x.append(torch.gradient(pos[:,0], spacing=dt)[0])
+        #     sg_vel_y.append(torch.gradient(pos[:,1], spacing=dt)[0])
+        # sg_vel_x = torch.stack(sg_vel_x)
+        # sg_vel_y = torch.stack(sg_vel_y)
+        # sg_vel = torch.stack([sg_vel_x, sg_vel_y], dim=-1)
+        #
+        # for i in range(3):
+        #     print((last_ob_sg[1, i+1] - last_ob_sg[1, i]) / dt)
+        #     print(sg_vel[1,i])
+        #     print('--------------')
+        # print(sg_vel[1,3])
 
         mus = []
         stds = []
         j=0
         for i in range(self.seq_len):
-            tf=False
-            if (i < 9) and (i == sg_idx[j]):
-                tf=True
-                goal = sg[:, j]
+            # tf=False
+            # if (i < sg_update_idx[-1]+1) and (i == sg_update_idx[j]):
+            if (i < sg_update_idx[-1]+1) and (i == sg_update_idx[j]):
+                rel_to_goal = (last_ob_sg[:,j+1] - last_ob_sg[:,j]) / dt
                 j+=1
-            decoder_h= self.rnn_decoder(torch.cat([zx, a, goal], dim=1), decoder_h) #493, 128
+                # pred_pos = integrate_samples(a, last_obs_state[:, :2], dt=self.dt)
+
+            decoder_h= self.rnn_decoder(torch.cat([zx, a, rel_to_goal], dim=1), decoder_h) #493, 128
             mu= self.fc_mu(decoder_h)
             logVar = self.fc_std(decoder_h)
             std = torch.sqrt(torch.exp(logVar))
@@ -360,3 +380,14 @@ class Decoder(nn.Module):
         stds = torch.stack(stds, dim=0)
         return Normal(mus, stds)
 
+
+# def integrate_samples(v, p_0, dt=1):
+#     """
+#     Integrates deterministic samples of velocity.
+#
+#     :param v: Velocity samples
+#     :return: Position samples
+#     """
+#     v=v.permute(1, 0, 2) #(t, bs, 2) -> (bs,t,2)
+#     abs_traj = torch.cumsum(v, dim=1) * dt + p_0.unsqueeze(1)
+#     return  abs_traj.permute((1, 0, 2))
