@@ -176,13 +176,16 @@ class EncoderX(nn.Module):
 
 
         self.fc1 = nn.Linear(enc_h_dim, mlp_dim)
-        self.fc2 = nn.Linear(mlp_dim, zS_dim*2)
+        self.fc2 = nn.Linear(mlp_dim + map_feat_dim, zS_dim*2)
 
         # self.local_map_feat_dim = np.prod([*a])
         self.map_h_dim = 128*5*5
 
+        self.map_fc1 = nn.Linear(self.map_h_dim + 9, map_mlp_dim)
+        self.map_fc2 = nn.Linear(map_mlp_dim, map_feat_dim)
 
-    def forward(self, obs_traj, seq_start_end, train=False):
+
+    def forward(self, obs_traj, seq_start_end, local_map_feat, local_homo, train=False):
         """
         Inputs:
         - obs_traj: Tensor of shape (obs_len, batch, 2)
@@ -201,10 +204,17 @@ class EncoderX(nn.Module):
                       p=self.dropout_mlp,
                       training=train)
 
-
+        # map enc
+        local_map_feat = local_map_feat.view(-1, self.map_h_dim)
+        local_homo = local_homo.view(-1, 9)
+        map_feat = self.map_fc1(torch.cat((local_map_feat, local_homo), dim=-1))
+        map_feat = F.dropout(F.relu(map_feat),
+                      p=self.dropout_mlp,
+                      training=train)
+        map_feat = self.map_fc2(map_feat)
 
         # map and traj
-        stats = self.fc2(hx) # 64(32 without attn) to z dim
+        stats = self.fc2(torch.cat((hx, map_feat), dim=-1)) # 64(32 without attn) to z dim
 
         return hx, stats[:,:self.zS_dim], stats[:,self.zS_dim:]
 
@@ -306,7 +316,7 @@ class Decoder(nn.Module):
         self.fc_std = nn.Linear(dec_h_dim, n_pred_state)
 
 
-    def forward(self, last_obs_state, enc_h_feat, z, sg, sg_update_idx, fut_traj=None):
+    def forward(self, last_obs_traj_st, enc_h_feat, z, sg, sg_idx, fut_traj=None):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
@@ -322,39 +332,19 @@ class Decoder(nn.Module):
         zx = torch.cat([enc_h_feat, z], dim=1) # 493, 89(64+25)
         decoder_h=self.dec_hidden(zx) # 493, 128
         # Infer initial action state for node from current state
-        a = self.to_vel(last_obs_state)
+        a = self.to_vel(last_obs_traj_st)
         # a = self.to_vel(torch.cat((last_obs_traj_st, map[0]), dim=-1)) # map[0] = last observed map
-
-        dt = 0.4*4
-        last_ob_sg = torch.cat([last_obs_state[:, :2].unsqueeze(1), sg], dim=1) # bs, 4, 2
-
-        # sg_vel_x = []
-        # sg_vel_y = []
-        # for pos in last_ob_sg:
-        #     sg_vel_x.append(torch.gradient(pos[:,0], spacing=dt)[0])
-        #     sg_vel_y.append(torch.gradient(pos[:,1], spacing=dt)[0])
-        # sg_vel_x = torch.stack(sg_vel_x)
-        # sg_vel_y = torch.stack(sg_vel_y)
-        # sg_vel = torch.stack([sg_vel_x, sg_vel_y], dim=-1)
-        #
-        # for i in range(3):
-        #     print((last_ob_sg[1, i+1] - last_ob_sg[1, i]) / dt)
-        #     print(sg_vel[1,i])
-        #     print('--------------')
-        # print(sg_vel[1,3])
 
         mus = []
         stds = []
         j=0
         for i in range(self.seq_len):
-            # tf=False
-            # if (i < sg_update_idx[-1]+1) and (i == sg_update_idx[j]):
-            if (i < sg_update_idx[-1]+1) and (i == sg_update_idx[j]):
-                rel_to_goal = (last_ob_sg[:,j+1] - last_ob_sg[:,j]) / dt
+            tf=False
+            if (i < 9) and (i == sg_idx[j]):
+                tf=True
+                goal = sg[:, j]
                 j+=1
-                # pred_pos = integrate_samples(a, last_obs_state[:, :2], dt=self.dt)
-
-            decoder_h= self.rnn_decoder(torch.cat([zx, a, rel_to_goal], dim=1), decoder_h) #493, 128
+            decoder_h= self.rnn_decoder(torch.cat([zx, a, goal], dim=1), decoder_h) #493, 128
             mu= self.fc_mu(decoder_h)
             logVar = self.fc_std(decoder_h)
             std = torch.sqrt(torch.exp(logVar))
@@ -370,14 +360,3 @@ class Decoder(nn.Module):
         stds = torch.stack(stds, dim=0)
         return Normal(mus, stds)
 
-
-# def integrate_samples(v, p_0, dt=1):
-#     """
-#     Integrates deterministic samples of velocity.
-#
-#     :param v: Velocity samples
-#     :return: Position samples
-#     """
-#     v=v.permute(1, 0, 2) #(t, bs, 2) -> (bs,t,2)
-#     abs_traj = torch.cumsum(v, dim=1) * dt + p_0.unsqueeze(1)
-#     return  abs_traj.permute((1, 0, 2))
