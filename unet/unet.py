@@ -63,7 +63,7 @@ class Unet(nn.Module):
         for i, up in enumerate(self.upsampling_path):
             x = up(x, self.blocks[-i-1])
 
-        del self.blocks
+        # del self.blocks
 
         #Used for saving the activations and plotting
         # if not training:
