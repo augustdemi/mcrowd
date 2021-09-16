@@ -47,9 +47,8 @@ class Solver(object):
 
         self.args = args
 
-        self.name = '%s_pred_len_%s_zD_%s_wD_%s_dr_mlp_%s_dr_rnn_%s_enc_hD_%s_dec_hD_%s_mlpD_%s_map_featD_%s_map_mlpD_%s_lr_%s_klw_%s_lg_klw_%s_ll_prior_w_%s' % \
-                    (args.dataset_name, args.pred_len, args.zS_dim, args.w_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
-                     args.decoder_h_dim, args.mlp_dim, args.map_feat_dim , args.map_mlp_dim, args.lr_VAE, args.kl_weight, args.lg_kl_weight, args.ll_prior_w)
+        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_lg_klw_%s' % \
+                    (args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE, args.lg_kl_weight)
 
 
         # to be appended by run_id
@@ -61,6 +60,8 @@ class Solver(object):
         self.eps=1e-9
         self.ll_prior_w =args.ll_prior_w
         self.sg_idx =  np.array([3,7,11])
+        self.no_convs_fcomb = args.no_convs_fcomb
+        self.no_convs_per_block = args.no_convs_per_block
 
         self.kl_weight=args.kl_weight
         self.lg_kl_weight=args.lg_kl_weight
@@ -173,7 +174,7 @@ class Solver(object):
             # input = env + 8 past / output = env + lg
             num_filters = [32,32,64,64,64,128]
             self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
-                                    no_convs_fcomb=6, beta=self.lg_kl_weight).to(self.device)
+                                    no_convs_fcomb=self.no_convs_fcomb, no_convs_per_block=self.no_convs_per_block, beta=self.lg_kl_weight).to(self.device)
 
 
         else:  # load a previously saved model
@@ -298,7 +299,6 @@ class Solver(object):
 ###########
             obs_heat_map, fut_heat_map =  self.make_heatmap(local_ic, local_map)
             lg_heat_map = torch.tensor(fut_heat_map[:,11]).float().to(self.device).unsqueeze(1)
-            sg_heat_map = torch.tensor(fut_heat_map[:, self.sg_idx]).float().to(self.device)
 
             # idx=0
             # heat_map_traj = np.zeros_like(local_map[idx, 0])
@@ -313,9 +313,8 @@ class Solver(object):
             #-------- long term goal --------
             # a = torch.cat([obs_heat_map[:, 0].unsqueeze(1), obs_heat_map[:, 1:] * 10], dim=1)
             # a = torch.cat([obs_heat_map[:, 0].unsqueeze(1) * 0.039 * 0.1, obs_heat_map[:, 1:]], dim=1)
-            self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
-            recon_lg_heat = self.lg_cvae.reconstruct(use_posterior_mean=False,
-                                                   calculate_posterior=True)
+            recon_lg_heat = self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
+
             # pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True))
 
             lg_kl = self.lg_cvae.kl_divergence(analytic=True).sum().div(batch_size)
