@@ -264,7 +264,8 @@ class ProbabilisticUnet(nn.Module):
         else:
             z_prior = self.prior_latent_space.rsample()
             # self.z_prior_sample = z_prior
-        return self.fcomb.forward(self.unet_enc_feat, z_prior)
+        x = self.fcomb.forward(self.unet_enc_feat, z_prior)
+        return self.unet.up_forward(x)
 
     def reconstruct(self, use_posterior_mean=False, calculate_posterior=False, z_posterior=None):
         """
