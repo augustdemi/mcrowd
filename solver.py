@@ -47,8 +47,8 @@ class Solver(object):
 
         self.args = args
 
-        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_mlpD_%s_lr_%s_lg_klw_%s' % \
-                    (args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.mlp_dim, args.lr_VAE, args.lg_kl_weight)
+        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_lg_klw_%s_w_loc_%s' % \
+                    (args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE, args.lg_kl_weight, args.latent_loc)
 
 
         # to be appended by run_id
@@ -62,6 +62,7 @@ class Solver(object):
         self.sg_idx =  np.array([3,7,11])
         self.no_convs_fcomb = args.no_convs_fcomb
         self.no_convs_per_block = args.no_convs_per_block
+        self.latent_loc = args.latent_loc
 
         self.kl_weight=args.kl_weight
         self.lg_kl_weight=args.lg_kl_weight
@@ -85,7 +86,6 @@ class Solver(object):
         self.batch_size = args.batch_size
         self.zS_dim = args.zS_dim
         self.w_dim = args.w_dim
-        self.mlp_dim = args.mlp_dim
         self.lr_VAE = args.lr_VAE
         self.beta1_VAE = args.beta1_VAE
         self.beta2_VAE = args.beta2_VAE
@@ -174,7 +174,9 @@ class Solver(object):
 
             # input = env + 8 past / output = env + lg
             num_filters = [32,32,64,64,64,128]
-            self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim, mlp_dim=self.mlp_dim,
+            # num_filters = [7,8,9,10,11,12]
+            self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters,
+                                             latent_loc=self.latent_loc, latent_dim=self.w_dim,
                                     no_convs_fcomb=self.no_convs_fcomb, no_convs_per_block=self.no_convs_per_block, beta=self.lg_kl_weight).to(self.device)
 
 

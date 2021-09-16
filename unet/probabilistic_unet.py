@@ -59,7 +59,7 @@ class AxisAlignedConvGaussian(nn.Module):
     A convolutional net that parametrizes a Gaussian distribution with axis aligned covariance matrix.
     """
 
-    def __init__(self, input_channels, num_filters, no_convs_per_block, latent_dim, mlp_dim, num_classes=2, posterior=False):
+    def __init__(self, input_channels, num_filters, no_convs_per_block, latent_dim, num_classes=2, posterior=False):
         super(AxisAlignedConvGaussian, self).__init__()
         self.input_channels = input_channels
         self.channel_axis = 1
@@ -74,12 +74,11 @@ class AxisAlignedConvGaussian(nn.Module):
         self.encoder = Encoder(self.input_channels, self.num_filters, self.no_convs_per_block, num_classes=num_classes,
                                posterior=self.posterior)
         self.conv_layer = nn.Conv2d(num_filters[-1], 2 * self.latent_dim, (1, 1), stride=1)
-        self.to_latent = nn.Sequential(
-            nn.Linear(self.num_filters[-1] * 5 * 5, mlp_dim),
-            nn.ReLU(inplace=True),
-            nn.Linear(mlp_dim, latent_dim * 2)
-        )
-
+        self.show_img = 0
+        self.show_seg = 0
+        self.show_concat = 0
+        self.show_enc = 0
+        self.sum_input = 0
 
         nn.init.kaiming_normal_(self.conv_layer.weight, mode='fan_in', nonlinearity='relu')
         nn.init.normal_(self.conv_layer.bias)
@@ -88,15 +87,25 @@ class AxisAlignedConvGaussian(nn.Module):
 
         # If segmentation is not none, concatenate the mask to the channel axis of the input
         if segm is not None:
+            self.show_img = input
+            self.show_seg = segm
             input = torch.cat((input, segm), dim=1)
+            self.show_concat = input
+            self.sum_input = torch.sum(input)
 
         encoding = self.encoder(input)  # [4, 128, 10, 10]
         # self.show_enc = encoding
 
-
+        # We only want the mean of the resulting hxw image
+        encoding = torch.mean(encoding, dim=2, keepdim=True)
+        encoding = torch.mean(encoding, dim=3, keepdim=True)
 
         # Convert encoding to 2 x latent dim and split up for mu and log_sigma
-        mu_log_sigma = self.to_latent(encoding.view(-1, self.num_filters[-1] * 5 * 5))
+        mu_log_sigma = self.conv_layer(encoding)
+
+        # We squeeze the second dimension twice, since otherwise it won't work when batch size is equal to 1
+        mu_log_sigma = torch.squeeze(mu_log_sigma, dim=2)
+        mu_log_sigma = torch.squeeze(mu_log_sigma, dim=2)
 
         mu = mu_log_sigma[:, :self.latent_dim]
         log_var = mu_log_sigma[:, self.latent_dim:]
@@ -126,28 +135,29 @@ class Fcomb(nn.Module):
         self.no_convs_fcomb = no_convs_fcomb
         self.name = 'Fcomb'
 
-        assert self.latent_dim % 25 ==0
 
-        layers = []
-        # Decoder of N x a 1x1 convolution followed by a ReLU activation function except for the last layer
-        layers.append(nn.Conv2d(self.num_filters[-1] + self.latent_dim // 25, self.num_filters[-1], kernel_size=1))
-        layers.append(nn.ReLU(inplace=True))
+        feat_ch_idx = 2
+        if self.use_tile:
+            layers = []
 
-        for _ in range(no_convs_fcomb - 1):
-            layers.append(nn.Conv2d(self.num_filters[-1], self.num_filters[-1], kernel_size=1))
+            # Decoder of N x a 1x1 convolution followed by a ReLU activation function except for the last layer
+            layers.append(nn.Conv2d(self.num_filters[feat_ch_idx] + self.latent_dim, self.num_filters[feat_ch_idx], kernel_size=1))
             layers.append(nn.ReLU(inplace=True))
 
-        self.layers = nn.Sequential(*layers)
+            for _ in range(no_convs_fcomb - 1):
+                layers.append(nn.Conv2d(self.num_filters[feat_ch_idx], self.num_filters[feat_ch_idx], kernel_size=1))
+                layers.append(nn.ReLU(inplace=True))
 
-        # self.last_layer = nn.Conv2d(self.num_filters[0], self.num_classes, kernel_size=1)
+            self.layers = nn.Sequential(*layers)
 
-        if initializers['w'] == 'orthogonal':
-            self.layers.apply(init_weights_orthogonal_normal)
-            # self.last_layer.apply(init_weights_orthogonal_normal)
-        else:
-            self.layers.apply(init_weights)
-            # self.last_layer.apply(init_weights)
+            # self.last_layer = nn.Conv2d(self.num_filters[0], self.num_classes, kernel_size=1)
 
+            if initializers['w'] == 'orthogonal':
+                self.layers.apply(init_weights_orthogonal_normal)
+                # self.last_layer.apply(init_weights_orthogonal_normal)
+            else:
+                self.layers.apply(init_weights)
+                # self.last_layer.apply(init_weights)
 
     def tile(self, a, dim, n_tile):
         """
@@ -167,13 +177,16 @@ class Fcomb(nn.Module):
         Z is batch_sizexlatent_dim and feature_map is batch_sizexno_channelsxHxW.
         So broadcast Z to batch_sizexlatent_dimxHxW. Behavior is exactly the same as tf.tile (verified)
         """
-        assert self.latent_dim % 25 ==0
+        if self.use_tile:
+            z = torch.unsqueeze(z, 2)  # (bs, latent_dim) -> (bs, l_d, 1)
+            z = self.tile(z, 2, feature_map.shape[
+                self.spatial_axes[0]])  # self.spatial_axes = (2,3), feature_map.shape=(4, 32, 160, 160)
+            z = torch.unsqueeze(z, 3)
+            z = self.tile(z, 3, feature_map.shape[self.spatial_axes[1]])
 
-        z = z.view(-1, self.latent_dim // 25, 5, 5)
-
-        # Concatenate the feature map (output of the UNet) and the sample taken from the latent space
-        feature_map = torch.cat((feature_map, z), dim=self.channel_axis)
-        return self.layers(feature_map)
+            # Concatenate the feature map (output of the UNet) and the sample taken from the latent space
+            feature_map = torch.cat((feature_map, z), dim=self.channel_axis)
+            return self.layers(feature_map)
 
 
 class ProbabilisticUnet(nn.Module):
@@ -186,7 +199,7 @@ class ProbabilisticUnet(nn.Module):
     no_cons_per_block: no convs per block in the (convolutional) encoder of prior and posterior
     """
 
-    def __init__(self, input_channels=1, num_classes=1, num_filters=[32, 64, 128, 192], latent_dim=6, mlp_dim=256, no_convs_fcomb=4,
+    def __init__(self, input_channels=1, num_classes=1, num_filters=[32, 64, 128, 192], latent_loc=3, latent_dim=6, no_convs_fcomb=4,
                  no_convs_per_block=3, beta=10.0):
         super(ProbabilisticUnet, self).__init__()
         self.input_channels = input_channels
@@ -199,12 +212,12 @@ class ProbabilisticUnet(nn.Module):
         self.beta = beta
         self.z_prior_sample = 0
 
-        self.unet = Unet(self.input_channels, self.num_classes, self.num_filters, apply_last_layer=False,
+        self.unet = Unet(self.input_channels, self.num_classes, self.num_filters, latent_loc,
                          padding=True).to(device)
         self.prior = AxisAlignedConvGaussian(self.input_channels, self.num_filters, self.no_convs_per_block,
-                                             self.latent_dim, mlp_dim).to(device)
+                                             self.latent_dim).to(device)
         self.posterior = AxisAlignedConvGaussian(self.input_channels, self.num_filters, self.no_convs_per_block,
-                                                 self.latent_dim, mlp_dim, num_classes=num_classes, posterior=True).to(device)
+                                                 self.latent_dim, num_classes=num_classes, posterior=True).to(device)
         self.fcomb = Fcomb(self.num_filters, self.latent_dim, self.input_channels, self.num_classes,
                            self.no_convs_fcomb, {'w': 'orthogonal', 'b': 'normal'}, use_tile=True).to(device)
 
@@ -214,7 +227,7 @@ class ProbabilisticUnet(nn.Module):
         in case training is True also construct posterior latent space
         """
         # unet encoder
-        self.unet_enc_feat = self.unet.down_forward(patch)
+        self.unet_enc_feat = self.unet.down_up1_forward(patch)
 
 
         # latent dist
@@ -236,7 +249,7 @@ class ProbabilisticUnet(nn.Module):
         '''
         x = self.fcomb.forward(self.unet_enc_feat, z)
 
-        return self.unet.up_forward(x)
+        return self.unet.up2_forward(x)
 
 
 
@@ -254,7 +267,7 @@ class ProbabilisticUnet(nn.Module):
             z_prior = self.prior_latent_space.rsample()
             # self.z_prior_sample = z_prior
         x = self.fcomb.forward(self.unet_enc_feat, z_prior)
-        return self.unet.up_forward(x)
+        return self.unet.up2_forward(x)
 
     def reconstruct(self, use_posterior_mean=False, calculate_posterior=False, z_posterior=None):
         """

@@ -123,10 +123,11 @@ def create_parser():
     parser.add_argument('--kl_weight', default=100.0, type=float,
                         help='kl weight')
     parser.add_argument('--lg_kl_weight', default=10, type=int)
-    parser.add_argument('--w_dim', default=2, type=int)
+    parser.add_argument('--w_dim', default=25, type=int)
     parser.add_argument('--ll_prior_w', default=1.0, type=float)
     parser.add_argument('--no_convs_fcomb', default=4, type=int)
     parser.add_argument('--no_convs_per_block', default=2, type=int)
+    parser.add_argument('--latent_loc', default=3, type=int)
 
     parser.add_argument('--desc', default='data', type=str,
                         help='run description')
