@@ -171,7 +171,7 @@ class Solver(object):
             #     device=self.device).to(self.device)
 
             # input = env + 8 past / output = env + lg
-            num_filters = [32,32,64,64,64,128]
+            num_filters = [32,64,128,192]
             self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
                                     no_convs_fcomb=4, beta=self.lg_kl_weight).to(self.device)
 
@@ -216,6 +216,15 @@ class Solver(object):
 
         self.recon_loss_with_logit = nn.BCEWithLogitsLoss(size_average = False, reduce=False, reduction=None)
 
+    def l2_regularisation(self, m):
+        l2_reg = None
+
+        for W in m.parameters():
+            if l2_reg is None:
+                l2_reg = W.norm(2)
+            else:
+                l2_reg = l2_reg + W.norm(2)
+        return l2_reg
 
     def make_heatmap(self, local_ic, local_map):
         obs_heat_map = []
@@ -287,17 +296,7 @@ class Solver(object):
 ###########
             obs_heat_map, fut_heat_map =  self.make_heatmap(local_ic, local_map)
             lg_heat_map = torch.tensor(fut_heat_map[:,11]).float().to(self.device).unsqueeze(1)
-            sg_heat_map = torch.tensor(fut_heat_map[:, self.sg_idx]).float().to(self.device)
 
-            # idx=0
-            # heat_map_traj = np.zeros_like(local_map[idx, 0])
-            # heat_map_traj = local_map[idx, 0]
-            # for t in range(20):
-            #     heat_map_traj[local_ic[idx, t, 0], local_ic[idx, t, 1]] = 1
-            # heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-            # plt.imshow(heat_map_traj)
-            # plt.scatter(local_ic[idx, :8, 1], local_ic[idx, :8, 0])
-            # plt.imshow(local_map[idx, 0])
 
             #-------- long term goal --------
             # a = torch.cat([obs_heat_map[:, 0].unsqueeze(1), obs_heat_map[:, 1:] * 10], dim=1)
@@ -311,8 +310,10 @@ class Solver(object):
             lg_recon_loss = self.recon_loss_with_logit(input=recon_lg_heat, target=lg_heat_map).sum().div(np.prod([*lg_heat_map.size()[:3]]))
             lg_elbo = -lg_recon_loss - self.lg_kl_weight * lg_kl
 
+            reg_loss = self.l2_regularisation(self.lg_cvae.posterior) + self.l2_regularisation(self.lg_cvae.prior) + self.l2_regularisation(
+                self.lg_cvae.fcomb.layers)
 
-            loss = - lg_elbo
+            loss = - lg_elbo  + 1e-5 * reg_loss
 
             self.optim_vae.zero_grad()
             loss.backward()
