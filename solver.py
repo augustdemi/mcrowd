@@ -165,7 +165,7 @@ class Solver(object):
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
             lg_cvae_path = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_a_%s_r_%s_anneal_e_%s_run_%s' % \
                         (args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE,
-                         args.alpha, args.gamma, args.anneal_epoch, args.run_id)
+                         args.alpha, args.gamma-1, args.anneal_epoch, args.run_id)
             lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_2400_lg_cvae.pt')
 
             if self.device == 'cuda':
