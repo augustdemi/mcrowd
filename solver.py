@@ -316,7 +316,7 @@ class Solver(object):
 
             lg_kl = self.lg_cvae.kl_divergence(analytic=True).sum().div(batch_size)
             # lg_recon_loss = self.recon_loss_with_logit(input=recon_lg_heat, target=lg_heat_map).sum().div(np.prod([*lg_heat_map.size()[:3]]))
-            lg_elbo = -focal_loss - self.lg_kl_weight * torch.clamp(lg_kl, 0.07)
+            lg_elbo = focal_loss - self.lg_kl_weight * torch.clamp(lg_kl, 0.07)
 
 
 
@@ -354,7 +354,7 @@ class Solver(object):
                                         loss_kl=0,
                                         test_loss_recon=0,
                                         test_loss_kl=0,
-                                        lg_recon=focal_loss.item(),
+                                        lg_recon=-focal_loss.item(),
                                         lg_kl=lg_kl.item(),
                                         sg_recon=0,
                                         test_lg_recon=test_lg_recon.item(),
