@@ -41,9 +41,10 @@ class Encoder(nn.Module):
             layers.append(nn.Conv2d(input_dim, output_dim, kernel_size=3, padding=int(padding)))
             layers.append(nn.ReLU(inplace=True))
 
-            for _ in range(no_convs_per_block - 1):
-                layers.append(nn.Conv2d(output_dim, output_dim, kernel_size=3, padding=int(padding)))
-                layers.append(nn.ReLU(inplace=True))
+            # for _ in range(no_convs_per_block - 1):
+        layers.append(nn.AvgPool2d(kernel_size=2, stride=2, padding=0, ceil_mode=True))
+        layers.append(nn.Conv2d(output_dim, output_dim, kernel_size=3, padding=int(padding)))
+        layers.append(nn.ReLU(inplace=True))
 
         self.layers = nn.Sequential(*layers)
 
@@ -69,16 +70,20 @@ class AxisAlignedConvGaussian(nn.Module):
         self.posterior = posterior
         if self.posterior:
             self.name = 'Posterior'
+            self.encoder = Encoder(self.input_channels, self.num_filters, self.no_convs_per_block,
+                                   num_classes=num_classes,
+                                   posterior=self.posterior)
         else:
             self.name = 'Prior'
-        self.encoder = Encoder(self.input_channels, self.num_filters, self.no_convs_per_block, num_classes=num_classes,
-                               posterior=self.posterior)
+            self.encoder = nn.Sequential(
+                nn.Conv2d(num_filters[-1], num_filters[-1], (1, 1), stride=1),
+                nn.ReLU(inplace=True),
+                nn.AvgPool2d(kernel_size=2, stride=2, padding=0, ceil_mode=True),
+                nn.Conv2d(num_filters[-1], num_filters[-1], (1, 1), stride=1),
+                nn.ReLU(inplace=True),
+            )
+
         self.conv_layer = nn.Conv2d(num_filters[-1], 2 * self.latent_dim, (1, 1), stride=1)
-        self.show_img = 0
-        self.show_seg = 0
-        self.show_concat = 0
-        self.show_enc = 0
-        self.sum_input = 0
 
         nn.init.kaiming_normal_(self.conv_layer.weight, mode='fan_in', nonlinearity='relu')
         nn.init.normal_(self.conv_layer.bias)
@@ -87,11 +92,7 @@ class AxisAlignedConvGaussian(nn.Module):
 
         # If segmentation is not none, concatenate the mask to the channel axis of the input
         if segm is not None:
-            self.show_img = input
-            self.show_seg = segm
             input = torch.cat((input, segm), dim=1)
-            self.show_concat = input
-            self.sum_input = torch.sum(input)
 
         encoding = self.encoder(input)  # [4, 128, 10, 10]
         # self.show_enc = encoding
@@ -114,6 +115,7 @@ class AxisAlignedConvGaussian(nn.Module):
         # https://github.com/pytorch/pytorch/pull/11178
         dist = Independent(Normal(loc=mu, scale=torch.sqrt(torch.exp(log_var))), 1)
         return dist
+
 
 
 class Fcomb(nn.Module):
@@ -231,7 +233,7 @@ class ProbabilisticUnet(nn.Module):
         # latent dist
         if training:
             self.posterior_latent_space = self.posterior.forward(patch, segm)
-        self.prior_latent_space = self.prior.forward(patch)
+        self.prior_latent_space = self.prior.forward(self.unet_enc_feat)
 
         if training:
             z = self.posterior_latent_space.rsample()

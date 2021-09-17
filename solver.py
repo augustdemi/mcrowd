@@ -47,13 +47,16 @@ class Solver(object):
 
         self.args = args
 
-        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_lg_klw_%s_a_%s_r_%s' % \
-                    (args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE, args.lg_kl_weight, args.alpha, args.gamma)
+        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_lg_klw_%s_a_%s_r_%s_fb_%s_anneal_e_%s' % \
+                    (args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE,
+                     args.lg_kl_weight, args.alpha, args.gamma, args.fb, args.anneal_epoch)
 
 
         # to be appended by run_id
 
         # self.use_cuda = args.cuda and torch.cuda.is_available()
+        self.fb = args.fb
+        self.anneal_epoch = args.anneal_epoch
         self.alpha = args.alpha
         self.gamma = args.gamma
         self.device = args.device
@@ -96,23 +99,16 @@ class Solver(object):
         self.viz_on = args.viz_on
         if self.viz_on:
             self.win_id = dict(
-                recon='win_recon', loss_kl='win_loss_kl', loss_recon='win_loss_recon',
-                ade_min='win_ade_min', fde_min='win_fde_min', ade_avg='win_ade_avg', fde_avg='win_fde_avg',
-                ade_std='win_ade_std', fde_std='win_fde_std',
-                test_loss_recon='win_test_loss_recon', test_loss_kl='win_test_loss_kl',
-                loss_recon_prior='win_loss_recon_prior',
-                lg_recon='win_lg_recon', sg_recon='win_sg_recon', lg_kl='win_lg_kl',
-                test_lg_recon='win_test_lg_recon', test_sg_recon='win_test_sg_recon', test_lg_kl='win_test_lg_kl',
-                sg_ade_min='win_sg_ade_min', sg_ade_avg='win_sg_ade_avg', sg_ade_std='win_sg_ade_std',
+                recon='win_recon', total_loss='win_total_loss', test_total_loss='win_test_total_loss',
+                lg_recon='win_lg_recon', lg_kl='win_lg_kl',
+                test_lg_recon='win_test_lg_recon', test_lg_kl='win_test_lg_kl',
                 lg_fde_min='win_lg_fde_min', lg_fde_avg='win_lg_fde_avg', lg_fde_std='win_lg_fde_std'
             )
             self.line_gather = DataGather(
-                'iter', 'loss_recon', 'loss_kl',  'loss_recon_prior',
-                'ade_min', 'fde_min', 'ade_avg', 'fde_avg', 'ade_std', 'fde_std',
-                'test_loss_recon', 'test_loss_kl',
-                'lg_recon', 'sg_recon', 'lg_kl',
-                'test_lg_recon', 'test_sg_recon', 'test_lg_kl',
-                'sg_ade_min', 'sg_ade_avg', 'sg_ade_std',
+                'iter', 'total_loss',
+                'test_loss',
+                'lg_recon', 'lg_kl',
+                'test_lg_recon', 'test_lg_kl',
                 'lg_fde_min', 'lg_fde_avg', 'lg_fde_std'
             )
 
@@ -280,18 +276,25 @@ class Solver(object):
         start_iter = self.ckpt_load_iter + 1
         epoch = int(start_iter / iter_per_epoch)
 
+        lg_kl_weight = 0
+        print('kl_w: ', lg_kl_weight)
+
         for iteration in range(start_iter, self.max_iter + 1):
 
             # reset data iterators for each epoch
             if iteration % iter_per_epoch == 0:
                 print('==== epoch %d done ====' % epoch)
                 epoch +=1
+                if self.lg_kl_weight > 0:
+                    lg_kl_weight = min(self.lg_kl_weight * (epoch / self.anneal_epoch), self.lg_kl_weight)
+                    print('kl_w: ', lg_kl_weight)
+
+
                 iterator = iter(data_loader)
 
             # ============================================
             #          TRAIN THE VAE (ENC & DEC)
             # ============================================
-
 
             (obs_traj, fut_traj, seq_start_end,
              obs_frames, pred_frames, map_path, inv_h_t,
@@ -314,9 +317,10 @@ class Solver(object):
                 recon_lg_heat ** self.gamma)).sum().div(batch_size)
 
 
-            lg_kl = self.lg_cvae.kl_divergence(analytic=True).sum().div(batch_size)
+            lg_kl = self.lg_cvae.kl_divergence(analytic=True)
+            lg_kl = torch.clamp(lg_kl, self.fb)
             # lg_recon_loss = self.recon_loss_with_logit(input=recon_lg_heat, target=lg_heat_map).sum().div(np.prod([*lg_heat_map.size()[:3]]))
-            lg_elbo = focal_loss - self.lg_kl_weight * torch.clamp(lg_kl, 0.07)
+            lg_elbo = focal_loss - lg_kl_weight * lg_kl.sum().div(batch_size)
 
 
 
@@ -326,8 +330,7 @@ class Solver(object):
             loss.backward()
             self.optim_vae.step()
 
-            if iteration > 100:
-                self.lg_kl_weight = max(self.lg_kl_weight / (iteration/100), 0.01)
+
 
             # save model parameters
             if iteration % self.ckpt_save_iter == 0:
@@ -336,36 +339,23 @@ class Solver(object):
             # (visdom) insert current line stats
             if self.viz_on and (iteration % self.viz_ll_iter == 0):
                 lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon, test_lg_kl = self.evaluate_dist(self.val_loader, loss=True)
+                test_total_loss = test_lg_recon - lg_kl_weight * test_lg_kl
                 self.line_gather.insert(iter=iteration,
-                                        ade_min=0,
-                                        fde_min=0,
-                                        ade_avg=0,
-                                        fde_avg=0,
-                                        ade_std=0,
-                                        fde_std=0,
-                                        sg_ade_min=0,
-                                        sg_ade_avg=0,
-                                        sg_ade_std=0,
                                         lg_fde_min=lg_fde_min,
                                         lg_fde_avg=lg_fde_avg,
                                         lg_fde_std=lg_fde_std,
-                                        loss_recon=0,
-                                        loss_recon_prior=0,
-                                        loss_kl=0,
-                                        test_loss_recon=0,
-                                        test_loss_kl=0,
+                                        total_loss=-loss.item(),
                                         lg_recon=-focal_loss.item(),
                                         lg_kl=lg_kl.item(),
-                                        sg_recon=0,
-                                        test_lg_recon=test_lg_recon.item(),
+                                        test_total_loss=test_total_loss.item(),
+                                        test_lg_recon=-test_lg_recon.item(),
                                         test_lg_kl=test_lg_kl.item(),
-                                        test_sg_recon=0
                                         )
 
-                prn_str = ('[iter_%d (epoch_%d)] kl_weight: %.3f '
+                prn_str = ('[iter_%d (epoch_%d)] VAE Loss: %.3f '
                           ) % \
                           (iteration, epoch,
-                           self.lg_kl_weight,
+                           loss.item(),
                            )
 
                 print(prn_str)
@@ -1166,26 +1156,12 @@ class Solver(object):
 
     ####
     def viz_init(self):
-        self.viz.close(env=self.name + '/lines', win=self.win_id['loss_recon'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['loss_recon_prior'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['loss_kl'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['test_loss_recon'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['test_loss_kl'])
+        self.viz.close(env=self.name + '/lines', win=self.win_id['total_loss'])
+        self.viz.close(env=self.name + '/lines', win=self.win_id['test_total_loss'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['lg_recon'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['lg_kl'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['sg_recon'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['test_lg_recon'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['test_lg_kl'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['test_sg_recon'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['ade_min'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['fde_min'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['ade_avg'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['fde_avg'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['ade_std'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['fde_std'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['sg_ade_min'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['sg_ade_avg'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['sg_ade_std'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['lg_fde_min'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['lg_fde_avg'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['lg_fde_std'])
@@ -1195,44 +1171,31 @@ class Solver(object):
         # prepare data to plot
         data = self.line_gather.data
         iters = torch.Tensor(data['iter'])
-        loss_recon = torch.Tensor(data['loss_recon'])
-        loss_recon_prior = torch.Tensor(data['loss_recon_prior'])
-        loss_kl = torch.Tensor(data['loss_kl'])
-        ade_min = torch.Tensor(data['ade_min'])
-        fde_min = torch.Tensor(data['fde_min'])
-        ade_avg = torch.Tensor(data['ade_avg'])
-        fde_avg = torch.Tensor(data['fde_avg'])
-        ade_std = torch.Tensor(data['ade_std'])
-        fde_std = torch.Tensor(data['fde_std'])
-        sg_ade_min = torch.Tensor(data['sg_ade_min'])
-        sg_ade_avg = torch.Tensor(data['sg_ade_avg'])
-        sg_ade_std = torch.Tensor(data['sg_ade_std'])
+        total_loss = torch.Tensor(data['total_loss'])
+        test_total_loss = torch.Tensor(data['test_total_loss'])
+
         lg_fde_min = torch.Tensor(data['lg_fde_min'])
         lg_fde_avg = torch.Tensor(data['lg_fde_avg'])
         lg_fde_std = torch.Tensor(data['lg_fde_std'])
-        test_loss_recon = torch.Tensor(data['test_loss_recon'])
-        test_loss_kl = torch.Tensor(data['test_loss_kl'])
 
         lg_recon = torch.Tensor(data['lg_recon'])
-        sg_recon = torch.Tensor(data['sg_recon'])
         lg_kl = torch.Tensor(data['lg_kl'])
         test_lg_recon = torch.Tensor(data['test_lg_recon'])
-        test_sg_recon = torch.Tensor(data['test_sg_recon'])
         test_lg_kl = torch.Tensor(data['test_lg_kl'])
 
 
         self.viz.line(
-            X=iters, Y=lg_recon, env=self.name + '/lines',
-            win=self.win_id['lg_recon'], update='append',
-            opts=dict(xlabel='iter', ylabel='lg_recon',
-                      title='lg_recon')
+            X=iters, Y=total_loss, env=self.name + '/lines',
+            win=self.win_id['total_loss'], update='append',
+            opts=dict(xlabel='iter', ylabel='elbo',
+                      title='elbo')
         )
 
         self.viz.line(
-            X=iters, Y=sg_recon, env=self.name + '/lines',
-            win=self.win_id['sg_recon'], update='append',
-            opts=dict(xlabel='iter', ylabel='sg_recon',
-                      title='sg_recon')
+            X=iters, Y=test_total_loss, env=self.name + '/lines',
+            win=self.win_id['test_total_loss'], update='append',
+            opts=dict(xlabel='iter', ylabel='elbo',
+                      title='test_elbo')
         )
 
 
@@ -1251,12 +1214,6 @@ class Solver(object):
                       title='test_lg_recon')
         )
 
-        self.viz.line(
-            X=iters, Y=test_sg_recon, env=self.name + '/lines',
-            win=self.win_id['test_sg_recon'], update='append',
-            opts=dict(xlabel='iter', ylabel='test_sg_recon',
-                      title='test_sg_recon')
-        )
 
 
         self.viz.line(
@@ -1268,101 +1225,6 @@ class Solver(object):
 
 
 
-        self.viz.line(
-            X=iters, Y=loss_recon, env=self.name + '/lines',
-            win=self.win_id['loss_recon'], update='append',
-            opts=dict(xlabel='iter', ylabel='-loglikelihood',
-                      title='Recon. loss of predicted future traj')
-        )
-
-        self.viz.line(
-            X=iters, Y=loss_recon_prior, env=self.name + '/lines',
-            win=self.win_id['loss_recon_prior'], update='append',
-            opts=dict(xlabel='iter', ylabel='-loglikelihood',
-                      title='Recon. loss - prior')
-        )
-
-
-        self.viz.line(
-            X=iters, Y=loss_kl, env=self.name + '/lines',
-            win=self.win_id['loss_kl'], update='append',
-            opts=dict(xlabel='iter', ylabel='kl divergence',
-                      title='KL div. btw posterior and c. prior'),
-        )
-
-
-        self.viz.line(
-            X=iters, Y=test_loss_recon, env=self.name + '/lines',
-            win=self.win_id['test_loss_recon'], update='append',
-            opts=dict(xlabel='iter', ylabel='-loglikelihood',
-                      title='Test Recon. loss of predicted future traj')
-        )
-
-        self.viz.line(
-            X=iters, Y=test_loss_kl, env=self.name + '/lines',
-            win=self.win_id['test_loss_kl'], update='append',
-            opts=dict(xlabel='iter', ylabel='kl divergence',
-                      title='Test KL div. btw posterior and c. prior'),
-        )
-
-
-        self.viz.line(
-            X=iters, Y=ade_min, env=self.name + '/lines',
-            win=self.win_id['ade_min'], update='append',
-            opts=dict(xlabel='iter', ylabel='ade',
-                      title='ADE min'),
-        )
-        self.viz.line(
-            X=iters, Y=fde_min, env=self.name + '/lines',
-            win=self.win_id['fde_min'], update='append',
-            opts=dict(xlabel='iter', ylabel='fde',
-                      title='FDE min'),
-        )
-        self.viz.line(
-            X=iters, Y=ade_avg, env=self.name + '/lines',
-            win=self.win_id['ade_avg'], update='append',
-            opts=dict(xlabel='iter', ylabel='ade',
-                      title='ADE avg'),
-        )
-
-        self.viz.line(
-            X=iters, Y=fde_avg, env=self.name + '/lines',
-            win=self.win_id['fde_avg'], update='append',
-            opts=dict(xlabel='iter', ylabel='fde',
-                      title='FDE avg'),
-        )
-        self.viz.line(
-            X=iters, Y=ade_std, env=self.name + '/lines',
-            win=self.win_id['ade_std'], update='append',
-            opts=dict(xlabel='iter', ylabel='ade std',
-                      title='ADE std'),
-        )
-
-        self.viz.line(
-            X=iters, Y=fde_std, env=self.name + '/lines',
-            win=self.win_id['fde_std'], update='append',
-            opts=dict(xlabel='iter', ylabel='fde std',
-                      title='FDE std'),
-        )
-
-        self.viz.line(
-            X=iters, Y=sg_ade_min, env=self.name + '/lines',
-            win=self.win_id['sg_ade_min'], update='append',
-            opts=dict(xlabel='iter', ylabel='sg_ade_min',
-                      title='sg_ade_min'),
-        )
-        self.viz.line(
-            X=iters, Y=sg_ade_avg, env=self.name + '/lines',
-            win=self.win_id['sg_ade_avg'], update='append',
-            opts=dict(xlabel='iter', ylabel='sg_ade_avg',
-                      title='sg_ade_avg'),
-        )
-        self.viz.line(
-            X=iters, Y=sg_ade_std, env=self.name + '/lines',
-            win=self.win_id['sg_ade_std'], update='append',
-            opts=dict(xlabel='iter', ylabel='sg_ade_std',
-                      title='sg_ade_std'),
-        )
         self.viz.line(
             X=iters, Y=lg_fde_min, env=self.name + '/lines',
             win=self.win_id['lg_fde_min'], update='append',

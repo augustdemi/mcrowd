@@ -63,7 +63,7 @@ def create_parser():
     parser.add_argument('--ckpt_load_iter', default=0, type=int,
                         help='iter# to load the previously saved model ' +
                              '(default=0 to start from the scratch)')
-    parser.add_argument('--max_iter', default=0, type=float,
+    parser.add_argument('--max_iter', default=10, type=float,
                         help='maximum number of batch iterations')
     parser.add_argument('--ckpt_save_iter', default=100, type=int,
                         help='checkpoint saved every # iters')
@@ -129,6 +129,8 @@ def create_parser():
     parser.add_argument('--no_convs_per_block', default=2, type=int)
     parser.add_argument('--alpha', default=0.25, type=float)
     parser.add_argument('--gamma', default=2, type=float)
+    parser.add_argument('--fb', default=0.07, type=float)
+    parser.add_argument('--anneal_epoch', default=10, type=int)
 
     parser.add_argument('--desc', default='data', type=str,
                         help='run description')
