@@ -326,6 +326,8 @@ class Solver(object):
             loss.backward()
             self.optim_vae.step()
 
+            if iteration > 100:
+                self.lg_kl_weight = max(self.lg_kl_weight / (iteration/100), 0.01)
 
             # save model parameters
             if iteration % self.ckpt_save_iter == 0:
@@ -359,13 +361,16 @@ class Solver(object):
                                         test_lg_kl=test_lg_kl.item(),
                                         test_sg_recon=0
                                         )
-                prn_str = ('[iter_%d (epoch_%d)] vae_loss: %.3f '
+
+                prn_str = ('[iter_%d (epoch_%d)] kl_weight: %.3f '
                           ) % \
                           (iteration, epoch,
-                           loss.item(),
+                           self.lg_kl_weight,
                            )
 
                 print(prn_str)
+
+
                 if self.record_file:
                     record = open(self.record_file, 'a')
                     record.write('%s\n' % (prn_str,))
