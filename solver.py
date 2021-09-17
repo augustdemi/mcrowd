@@ -106,7 +106,7 @@ class Solver(object):
             )
             self.line_gather = DataGather(
                 'iter', 'total_loss',
-                'test_loss',
+                'test_total_loss',
                 'lg_recon', 'lg_kl',
                 'test_lg_recon', 'test_lg_kl',
                 'lg_fde_min', 'lg_fde_avg', 'lg_fde_std'
