@@ -47,8 +47,8 @@ class Solver(object):
 
         self.args = args
 
-        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_lg_klw_%s_w_loc_%s' % \
-                    (args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE, args.lg_kl_weight, args.latent_loc)
+        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_lg_klw_%s' % \
+                    (args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE, args.lg_kl_weight)
 
 
         # to be appended by run_id
@@ -62,7 +62,6 @@ class Solver(object):
         self.sg_idx =  np.array([3,7,11])
         self.no_convs_fcomb = args.no_convs_fcomb
         self.no_convs_per_block = args.no_convs_per_block
-        self.latent_loc = args.latent_loc
 
         self.kl_weight=args.kl_weight
         self.lg_kl_weight=args.lg_kl_weight
@@ -174,9 +173,7 @@ class Solver(object):
 
             # input = env + 8 past / output = env + lg
             num_filters = [32,32,64,64,64,128]
-            # num_filters = [7,8,9,10,11,12]
-            self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters,
-                                             latent_loc=self.latent_loc, latent_dim=self.w_dim,
+            self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
                                     no_convs_fcomb=self.no_convs_fcomb, no_convs_per_block=self.no_convs_per_block, beta=self.lg_kl_weight).to(self.device)
 
 
@@ -323,6 +320,40 @@ class Solver(object):
             lg_kl = self.lg_cvae.kl_divergence(analytic=True).sum().div(batch_size)
             lg_recon_loss = self.recon_loss_with_logit(input=recon_lg_heat, target=lg_heat_map).sum().div(np.prod([*lg_heat_map.size()[:3]]))
             lg_elbo = -lg_recon_loss - self.lg_kl_weight * lg_kl
+
+            ########## softmax LG
+            pred_lg_wc = []
+            for i in range(batch_size):
+                # pred_sg_ic = []
+                # for heat_map in sg_heat_map[i, 1:]:
+                #     pred_sg_ic.append((heat_map == torch.max(heat_map)).nonzero()[0])
+                # pred_sg_ic = torch.stack(pred_sg_ic)
+
+                ## soft argmax
+                pred_sg_ic = []
+                for heat_map in lg_heat_map[i]:
+                    # heat_map /=200
+                    x_goal_pixel = 0
+                    y_goal_pixel = 0
+                    exp_recon = torch.exp(heat_map * (20 / heat_map.max()))
+                    # exp_recon = torch.exp(heat_map)
+                    for pixel_idx in range(len(heat_map)):
+                        x_goal_pixel += pixel_idx * exp_recon[pixel_idx, :].sum() / exp_recon.sum()
+                        y_goal_pixel += pixel_idx * exp_recon[:, pixel_idx].sum() / exp_recon.sum()
+                    pred_sg_ic.append(torch.cat(
+                        [torch.round(x_goal_pixel).unsqueeze(0), torch.round(y_goal_pixel).unsqueeze(0)]
+                    ))
+                pred_sg_ic = torch.stack(pred_sg_ic)
+                # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
+                back_wc = torch.matmul(
+                    torch.cat([pred_sg_ic, torch.ones((len(pred_sg_ic), 1)).to(self.device)], dim=1),
+                    torch.transpose(local_homo[i], 1, 0))
+                pred_lg_wc.append(back_wc[0,:2] / back_wc[0,2])
+                # ((back_wc[:,:2] - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
+            pred_lg_wc = torch.stack(pred_lg_wc)
+
+
+
 
 
             loss = - lg_elbo
@@ -513,20 +544,20 @@ class Solver(object):
                 # -------- long term goal --------
                 # ---------- prior
                 z_prior = self.lg_cvae.prior_latent_space.rsample()
-                pred_lg_prior = F.sigmoid(self.lg_cvae.fcomb.forward(self.lg_cvae.unet_features, z_prior))
+                pred_lg_prior = F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, z_prior))
                 # -----------all zeros
                 z = torch.zeros_like(z_prior)
-                pred_lg_zeros = F.sigmoid(self.lg_cvae.fcomb.forward(self.lg_cvae.unet_features, z))
+                pred_lg_zeros = F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, z))
                 # ---------- min/max
                 z[:, :32] = 8
                 z[:, 32:] = -8
-                pred_lg_mm = F.sigmoid(self.lg_cvae.fcomb.forward(self.lg_cvae.unet_features, z))
+                pred_lg_mm = F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, z))
                 # ---------- posterior
                 posterior_latent_space = self.lg_cvae.posterior.forward(obs_heat_map, lg_heat_map)
                 z_post = posterior_latent_space.rsample()
-                pred_lg_post = F.sigmoid(self.lg_cvae.fcomb.forward(self.lg_cvae.unet_features, z_post))
+                pred_lg_post = F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, z_post))
                 # ---------- without latetn, only feature map
-                pred_lg_patch = self.lg_cvae.fcomb.last_layer(self.lg_cvae.unet_features)
+                pred_lg_patch = self.lg_cvae.unet.up_forward(self.lg_cvae.unet_enc_feat)
 
                 ###### =============== plot LG ==================#######
                 fig = plt.figure(figsize=(8, 8))
@@ -539,7 +570,7 @@ class Solver(object):
                     heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 20
                 heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
 
-                for m in [pred_lg_prior, pred_lg_post, pred_lg_zeros, pred_lg_patch]:
+                for m in [pred_lg_prior, pred_lg_post, pred_lg_zeros, pred_lg_mm]:
                     ax = fig.add_subplot(2, 2, k + 1)
                     ax.set_title(title[k])
                     ax.imshow(m[i, 0])
