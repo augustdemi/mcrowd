@@ -135,17 +135,15 @@ class Fcomb(nn.Module):
         self.no_convs_fcomb = no_convs_fcomb
         self.name = 'Fcomb'
 
-
-        feat_ch_idx = 2
         if self.use_tile:
             layers = []
 
             # Decoder of N x a 1x1 convolution followed by a ReLU activation function except for the last layer
-            layers.append(nn.Conv2d(self.num_filters[feat_ch_idx] + self.latent_dim, self.num_filters[feat_ch_idx], kernel_size=1))
+            layers.append(nn.Conv2d(self.num_filters[-1] + self.latent_dim, self.num_filters[-1], kernel_size=1))
             layers.append(nn.ReLU(inplace=True))
 
             for _ in range(no_convs_fcomb - 1):
-                layers.append(nn.Conv2d(self.num_filters[feat_ch_idx], self.num_filters[feat_ch_idx], kernel_size=1))
+                layers.append(nn.Conv2d(self.num_filters[-1], self.num_filters[-1], kernel_size=1))
                 layers.append(nn.ReLU(inplace=True))
 
             self.layers = nn.Sequential(*layers)
@@ -199,7 +197,7 @@ class ProbabilisticUnet(nn.Module):
     no_cons_per_block: no convs per block in the (convolutional) encoder of prior and posterior
     """
 
-    def __init__(self, input_channels=1, num_classes=1, num_filters=[32, 64, 128, 192], latent_loc=3, latent_dim=6, no_convs_fcomb=4,
+    def __init__(self, input_channels=1, num_classes=1, num_filters=[32, 64, 128, 192], latent_dim=6, no_convs_fcomb=4,
                  no_convs_per_block=3, beta=10.0):
         super(ProbabilisticUnet, self).__init__()
         self.input_channels = input_channels
@@ -212,7 +210,7 @@ class ProbabilisticUnet(nn.Module):
         self.beta = beta
         self.z_prior_sample = 0
 
-        self.unet = Unet(self.input_channels, self.num_classes, self.num_filters, latent_loc,
+        self.unet = Unet(self.input_channels, self.num_classes, self.num_filters, apply_last_layer=False,
                          padding=True).to(device)
         self.prior = AxisAlignedConvGaussian(self.input_channels, self.num_filters, self.no_convs_per_block,
                                              self.latent_dim).to(device)
@@ -227,7 +225,7 @@ class ProbabilisticUnet(nn.Module):
         in case training is True also construct posterior latent space
         """
         # unet encoder
-        self.unet_enc_feat = self.unet.down_up1_forward(patch)
+        self.unet_enc_feat = self.unet.down_forward(patch)
 
 
         # latent dist
@@ -249,25 +247,26 @@ class ProbabilisticUnet(nn.Module):
         '''
         x = self.fcomb.forward(self.unet_enc_feat, z)
 
-        return self.unet.up2_forward(x)
+        return self.unet.up_forward(x)
 
 
 
-    def sample(self, testing=False):
+    def sample(self, testing=False, z_prior=None):
         """
         Sample a segmentation by reconstructing from a prior sample
         and combining this with UNet features
         """
-        if testing:
-            # You can choose whether you mean a sample or the mean here. For the GED it is important to take a sample.
-            # z_prior = self.prior_latent_space.base_dist.loc
-            z_prior = self.prior_latent_space.sample()
-            # self.z_prior_sample = z_prior
-        else:
-            z_prior = self.prior_latent_space.rsample()
-            # self.z_prior_sample = z_prior
+        if z_prior is None:
+            if testing:
+                # You can choose whether you mean a sample or the mean here. For the GED it is important to take a sample.
+                # z_prior = self.prior_latent_space.base_dist.loc
+                z_prior = self.prior_latent_space.sample()
+                # self.z_prior_sample = z_prior
+            else:
+                z_prior = self.prior_latent_space.rsample()
+                # self.z_prior_sample = z_prior
         x = self.fcomb.forward(self.unet_enc_feat, z_prior)
-        return self.unet.up2_forward(x)
+        return self.unet.up_forward(x)
 
     def reconstruct(self, use_posterior_mean=False, calculate_posterior=False, z_posterior=None):
         """
