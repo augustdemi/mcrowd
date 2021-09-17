@@ -166,7 +166,7 @@ class TrajectoryDataset(Dataset):
         self.data_dir = data_dir
         self.obs_len = obs_len
         self.pred_len = pred_len
-        skip +=2
+        skip += 2
         self.skip = skip
         self.seq_len = self.obs_len + self.pred_len
         self.delim = delim
@@ -181,9 +181,9 @@ class TrajectoryDataset(Dataset):
         all_files = np.array(sorted(all_files, key=lambda x: int(x.split('.')[0])))
 
         if data_dir.endswith('Train.txt'):
-            all_files = all_files[:40]
+            all_files = np.concatenate([all_files[:40], all_files[80:]])
             per_agent=5
-            num_data=50
+            num_data=100
         elif data_dir.endswith('Val.txt'):
             all_files = all_files[[42,44]]
             per_agent=10
