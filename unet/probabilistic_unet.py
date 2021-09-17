@@ -139,23 +139,23 @@ class Fcomb(nn.Module):
             layers = []
 
             # Decoder of N x a 1x1 convolution followed by a ReLU activation function except for the last layer
-            layers.append(nn.Conv2d(self.num_filters[-1] + self.latent_dim, self.num_filters[-1], kernel_size=1))
+            layers.append(nn.Conv2d(self.num_filters[0] + self.latent_dim, self.num_filters[0], kernel_size=1))
             layers.append(nn.ReLU(inplace=True))
 
-            for _ in range(no_convs_fcomb - 1):
-                layers.append(nn.Conv2d(self.num_filters[-1], self.num_filters[-1], kernel_size=1))
+            for _ in range(no_convs_fcomb - 2):
+                layers.append(nn.Conv2d(self.num_filters[0], self.num_filters[0], kernel_size=1))
                 layers.append(nn.ReLU(inplace=True))
 
             self.layers = nn.Sequential(*layers)
 
-            # self.last_layer = nn.Conv2d(self.num_filters[0], self.num_classes, kernel_size=1)
+            self.last_layer = nn.Conv2d(self.num_filters[0], self.num_classes, kernel_size=1)
 
             if initializers['w'] == 'orthogonal':
                 self.layers.apply(init_weights_orthogonal_normal)
-                # self.last_layer.apply(init_weights_orthogonal_normal)
+                self.last_layer.apply(init_weights_orthogonal_normal)
             else:
                 self.layers.apply(init_weights)
-                # self.last_layer.apply(init_weights)
+                self.last_layer.apply(init_weights)
 
     def tile(self, a, dim, n_tile):
         """
@@ -184,7 +184,8 @@ class Fcomb(nn.Module):
 
             # Concatenate the feature map (output of the UNet) and the sample taken from the latent space
             feature_map = torch.cat((feature_map, z), dim=self.channel_axis)
-            return self.layers(feature_map)
+            output = self.layers(feature_map)
+            return self.last_layer(output)
 
 
 class ProbabilisticUnet(nn.Module):
@@ -198,7 +199,7 @@ class ProbabilisticUnet(nn.Module):
     """
 
     def __init__(self, input_channels=1, num_classes=1, num_filters=[32, 64, 128, 192], latent_dim=6, no_convs_fcomb=4,
-                 no_convs_per_block=3, beta=10.0):
+                 no_convs_per_block=2, beta=10.0):
         super(ProbabilisticUnet, self).__init__()
         self.input_channels = input_channels
         self.num_classes = num_classes
@@ -224,49 +225,25 @@ class ProbabilisticUnet(nn.Module):
         Construct prior latent space for patch and run patch through UNet,
         in case training is True also construct posterior latent space
         """
-        # unet encoder
-        self.unet_enc_feat = self.unet.down_forward(patch)
-
-
-        # latent dist
         if training:
             self.posterior_latent_space = self.posterior.forward(patch, segm)
         self.prior_latent_space = self.prior.forward(patch)
+        self.unet_features = self.unet.forward(patch, False)
 
-        if training:
-            z = self.posterior_latent_space.rsample()
-        else:
-            z = self.prior_latent_space.rsample()
-        '''
-        # expand z in spatial dim by replicating
-        z = torch.unsqueeze(z, 2)  # (bs, latent_dim) -> (bs, l_d, 1)
-        z = self.tile(z, 2, self.unet_enc_feat.shape[2])  # self.spatial_axes = (2,3), feature_map.shape=(4, 32, 160, 160)
-        z = torch.unsqueeze(z, 3)
-        z = self.tile(z, 3, self.unet_enc_feat.shape[3])
-        x = torch.cat([self.unet_enc_feat, z], dim=1)  # channel dim concat
-        '''
-        x = self.fcomb.forward(self.unet_enc_feat, z)
-
-        return self.unet.up_forward(x)
-
-
-
-    def sample(self, testing=False, z_prior=None):
+    def sample(self, testing=False):
         """
         Sample a segmentation by reconstructing from a prior sample
         and combining this with UNet features
         """
-        if z_prior is None:
-            if testing:
-                # You can choose whether you mean a sample or the mean here. For the GED it is important to take a sample.
-                # z_prior = self.prior_latent_space.base_dist.loc
-                z_prior = self.prior_latent_space.sample()
-                # self.z_prior_sample = z_prior
-            else:
-                z_prior = self.prior_latent_space.rsample()
-                # self.z_prior_sample = z_prior
-        x = self.fcomb.forward(self.unet_enc_feat, z_prior)
-        return self.unet.up_forward(x)
+        if testing == False:
+            z_prior = self.prior_latent_space.rsample()
+            self.z_prior_sample = z_prior
+        else:
+            # You can choose whether you mean a sample or the mean here. For the GED it is important to take a sample.
+            # z_prior = self.prior_latent_space.base_dist.loc
+            z_prior = self.prior_latent_space.sample()
+            self.z_prior_sample = z_prior
+        return self.fcomb.forward(self.unet_features, z_prior)
 
     def reconstruct(self, use_posterior_mean=False, calculate_posterior=False, z_posterior=None):
         """
