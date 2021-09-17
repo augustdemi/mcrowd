@@ -47,13 +47,15 @@ class Solver(object):
 
         self.args = args
 
-        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_lg_klw_%s' % \
-                    (args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE, args.lg_kl_weight)
+        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_lg_klw_%s_a_%s_r_%s' % \
+                    (args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE, args.lg_kl_weight, args.alpha, args.gamma)
 
 
         # to be appended by run_id
 
         # self.use_cuda = args.cuda and torch.cuda.is_available()
+        self.alpha = args.alpha
+        self.gamma = args.gamma
         self.device = args.device
         self.temp=1.99
         self.dt=0.4
@@ -296,30 +298,26 @@ class Solver(object):
              local_map, local_ic, local_homo) = next(iterator)
             batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
-###########
             obs_heat_map, fut_heat_map =  self.make_heatmap(local_ic, local_map)
             lg_heat_map = torch.tensor(fut_heat_map[:,11]).float().to(self.device).unsqueeze(1)
 
-            # idx=0
-            # heat_map_traj = np.zeros_like(local_map[idx, 0])
-            # heat_map_traj = local_map[idx, 0]
-            # for t in range(20):
-            #     heat_map_traj[local_ic[idx, t, 0], local_ic[idx, t, 1]] = 1
-            # heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-            # plt.imshow(heat_map_traj)
-            # plt.scatter(local_ic[idx, :8, 1], local_ic[idx, :8, 0])
-            # plt.imshow(local_map[idx, 0])
 
             #-------- long term goal --------
-            # a = torch.cat([obs_heat_map[:, 0].unsqueeze(1), obs_heat_map[:, 1:] * 10], dim=1)
-            # a = torch.cat([obs_heat_map[:, 0].unsqueeze(1) * 0.039 * 0.1, obs_heat_map[:, 1:]], dim=1)
             recon_lg_heat = self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
+            recon_lg_heat = F.sigmoid(recon_lg_heat)
 
-            # pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True))
+            # Focal loss:
+            # alpha to handle the imblanced classes: α for positive(foreground) class and 1-α for negative(background) class.
+            # gamma to handle the hard positive/negative, i.e., the misclassified negative/positivle examples.
+            focal_loss = (self.alpha * lg_heat_map * torch.log(recon_lg_heat + self.eps) * ((1 - recon_lg_heat) ** self.gamma) \
+                         + (1 - self.alpha) * (1 - lg_heat_map) * torch.log(1 - recon_lg_heat + self.eps) * (
+                recon_lg_heat ** self.gamma)).sum().div(batch_size)
+
 
             lg_kl = self.lg_cvae.kl_divergence(analytic=True).sum().div(batch_size)
-            lg_recon_loss = self.recon_loss_with_logit(input=recon_lg_heat, target=lg_heat_map).sum().div(np.prod([*lg_heat_map.size()[:3]]))
-            lg_elbo = -lg_recon_loss - self.lg_kl_weight * torch.clamp(lg_kl, 0.07)
+            # lg_recon_loss = self.recon_loss_with_logit(input=recon_lg_heat, target=lg_heat_map).sum().div(np.prod([*lg_heat_map.size()[:3]]))
+            lg_elbo = -focal_loss - self.lg_kl_weight * torch.clamp(lg_kl, 0.07)
+
 
 
             loss = - lg_elbo
@@ -443,8 +441,8 @@ class Solver(object):
                     self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
 
                     lg_kl += self.lg_cvae.kl_divergence(analytic=True).sum().div(batch_size)
-                    lg_recon += self.recon_loss_with_logit(input=pred_lg_heat, target=lg_heat_map).sum().div(
-                        np.prod([*lg_heat_map.size()[:3]]))
+                    lg_recon += (self.alpha * lg_heat_map * torch.log(pred_lg_heat + self.eps) * ((1 - pred_lg_heat) ** self.gamma) \
+                         + (1 - self.alpha) * (1 - lg_heat_map) * torch.log(1 - pred_lg_heat + self.eps) * (pred_lg_heat ** self.gamma)).sum().div(batch_size)
 
 
 

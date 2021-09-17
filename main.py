@@ -43,7 +43,7 @@ def create_parser():
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--run_id', default=2, type=int,
+    parser.add_argument('--run_id', default=6, type=int,
                         help='run id (default=-1 to create a new id)')
 
     parser.add_argument('--device', default='cpu', type=str,
@@ -52,7 +52,7 @@ def create_parser():
     # training hyperparameters
     parser.add_argument('--batch_size', default=6, type=int,
                         help='batch size')
-    parser.add_argument('--lr_VAE', default=1e-4, type=float,
+    parser.add_argument('--lr_VAE', default=1e-3, type=float,
                         help='learning rate of the VAE')
     parser.add_argument('--beta1_VAE', default=0.9, type=float,
                         help='beta1 parameter of the Adam optimizer for the VAE')
@@ -122,12 +122,13 @@ def create_parser():
 
     parser.add_argument('--kl_weight', default=100.0, type=float,
                         help='kl weight')
-    parser.add_argument('--lg_kl_weight', default=10, type=int)
-    parser.add_argument('--w_dim', default=25, type=int)
+    parser.add_argument('--lg_kl_weight', default=50, type=int)
+    parser.add_argument('--w_dim', default=64, type=int)
     parser.add_argument('--ll_prior_w', default=1.0, type=float)
     parser.add_argument('--no_convs_fcomb', default=4, type=int)
     parser.add_argument('--no_convs_per_block', default=2, type=int)
-    parser.add_argument('--latent_loc', default=3, type=int)
+    parser.add_argument('--alpha', default=0.25, type=float)
+    parser.add_argument('--gamma', default=2, type=float)
 
     parser.add_argument('--desc', default='data', type=str,
                         help='run description')
