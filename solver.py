@@ -352,7 +352,7 @@ class Solver(object):
                                         loss_kl=0,
                                         test_loss_recon=0,
                                         test_loss_kl=0,
-                                        lg_recon=lg_recon_loss.item(),
+                                        lg_recon=focal_loss.item(),
                                         lg_kl=lg_kl.item(),
                                         sg_recon=0,
                                         test_lg_recon=test_lg_recon.item(),
