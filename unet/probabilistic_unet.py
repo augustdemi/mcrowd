@@ -22,9 +22,6 @@ class Encoder(nn.Module):
         self.input_channels = input_channels
         self.num_filters = num_filters
 
-        if posterior:
-            # To accomodate for the mask that is concatenated at the channel axis, we increase the input_channels.
-            self.input_channels += num_classes
 
         layers = []
         for i in range(len(self.num_filters)):
@@ -73,20 +70,17 @@ class AxisAlignedConvGaussian(nn.Module):
             self.name = 'Prior'
         self.encoder = Encoder(self.input_channels, self.num_filters, self.no_convs_per_block, num_classes=num_classes,
                                posterior=self.posterior)
-        self.conv_layer = nn.Conv2d(num_filters[-1], 2 * self.latent_dim, (1, 1), stride=1)
+        self.conv_layer = nn.Conv2d(num_filters[-1] * 2, 2 * self.latent_dim, (1, 1), stride=1)
 
 
         nn.init.kaiming_normal_(self.conv_layer.weight, mode='fan_in', nonlinearity='relu')
         nn.init.normal_(self.conv_layer.bias)
 
-    def forward(self, input, segm=None):
+    def forward(self, input, hx):
 
-        # If segmentation is not none, concatenate the mask to the channel axis of the input
-        if segm is not None:
-            input = torch.cat((input, segm), dim=1)
-
-        encoding = self.encoder(input)  # [4, 128, 10, 10]
+        encoding = self.encoder(input)  # [4, 64, 10, 10]
         # self.show_enc = encoding
+        encoding=torch.cat([hx, encoding], dim=1)
 
         # We only want the mean of the resulting hxw image
         encoding = torch.mean(encoding, dim=2, keepdim=True)
@@ -288,7 +282,7 @@ class ProbabilisticUnet(nn.Module):
 
         # latent dist
         if training:
-            self.posterior_latent_space = self.posterior.forward(patch, segm)
+            self.posterior_latent_space = self.posterior.forward(patch, self.unet_enc_feat)
         self.prior_latent_space = self.prior.forward(self.unet_enc_feat)
 
         if training:
