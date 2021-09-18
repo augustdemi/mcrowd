@@ -21,8 +21,6 @@ from unet.unet import Unet
 import numpy as np
 import visdom
 
-from unet.utils import init_weights
-
 
 ###############################################################################
 
@@ -49,9 +47,10 @@ class Solver(object):
 
         self.args = args
 
-        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_lg_klw_%s_a_%s_r_%s_fb_%s_anneal_e_%s_load_fcomb_%s' % \
+        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_a_%s_r_%s_anneal_e_%s' % \
                     (args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE,
-                     args.lg_kl_weight, args.alpha, args.gamma, args.fb, args.anneal_epoch, args.load_fcomb)
+                     args.alpha, args.gamma, args.anneal_epoch)
+
 
         # to be appended by run_id
 
@@ -163,25 +162,18 @@ class Solver(object):
         self.decoder_h_dim = args.decoder_h_dim
 
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
-            lg_cvae_path = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_a_%s_r_%s_anneal_e_%s_run_%s' % \
-                        (args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE,
-                         args.alpha, args.gamma-1, args.anneal_epoch, args.run_id)
-            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_2400_lg_cvae.pt')
+            # self.encoderLG = LGEncoder(
+            #     args.zS_dim,
+            #     mlp_dim=args.mlp_dim,
+            #     drop_out_conv=args.dropout_rnn,
+            #     drop_out_mlp=args.dropout_mlp,
+            #     device=self.device).to(self.device)
 
-            if self.device == 'cuda':
-                self.lg_cvae = torch.load(lg_cvae_path)
+            # input = env + 8 past / output = env + lg
+            num_filters = [32,32,64,64,64]
+            self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
+                                    no_convs_fcomb=self.no_convs_fcomb, no_convs_per_block=self.no_convs_per_block, beta=self.lg_kl_weight).to(self.device)
 
-            else:
-                self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
-                
-            print(">>>>>>>>> Init: ", lg_cvae_path)
-            for m in self.lg_cvae.unet.upsampling_path:
-                m.apply(init_weights)
-
-            if args.load_fcomb == 0:
-                self.lg_cvae.fcomb.apply(init_weights)
-
-            self.lg_cvae.beta=args.lg_kl_weight
 
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
@@ -1206,19 +1198,19 @@ class Solver(object):
                       title='test_elbo')
         )
 
-        self.viz.line(
-            X=iters, Y=lg_recon, env=self.name + '/lines',
-            win=self.win_id['lg_recon'], update='append',
-            opts=dict(xlabel='iter', ylabel='lg_recon',
-                      title='lg_recon')
-        )
-
 
         self.viz.line(
             X=iters, Y=lg_kl, env=self.name + '/lines',
             win=self.win_id['lg_kl'], update='append',
             opts=dict(xlabel='iter', ylabel='lg_kl',
                       title='lg_kl'),
+        )
+
+        self.viz.line(
+            X=iters, Y=lg_recon, env=self.name + '/lines',
+            win=self.win_id['lg_recon'], update='append',
+            opts=dict(xlabel='iter', ylabel='lg_recon',
+                      title='lg_recon')
         )
 
 
@@ -1324,4 +1316,3 @@ class Solver(object):
 
         else:
             self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
-
