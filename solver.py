@@ -21,6 +21,8 @@ from unet.unet import Unet
 import numpy as np
 import visdom
 
+from unet.utils import init_weights
+
 
 ###############################################################################
 
@@ -47,10 +49,9 @@ class Solver(object):
 
         self.args = args
 
-        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_a_%s_r_%s' % \
+        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_lg_klw_%s_a_%s_r_%s_fb_%s_anneal_e_%s_load_e_%s' % \
                     (args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE,
-                     args.alpha, args.gamma)
-
+                     args.lg_kl_weight, args.alpha, args.gamma, args.fb, args.anneal_epoch, args.load_e)
 
         # to be appended by run_id
 
@@ -102,14 +103,18 @@ class Solver(object):
                 recon='win_recon', total_loss='win_total_loss', test_total_loss='win_test_total_loss',
                 lg_recon='win_lg_recon', lg_kl='win_lg_kl',
                 test_lg_recon='win_test_lg_recon', test_lg_kl='win_test_lg_kl',
-                lg_fde_min='win_lg_fde_min', lg_fde_avg='win_lg_fde_avg', lg_fde_std='win_lg_fde_std'
+                lg_fde_min='win_lg_fde_min', lg_fde_avg='win_lg_fde_avg', lg_fde_std='win_lg_fde_std',
+                sg_recon='win_sg_recon', test_sg_recon='win_test_sg_recon',
+                sg_ade_min='win_sg_ade_min', sg_ade_avg='win_sg_ade_avg', sg_ade_std='win_sg_ade_std',
             )
             self.line_gather = DataGather(
                 'iter', 'total_loss',
                 'test_total_loss',
                 'lg_recon', 'lg_kl',
                 'test_lg_recon', 'test_lg_kl',
-                'lg_fde_min', 'lg_fde_avg', 'lg_fde_std'
+                'lg_fde_min', 'lg_fde_avg', 'lg_fde_std',
+                'sg_recon', 'test_sg_recon',
+                'sg_ade_min', 'sg_ade_avg', 'sg_ade_std',
             )
 
 
@@ -162,17 +167,41 @@ class Solver(object):
         self.decoder_h_dim = args.decoder_h_dim
 
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
-            # self.encoderLG = LGEncoder(
-            #     args.zS_dim,
-            #     mlp_dim=args.mlp_dim,
-            #     drop_out_conv=args.dropout_rnn,
-            #     drop_out_mlp=args.dropout_mlp,
-            #     device=self.device).to(self.device)
 
-            # input = env + 8 past / output = env + lg
-            num_filters = [32,32,64,64,64]
-            self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
-                                    no_convs_fcomb=self.no_convs_fcomb, no_convs_per_block=self.no_convs_per_block, beta=self.lg_kl_weight).to(self.device)
+            #
+            # # input = env + 8 past / output = env + lg
+
+            if args.load_e > 0:
+                lg_cvae_path = 'lgcvae_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_a_%s_r_%s_run_%s' % \
+                               (
+                               args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE,
+                               args.alpha, args.gamma, args.run_id)
+                lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_4600_lg_cvae.pt')
+
+                if self.device == 'cuda':
+                    self.lg_cvae = torch.load(lg_cvae_path)
+                else:
+                    self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
+
+                print(">>>>>>>>> Init: ", lg_cvae_path)
+
+                ## random init after latent space
+                for m in self.lg_cvae.unet.upsampling_path:
+                    m.apply(init_weights)
+                self.lg_cvae.fcomb.apply(init_weights)
+                # kl weight
+                self.lg_cvae.beta = args.lg_kl_weight
+
+            else:
+                num_filters = [32,32,64,64,64]
+                self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
+                                        no_convs_fcomb=self.no_convs_fcomb, no_convs_per_block=self.no_convs_per_block, beta=self.lg_kl_weight).to(self.device)
+
+
+            num_filters = [32, 32, 64, 64, 64, 128]
+            # input = env + 8 past + lg / output = env + sg(including lg)
+            self.sg_unet = Unet(input_channels=3, num_classes=3, num_filters=num_filters,
+                             apply_last_layer=True, padding=True).to(self.device)
 
 
         else:  # load a previously saved model
@@ -183,7 +212,8 @@ class Solver(object):
 
         # get VAE parameters
         vae_params = \
-            list(self.lg_cvae.parameters())
+            list(self.lg_cvae.parameters())+ \
+            list(self.sg_unet.parameters())
 
         # create optimizers
         self.optim_vae = optim.Adam(
@@ -276,8 +306,10 @@ class Solver(object):
         start_iter = self.ckpt_load_iter + 1
         epoch = int(start_iter / iter_per_epoch)
 
-        lg_kl_weight = 0
-        print('kl_w: ', lg_kl_weight)
+        lg_kl_weight = self.lg_kl_weight
+        if self.anneal_epoch > 0:
+            lg_kl_weight = 0
+        print('>>>>>>>> kl_w: ', lg_kl_weight)
 
         for iteration in range(start_iter, self.max_iter + 1):
 
@@ -285,9 +317,9 @@ class Solver(object):
             if iteration % iter_per_epoch == 0:
                 print('==== epoch %d done ====' % epoch)
                 epoch +=1
-                if self.lg_kl_weight > 0:
+                if self.anneal_epoch > 0:
                     lg_kl_weight = min(self.lg_kl_weight * (epoch / self.anneal_epoch), self.lg_kl_weight)
-                    print('kl_w: ', lg_kl_weight)
+                    print('>>>>>>>> kl_w: ', lg_kl_weight)
 
 
                 iterator = iter(data_loader)
@@ -303,6 +335,7 @@ class Solver(object):
 
             obs_heat_map, fut_heat_map =  self.make_heatmap(local_ic, local_map)
             lg_heat_map = torch.tensor(fut_heat_map[:,11]).float().to(self.device).unsqueeze(1)
+            sg_heat_map = torch.tensor(fut_heat_map[:, self.sg_idx]).float().to(self.device)
 
 
             #-------- long term goal --------
@@ -312,7 +345,7 @@ class Solver(object):
             # Focal loss:
             # alpha to handle the imblanced classes: α for positive(foreground) class and 1-α for negative(background) class.
             # gamma to handle the hard positive/negative, i.e., the misclassified negative/positivle examples.
-            focal_loss = (self.alpha * lg_heat_map * torch.log(recon_lg_heat + self.eps) * ((1 - recon_lg_heat) ** self.gamma) \
+            lg_recon_loss = - (self.alpha * lg_heat_map * torch.log(recon_lg_heat + self.eps) * ((1 - recon_lg_heat) ** self.gamma) \
                          + (1 - self.alpha) * (1 - lg_heat_map) * torch.log(1 - recon_lg_heat + self.eps) * (
                 recon_lg_heat ** self.gamma)).sum().div(batch_size)
 
@@ -321,15 +354,23 @@ class Solver(object):
             lg_kl = torch.clamp(lg_kl, self.fb).sum().div(batch_size)
 
             # lg_recon_loss = self.recon_loss_with_logit(input=recon_lg_heat, target=lg_heat_map).sum().div(np.prod([*lg_heat_map.size()[:3]]))
-            lg_elbo = focal_loss - lg_kl_weight * lg_kl
+            lg_elbo = - lg_recon_loss - lg_kl_weight * lg_kl
 
+            # -------- short term goal --------
+            # obs_lg_heat = torch.cat([obs_heat_map, lg_heat_map[:,-1].unsqueeze(1)], dim=1)
+            recon_sg_heat = self.sg_unet.forward(torch.cat([obs_heat_map, lg_heat_map], dim=1))
+            recon_sg_heat = F.sigmoid(recon_sg_heat)
 
-            loss = - lg_elbo
+            sg_recon_loss = - (
+            self.alpha * sg_heat_map * torch.log(recon_sg_heat + self.eps) * ((1 - recon_sg_heat) ** self.gamma) \
+            + (1 - self.alpha) * (1 - sg_heat_map) * torch.log(1 - recon_sg_heat + self.eps) * (
+                recon_sg_heat ** self.gamma)).sum().div(batch_size)
+
+            loss = - lg_elbo + sg_recon_loss
 
             self.optim_vae.zero_grad()
             loss.backward()
             self.optim_vae.step()
-
 
 
             # save model parameters
@@ -338,18 +379,23 @@ class Solver(object):
 
             # (visdom) insert current line stats
             if self.viz_on and (iteration % self.viz_ll_iter == 0):
-                lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon, test_lg_kl = self.evaluate_dist(self.val_loader, loss=True)
+                lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon, test_lg_kl, \
+                        sg_recon_loss, sg_ade_min, sg_ade_avg, sg_ade_std = self.evaluate_dist(self.val_loader, loss=True)
                 test_total_loss = test_lg_recon - lg_kl_weight * test_lg_kl
                 self.line_gather.insert(iter=iteration,
                                         lg_fde_min=lg_fde_min,
                                         lg_fde_avg=lg_fde_avg,
                                         lg_fde_std=lg_fde_std,
-                                        total_loss=-loss.item(),
-                                        lg_recon=-focal_loss.item(),
+                                        total_loss=lg_elbo.item(),
+                                        lg_recon=lg_recon_loss.item(),
                                         lg_kl=lg_kl.item(),
                                         test_total_loss=test_total_loss.item(),
                                         test_lg_recon=-test_lg_recon.item(),
                                         test_lg_kl=test_lg_kl.item(),
+                                        sg_recon=sg_recon_loss.item(),
+                                        sg_ade_min=sg_ade_min,
+                                        sg_ade_avg=sg_ade_avg,
+                                        sg_ade_std=sg_ade_std,
                                         )
 
                 prn_str = ('[iter_%d (epoch_%d)] VAE Loss: %.3f '
@@ -393,6 +439,8 @@ class Solver(object):
 
         lg_recon = lg_kl = 0
         lg_fde=[]
+        sg_recon=0
+        sg_ade = []
         with torch.no_grad():
             b=0
             for batch in data_loader:
@@ -405,9 +453,11 @@ class Solver(object):
 
                 obs_heat_map, fut_heat_map = self.make_heatmap(local_ic, local_map)
                 lg_heat_map = torch.tensor(fut_heat_map[:, 11]).float().to(self.device).unsqueeze(1)
+                sg_heat_map = torch.tensor(fut_heat_map[:, self.sg_idx]).float().to(self.device)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
-                pred_lg_wc20 = []
+                pred_lg_wcs = []
+                pred_sg_wcs = []
                 for _ in range(20):
                     # -------- long term goal --------
                     pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True))
@@ -426,7 +476,28 @@ class Solver(object):
                         pred_lg_wc.append(back_wc[0,:2] / back_wc[0,2])
                         # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
                     pred_lg_wc = torch.stack(pred_lg_wc)
-                    pred_lg_wc20.append(pred_lg_wc)
+                    pred_lg_wcs.append(pred_lg_wc)
+
+                    # -------- short term goal --------
+                    # obs_lg_heat = torch.cat([obs_heat_map, pred_lg_heat[:, -1].unsqueeze(1)], dim=1)
+                    pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat], dim=1)))
+
+                    pred_sg_wc = []
+                    for i in range(batch_size):
+                        pred_sg_ic = []
+                        for heat_map in pred_sg_heat[i]:
+                            pred_sg_ic.append((heat_map == torch.max(heat_map)).nonzero()[0])
+                        pred_sg_ic = torch.stack(pred_sg_ic).float()
+
+                        # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
+                        back_wc = torch.matmul(
+                            torch.cat([pred_sg_ic, torch.ones((len(pred_sg_ic), 1)).to(self.device)], dim=1),
+                            torch.transpose(local_homo[i], 1, 0))
+                        back_wc /= back_wc[:, 2].unsqueeze(1)
+                        pred_sg_wc.append(back_wc[:, :2])
+                        # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
+                    pred_sg_wc = torch.stack(pred_sg_wc)
+                    pred_sg_wcs.append(pred_sg_wc)
 
 
 
@@ -436,26 +507,38 @@ class Solver(object):
                     self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
 
                     lg_kl += self.lg_cvae.kl_divergence(analytic=True).sum().div(batch_size)
-                    lg_recon += (self.alpha * lg_heat_map * torch.log(pred_lg_heat + self.eps) * ((1 - pred_lg_heat) ** self.gamma) \
+                    lg_recon -= (self.alpha * lg_heat_map * torch.log(pred_lg_heat + self.eps) * ((1 - pred_lg_heat) ** self.gamma) \
                          + (1 - self.alpha) * (1 - lg_heat_map) * torch.log(1 - pred_lg_heat + self.eps) * (pred_lg_heat ** self.gamma)).sum().div(batch_size)
 
+                    sg_recon += - (self.alpha * sg_heat_map * torch.log(pred_sg_heat + self.eps) * ((1 - pred_sg_heat) ** self.gamma) \
+                                    + (1 - self.alpha) * (1 - sg_heat_map) * torch.log(1 - pred_sg_heat + self.eps) * (
+                                       pred_sg_heat ** self.gamma)).sum().div(batch_size)
 
-
-                lg_fde.append(torch.sqrt(((torch.stack(pred_lg_wc20)
+                lg_fde.append(torch.sqrt(((torch.stack(pred_lg_wcs)
                                            - fut_traj[-1,:,:2].unsqueeze(0).repeat((20,1,1)))**2).sum(-1))) # 20, 3, 4, 2
+                sg_ade.append(torch.sqrt(((torch.stack(pred_sg_wcs).permute(0, 2, 1, 3)
+                                           - fut_traj[self.sg_idx, :, :2].unsqueeze(0).repeat(
+                    (20, 1, 1, 1))) ** 2).sum(-1)).sum(1))
 
             lg_fde=torch.cat(lg_fde, dim=1).cpu().numpy() # all batches are concatenated
+            sg_ade=torch.cat(sg_ade, dim=1).cpu().numpy()
 
 
             lg_fde_min = np.min(lg_fde, axis=0).mean()
             lg_fde_avg = np.mean(lg_fde, axis=0).mean()
             lg_fde_std = np.std(lg_fde, axis=0).mean()
+            sg_ade_min = np.min(sg_ade, axis=0).mean()/len(self.sg_idx)
+            sg_ade_avg = np.mean(sg_ade, axis=0).mean()/len(self.sg_idx)
+            sg_ade_std = np.std(sg_ade, axis=0).mean()/len(self.sg_idx)
 
         self.set_mode(train=True)
         if loss:
-            return lg_fde_min, lg_fde_avg, lg_fde_std, lg_recon/b, lg_kl/b,
+            return lg_fde_min, lg_fde_avg, lg_fde_std, lg_recon/b, lg_kl/b,\
+                   sg_recon/b, sg_ade_min, sg_ade_avg, sg_ade_std
         else:
-            return lg_fde_min, lg_fde_avg, lg_fde_std
+            return lg_fde_min, lg_fde_avg, lg_fde_std, \
+                   sg_ade_min, sg_ade_avg, sg_ade_std
+
 
     def check_feat(self, data_loader):
         self.set_mode(train=False)
@@ -473,6 +556,7 @@ class Solver(object):
                 sg_heat_map = torch.tensor(fut_heat_map[:, self.sg_idx]).float().to(self.device)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
+                recon_lg_heat = self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
 
                 ###################################################
                 i = 0
@@ -503,21 +587,20 @@ class Solver(object):
                 # -------- long term goal --------
                 # ---------- prior
                 z_prior = self.lg_cvae.prior_latent_space.rsample()
-                pred_lg_prior = F.sigmoid(self.lg_cvae.fcomb.forward(self.lg_cvae.unet_features, z_prior))
+                pred_lg_prior = F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, z_prior))
                 # -----------all zeros
                 z = torch.zeros_like(z_prior)
-                pred_lg_zeros = F.sigmoid(self.lg_cvae.fcomb.forward(self.lg_cvae.unet_features, z))
+                pred_lg_zeros = F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, z))
                 # ---------- min/max
                 z[:, :32] = 8
                 z[:, 32:] = -8
-                pred_lg_mm = F.sigmoid(self.lg_cvae.fcomb.forward(self.lg_cvae.unet_features, z))
+                pred_lg_mm = F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, z))
                 # ---------- posterior
                 posterior_latent_space = self.lg_cvae.posterior.forward(obs_heat_map, lg_heat_map)
                 z_post = posterior_latent_space.rsample()
-                pred_lg_post = F.sigmoid(self.lg_cvae.fcomb.forward(self.lg_cvae.unet_features, z_post))
+                pred_lg_post = F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, z_post))
                 # ---------- without latetn, only feature map
-                pred_lg_patch = self.lg_cvae.fcomb.last_layer(self.lg_cvae.unet_features)
-
+                pred_lg_patch = self.lg_cvae.unet.up_forward(self.lg_cvae.unet_enc_feat)
                 ###### =============== plot LG ==================#######
                 fig = plt.figure(figsize=(8, 8))
                 k = 0
@@ -538,25 +621,17 @@ class Solver(object):
 
 
 #4444444444444444444t
-                z = torch.randint(-8, 8, (30, 32))
-                m1 = F.sigmoid(self.lg_cvae.fcomb.forward(self.lg_cvae.unet_features, z))
-
-                z = torch.randint(-8, 5, (30, 32))
-                m2 = F.sigmoid(self.lg_cvae.fcomb.forward(self.lg_cvae.unet_features, z))
+                pred_lg_patch = self.lg_cvae.unet.up_forward(self.lg_cvae.unet_enc_feat)
 
 
-                z = torch.randint(-5,5,(30,32))
-                m3 = F.sigmoid(self.lg_cvae.fcomb.forward(self.lg_cvae.unet_features, z))
 
+                mm = []
+                zs = []
+                for _ in range(5):
+                    zs.append(self.lg_cvae.prior_latent_space.rsample())
+                    mm.append(F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, zs[-1])))
+                # mm.append(F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, self.lg_cvae.posterior_latent_space.rsample())))
 
-                z = torch.ones_like(z_prior)
-                z[:, 32:] = -5
-                z[:, :32] = 5
-                m4 = F.sigmoid(self.lg_cvae.fcomb.forward(self.lg_cvae.unet_features, z))
-
-
-                fig = plt.figure(figsize=(8, 8))
-                title = ['prior', 'post', '0', 'patch']
 
                 env = local_map[i,0].detach().cpu().numpy()
                 heat_map_traj = np.zeros_like(env)
@@ -564,13 +639,60 @@ class Solver(object):
                     heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 20
                 heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
 
-                k = 0
-                for m in [m1, m2, m3, m4]:
-                    ax = fig.add_subplot(2, 2, k + 1)
+                title = ['prior1', 'prior2','prior3', 'prior4', 'prior5', 'prior1', 'prior2','prior3', 'prior4', 'prior5']
+                fig = plt.figure(figsize=(8, 8))
+                for k in range(len(title)):
+                    ax = fig.add_subplot(2, 5, k + 1)
                     ax.set_title(title[k])
-                    ax.imshow(m[i, 0])
+                    if k < 5:
+                        ax.imshow(np.stack([mm[k-1][i, 0] / mm[k-1][i, 0].max(), env, heat_map_traj],axis=2))
+                    else:
+                        ax.imshow(mm[(k-1) % 5][i, 0])
+
                     # ax.imshow(np.stack([m[i, 0] / m[i, 0].max(), env, heat_map_traj],axis=2))
-                    k += 1
+
+
+
+                axis_max = []
+                axis_min = []
+                b = np.stack(zs)
+                for k in range(self.w_dim):
+                    axis_max.append(b[:,k].max())
+                    axis_min.append(b[:,k].min())
+
+                # zs = []
+                # for i in range(self.w_dim):
+
+
+
+                mm2 = []
+                zs2 = []
+                for k in range(5):
+                    a = zs[k].clone()
+                    a[:,0] = 3
+                    zs2.append(a)
+                    mm2.append(F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, zs2[-1])))
+
+
+                env = local_map[i,0].detach().cpu().numpy()
+                heat_map_traj = np.zeros_like(env)
+                for t in [0, 1, 2, 3, 4, 5, 6, 7, 11, 15, 19]:
+                    heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 20
+                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+
+                title = ['prior1', 'prior2','prior3', 'prior4', 'prior5', 'prior1', 'prior2','prior3', 'prior4', 'prior5']
+                fig = plt.figure(figsize=(8, 8))
+                for k in range(len(title)):
+                    ax = fig.add_subplot(2, 5, k + 1)
+                    ax.set_title(title[k])
+                    if k < 5:
+                        ax.imshow(np.stack([mm2[k-1][i, 0] / mm2[k-1][i, 0].max(), env, heat_map_traj],axis=2))
+                    else:
+                        ax.imshow(mm2[(k-1) % 5][i, 0])
+
+                    # ax.imshow(np.stack([m[i, 0] / m[i, 0].max(), env, heat_map_traj],axis=2))
+
+
 
 
 
@@ -1198,19 +1320,19 @@ class Solver(object):
                       title='test_elbo')
         )
 
+        self.viz.line(
+            X=iters, Y=lg_recon, env=self.name + '/lines',
+            win=self.win_id['lg_recon'], update='append',
+            opts=dict(xlabel='iter', ylabel='lg_recon',
+                      title='lg_recon')
+        )
+
 
         self.viz.line(
             X=iters, Y=lg_kl, env=self.name + '/lines',
             win=self.win_id['lg_kl'], update='append',
             opts=dict(xlabel='iter', ylabel='lg_kl',
                       title='lg_kl'),
-        )
-
-        self.viz.line(
-            X=iters, Y=lg_recon, env=self.name + '/lines',
-            win=self.win_id['lg_recon'], update='append',
-            opts=dict(xlabel='iter', ylabel='lg_recon',
-                      title='lg_recon')
         )
 
 
@@ -1256,8 +1378,10 @@ class Solver(object):
 
         if train:
             self.lg_cvae.train()
+            self.sg_unet.train()
         else:
             self.lg_cvae.eval()
+            self.sg_unet.eval()
 
     ####
     def save_checkpoint(self, iteration):
@@ -1284,6 +1408,8 @@ class Solver(object):
         )
         mkdirs(self.ckpt_dir)
         torch.save(self.lg_cvae, lg_cvae_path)
+        torch.save(self.sg_unet, sg_unet_path)
+
 
     ####
     def load_checkpoint(self):
@@ -1313,6 +1439,8 @@ class Solver(object):
 
         if self.device == 'cuda':
             self.lg_cvae = torch.load(lg_cvae_path)
+            self.sg_unet = torch.load(sg_unet_path)
 
         else:
             self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
+            self.sg_unet = torch.load(sg_unet_path, map_location='cpu')
