@@ -100,18 +100,14 @@ class Solver(object):
         self.viz_on = args.viz_on
         if self.viz_on:
             self.win_id = dict(
-                recon='win_recon', total_loss='win_total_loss', test_total_loss='win_test_total_loss',
-                lg_recon='win_lg_recon', lg_kl='win_lg_kl',
-                test_lg_recon='win_test_lg_recon', test_lg_kl='win_test_lg_kl',
+                recon='win_recon', test_total_loss='win_test_total_loss',
                 lg_fde_min='win_lg_fde_min', lg_fde_avg='win_lg_fde_avg', lg_fde_std='win_lg_fde_std',
                 sg_recon='win_sg_recon', test_sg_recon='win_test_sg_recon',
                 sg_ade_min='win_sg_ade_min', sg_ade_avg='win_sg_ade_avg', sg_ade_std='win_sg_ade_std',
             )
             self.line_gather = DataGather(
-                'iter', 'total_loss',
+                'iter',
                 'test_total_loss',
-                'lg_recon', 'lg_kl',
-                'test_lg_recon', 'test_lg_kl',
                 'lg_fde_min', 'lg_fde_avg', 'lg_fde_std',
                 'sg_recon', 'test_sg_recon',
                 'sg_ade_min', 'sg_ade_avg', 'sg_ade_std',
@@ -168,35 +164,15 @@ class Solver(object):
 
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
 
-            #
-            # # input = env + 8 past / output = env + lg
+            lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_2.0_anneal_e_0_load_e_1_run_21'
+            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_26000_lg_cvae.pt')
 
-            if args.load_e > 0:
-                lg_cvae_path = 'lgcvae_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_a_%s_r_%s_run_%s' % \
-                               (
-                               args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE,
-                               args.alpha, args.gamma, args.run_id)
-                lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_4600_lg_cvae.pt')
-
-                if self.device == 'cuda':
-                    self.lg_cvae = torch.load(lg_cvae_path)
-                else:
-                    self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
-
-                print(">>>>>>>>> Init: ", lg_cvae_path)
-
-                ## random init after latent space
-                for m in self.lg_cvae.unet.upsampling_path:
-                    m.apply(init_weights)
-                self.lg_cvae.fcomb.apply(init_weights)
-                # kl weight
-                self.lg_cvae.beta = args.lg_kl_weight
-
+            if self.device == 'cuda':
+                self.lg_cvae = torch.load(lg_cvae_path)
             else:
-                num_filters = [32,32,64,64,64]
-                self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
-                                        no_convs_fcomb=self.no_convs_fcomb, no_convs_per_block=self.no_convs_per_block, beta=self.lg_kl_weight).to(self.device)
+                self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
 
+            print(">>>>>>>>> Init: ", lg_cvae_path)
 
             num_filters = [32, 32, 64, 64, 64, 128]
             # input = env + 8 past + lg / output = env + sg(including lg)
@@ -212,7 +188,6 @@ class Solver(object):
 
         # get VAE parameters
         vae_params = \
-            list(self.lg_cvae.parameters())+ \
             list(self.sg_unet.parameters())
 
         # create optimizers
@@ -244,17 +219,6 @@ class Solver(object):
         print('...done')
 
         self.recon_loss_with_logit = nn.BCEWithLogitsLoss(size_average = False, reduce=False, reduction=None)
-
-
-    def l2_regularisation(self, m):
-        l2_reg = None
-
-        for W in m.parameters():
-            if l2_reg is None:
-                l2_reg = W.norm(2)
-            else:
-                l2_reg = l2_reg + W.norm(2)
-        return l2_reg
 
 
     def make_heatmap(self, local_ic, local_map):
@@ -339,26 +303,13 @@ class Solver(object):
 
 
             #-------- long term goal --------
-            recon_lg_heat = self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
-            recon_lg_heat = F.sigmoid(recon_lg_heat)
 
-            # Focal loss:
-            # alpha to handle the imblanced classes: α for positive(foreground) class and 1-α for negative(background) class.
-            # gamma to handle the hard positive/negative, i.e., the misclassified negative/positivle examples.
-            lg_recon_loss = - (self.alpha * lg_heat_map * torch.log(recon_lg_heat + self.eps) * ((1 - recon_lg_heat) ** self.gamma) \
-                         + (1 - self.alpha) * (1 - lg_heat_map) * torch.log(1 - recon_lg_heat + self.eps) * (
-                recon_lg_heat ** self.gamma)).sum().div(batch_size)
+            pred_lg_heat = F.sigmoid(self.lg_cvae.forward(obs_heat_map, None, training=False))
 
-
-            lg_kl = self.lg_cvae.kl_divergence(analytic=True)
-            lg_kl = torch.clamp(lg_kl, self.fb).sum().div(batch_size)
-
-            # lg_recon_loss = self.recon_loss_with_logit(input=recon_lg_heat, target=lg_heat_map).sum().div(np.prod([*lg_heat_map.size()[:3]]))
-            lg_elbo = - lg_recon_loss - lg_kl_weight * lg_kl
 
             # -------- short term goal --------
             # obs_lg_heat = torch.cat([obs_heat_map, lg_heat_map[:,-1].unsqueeze(1)], dim=1)
-            recon_sg_heat = self.sg_unet.forward(torch.cat([obs_heat_map, lg_heat_map], dim=1))
+            recon_sg_heat = self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat], dim=1))
             recon_sg_heat = F.sigmoid(recon_sg_heat)
 
             sg_recon_loss = - (
@@ -366,7 +317,7 @@ class Solver(object):
             + (1 - self.alpha) * (1 - sg_heat_map) * torch.log(1 - recon_sg_heat + self.eps) * (
                 recon_sg_heat ** self.gamma)).sum().div(batch_size)
 
-            loss = - lg_elbo + sg_recon_loss
+            loss = sg_recon_loss
 
             self.optim_vae.zero_grad()
             loss.backward()
@@ -380,19 +331,17 @@ class Solver(object):
             # (visdom) insert current line stats
             if self.viz_on and (iteration % self.viz_ll_iter == 0):
                 lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon, test_lg_kl, \
-                        sg_recon_loss, sg_ade_min, sg_ade_avg, sg_ade_std = self.evaluate_dist(self.val_loader, loss=True)
+                        test_sg_recon_loss, sg_ade_min, sg_ade_avg, sg_ade_std = self.evaluate_dist(self.val_loader, loss=True)
                 test_total_loss = -test_lg_recon - lg_kl_weight * test_lg_kl
                 self.line_gather.insert(iter=iteration,
                                         lg_fde_min=lg_fde_min,
                                         lg_fde_avg=lg_fde_avg,
                                         lg_fde_std=lg_fde_std,
-                                        total_loss=lg_elbo.item(),
-                                        lg_recon=lg_recon_loss.item(),
-                                        lg_kl=lg_kl.item(),
                                         test_total_loss=test_total_loss.item(),
                                         test_lg_recon=test_lg_recon.item(),
                                         test_lg_kl=test_lg_kl.item(),
                                         sg_recon=sg_recon_loss.item(),
+                                        test_sg_recon=test_sg_recon_loss.item(),
                                         sg_ade_min=sg_ade_min,
                                         sg_ade_avg=sg_ade_avg,
                                         sg_ade_std=sg_ade_std,
@@ -1278,12 +1227,7 @@ class Solver(object):
 
     ####
     def viz_init(self):
-        self.viz.close(env=self.name + '/lines', win=self.win_id['total_loss'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['test_total_loss'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['lg_recon'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['lg_kl'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['test_lg_recon'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['test_lg_kl'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['lg_fde_min'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['lg_fde_avg'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['lg_fde_std'])
@@ -1293,25 +1237,13 @@ class Solver(object):
         self.viz.close(env=self.name + '/lines', win=self.win_id['sg_ade_min'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['sg_ade_avg'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['sg_ade_std'])
+
     ####
     def visualize_line(self):
 
         # prepare data to plot
         data = self.line_gather.data
         iters = torch.Tensor(data['iter'])
-        total_loss = torch.Tensor(data['total_loss'])
-        test_total_loss = torch.Tensor(data['test_total_loss'])
-
-        lg_fde_min = torch.Tensor(data['lg_fde_min'])
-        lg_fde_avg = torch.Tensor(data['lg_fde_avg'])
-        lg_fde_std = torch.Tensor(data['lg_fde_std'])
-
-        lg_recon = torch.Tensor(data['lg_recon'])
-        lg_kl = torch.Tensor(data['lg_kl'])
-        test_lg_recon = torch.Tensor(data['test_lg_recon'])
-        test_lg_kl = torch.Tensor(data['test_lg_kl'])
-
-
         test_total_loss = torch.Tensor(data['test_total_loss'])
 
         sg_ade_min = torch.Tensor(data['sg_ade_min'])
@@ -1320,91 +1252,9 @@ class Solver(object):
         sg_recon = torch.Tensor(data['sg_recon'])
         test_sg_recon = torch.Tensor(data['test_sg_recon'])
 
-        self.viz.line(
-            X=iters, Y=sg_ade_std, env=self.name + '/lines',
-            win=self.win_id['sg_ade_std'], update='append',
-            opts=dict(xlabel='iter', ylabel='sg_ade_std',
-                      title='sg_ade_std')
-        )
-
-
-        self.viz.line(
-            X=iters, Y=sg_ade_avg, env=self.name + '/lines',
-            win=self.win_id['sg_ade_avg'], update='append',
-            opts=dict(xlabel='iter', ylabel='sg_ade_avg',
-                      title='sg_ade_avg')
-        )
-
-
-
-        self.viz.line(
-            X=iters, Y=sg_ade_min, env=self.name + '/lines',
-            win=self.win_id['sg_ade_min'], update='append',
-            opts=dict(xlabel='iter', ylabel='sg_ade_min',
-                      title='sg_ade_min')
-        )
-
-
-        self.viz.line(
-            X=iters, Y=sg_recon, env=self.name + '/lines',
-            win=self.win_id['sg_recon'], update='append',
-            opts=dict(xlabel='iter', ylabel='sg_recon',
-                      title='sg_recon')
-        )
-
-        self.viz.line(
-            X=iters, Y=test_sg_recon, env=self.name + '/lines',
-            win=self.win_id['test_sg_recon'], update='append',
-            opts=dict(xlabel='iter', ylabel='test_sg_recon',
-                      title='test_sg_recon')
-        )
-
-        self.viz.line(
-            X=iters, Y=total_loss, env=self.name + '/lines',
-            win=self.win_id['total_loss'], update='append',
-            opts=dict(xlabel='iter', ylabel='elbo',
-                      title='elbo')
-        )
-
-        self.viz.line(
-            X=iters, Y=test_total_loss, env=self.name + '/lines',
-            win=self.win_id['test_total_loss'], update='append',
-            opts=dict(xlabel='iter', ylabel='elbo',
-                      title='test_elbo')
-        )
-
-        self.viz.line(
-            X=iters, Y=lg_recon, env=self.name + '/lines',
-            win=self.win_id['lg_recon'], update='append',
-            opts=dict(xlabel='iter', ylabel='lg_recon',
-                      title='lg_recon')
-        )
-
-
-        self.viz.line(
-            X=iters, Y=lg_kl, env=self.name + '/lines',
-            win=self.win_id['lg_kl'], update='append',
-            opts=dict(xlabel='iter', ylabel='lg_kl',
-                      title='lg_kl'),
-        )
-
-
-        self.viz.line(
-            X=iters, Y=test_lg_recon, env=self.name + '/lines',
-            win=self.win_id['test_lg_recon'], update='append',
-            opts=dict(xlabel='iter', ylabel='test_lg_recon',
-                      title='test_lg_recon')
-        )
-
-
-
-        self.viz.line(
-            X=iters, Y=test_lg_kl, env=self.name + '/lines',
-            win=self.win_id['test_lg_kl'], update='append',
-            opts=dict(xlabel='iter', ylabel='test_lg_kl',
-                      title='test_lg_kl'),
-        )
-
+        lg_fde_min = torch.Tensor(data['lg_fde_min'])
+        lg_fde_avg = torch.Tensor(data['lg_fde_avg'])
+        lg_fde_std = torch.Tensor(data['lg_fde_std'])
 
 
         self.viz.line(
@@ -1426,14 +1276,56 @@ class Solver(object):
                       title='lg_fde_std'),
         )
 
+        self.viz.line(
+            X=iters, Y=sg_ade_std, env=self.name + '/lines',
+            win=self.win_id['sg_ade_std'], update='append',
+            opts=dict(xlabel='iter', ylabel='sg_ade_std',
+                      title='sg_ade_std')
+        )
+
+        self.viz.line(
+            X=iters, Y=sg_ade_avg, env=self.name + '/lines',
+            win=self.win_id['sg_ade_avg'], update='append',
+            opts=dict(xlabel='iter', ylabel='sg_ade_avg',
+                      title='sg_ade_avg')
+        )
+
+        self.viz.line(
+            X=iters, Y=sg_ade_min, env=self.name + '/lines',
+            win=self.win_id['sg_ade_min'], update='append',
+            opts=dict(xlabel='iter', ylabel='sg_ade_min',
+                      title='sg_ade_min')
+        )
+
+        self.viz.line(
+            X=iters, Y=sg_recon, env=self.name + '/lines',
+            win=self.win_id['sg_recon'], update='append',
+            opts=dict(xlabel='iter', ylabel='sg_recon',
+                      title='sg_recon')
+        )
+
+        self.viz.line(
+            X=iters, Y=test_sg_recon, env=self.name + '/lines',
+            win=self.win_id['test_sg_recon'], update='append',
+            opts=dict(xlabel='iter', ylabel='test_sg_recon',
+                      title='test_sg_recon')
+        )
+
+
+        self.viz.line(
+            X=iters, Y=test_total_loss, env=self.name + '/lines',
+            win=self.win_id['test_total_loss'], update='append',
+            opts=dict(xlabel='iter', ylabel='elbo',
+                      title='test_elbo')
+        )
+
+
 
     def set_mode(self, train=True):
 
         if train:
-            self.lg_cvae.train()
             self.sg_unet.train()
         else:
-            self.lg_cvae.eval()
             self.sg_unet.eval()
 
     ####
