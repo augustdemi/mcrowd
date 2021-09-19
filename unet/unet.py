@@ -18,7 +18,7 @@ class Unet(nn.Module):
         self.num_filters = num_filters
         self.padding = padding
         self.activation_maps = []
-        self.apply_last_layer = True
+        # self.apply_last_layer = True
 
         ### Encoder
         self.contracting_path = nn.ModuleList()
@@ -41,10 +41,23 @@ class Unet(nn.Module):
             self.upsampling_path.append(UpConvBlock(input, output, padding))
 
         ### To class layer
-        if self.apply_last_layer:
-            self.last_layer = nn.Conv2d(output, num_classes, kernel_size=1)
-            nn.init.kaiming_normal_(self.last_layer.weight, mode='fan_in',nonlinearity='relu')
-            nn.init.normal_(self.last_layer.bias)
+        # if self.apply_last_layer:
+        self.last_layer = nn.Conv2d(output, num_classes, kernel_size=1)
+        nn.init.kaiming_normal_(self.last_layer.weight, mode='fan_in',nonlinearity='relu')
+        nn.init.normal_(self.last_layer.bias)
+
+
+    def forward(self, x):
+        blocks = []
+        for i, down in enumerate(self.contracting_path):
+            x = down(x)
+            if i != len(self.contracting_path) - 1:
+                blocks.append(x)
+        self.enc_feat = x  # x = 128, 10, 10, // blocks[-1] = 64, 20, 20
+        for i, up in enumerate(self.upsampling_path):
+            x = up(x, blocks[-i - 1])
+        del blocks
+        return self.last_layer(x)
 
 
     def down_forward(self, x):
@@ -53,38 +66,12 @@ class Unet(nn.Module):
             x = down(x)
             if i != len(self.contracting_path)-1:
                 self.blocks.append(x)
-
-        # self.unet_enc_feat = x # x = 128, 10, 10, // blocks[-1] = 64, 20, 20
         return x
 
 
     def up_forward(self, x):
-
         for i, up in enumerate(self.upsampling_path):
             x = up(x, self.blocks[-i-1])
-
-        # del self.blocks
-
-        #Used for saving the activations and plotting
-        # if not training:
-        #     self.activation_maps.append(x)
-
-        if self.apply_last_layer:
-            x =  self.last_layer(x)
-
-        return x # 4, 32, 160, 160 if last layer False
+        return self.last_layer(x)
 
 
-
-# def tile(a, dim, n_tile):
-#     """
-#     This function is taken form PyTorch forum and mimics the behavior of tf.tile.
-#     Source: https://discuss.pytorch.org/t/how-to-tile-a-tensor/13853/3
-#     """
-#     init_dim = a.size(dim)  # dim = repeat하려는 위치, n_tile= repeat하고픈 dim 수
-#     repeat_idx = [1] * a.dim()  # a.dim() : a의 차원 수
-#     repeat_idx[dim] = n_tile  # repeat_idx = [1,1,160]
-#     a = a.repeat(*(repeat_idx))
-#     order_index = torch.LongTensor(np.concatenate([init_dim * np.arange(n_tile) + i for i in range(init_dim)])).to(
-#         a.device)
-#     return torch.index_select(a, dim, order_index)
