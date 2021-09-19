@@ -670,7 +670,7 @@ class Solver(object):
 
                     loss_recon -= fut_rel_pos_dist_prior.log_prob(fut_traj[:, :, 2:4]).sum().div(batch_size)
                     kld = kl_divergence(q_dist, p_dist).sum().div(batch_size)
-                    loss_kl += torch.clamp(kld, min=0.07)
+                    loss_kl += kld
 
 
 
