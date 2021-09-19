@@ -181,7 +181,7 @@ class Solver(object):
                                (
                                args.no_convs_fcomb, args.w_dim, args.lr_VAE,
                                args.alpha, args.gamma, args.run_id)
-                lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_4500_lg_cvae.pt')
+                lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_4700_lg_cvae.pt')
 
                 if self.device == 'cuda':
                     self.lg_cvae = torch.load(lg_cvae_path)
@@ -198,7 +198,7 @@ class Solver(object):
                 self.lg_cvae.beta = args.lg_kl_weight
 
             else:
-                num_filters = [32, 32, 64, 64]
+                num_filters = [32, 32, 64, 64, 64]
                 self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
                                         no_convs_fcomb=self.no_convs_fcomb, no_convs_per_block=1, beta=self.lg_kl_weight).to(self.device)
 
