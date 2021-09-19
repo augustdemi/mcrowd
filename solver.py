@@ -181,7 +181,7 @@ class Solver(object):
                                (
                                args.no_convs_fcomb, args.w_dim, args.lr_VAE,
                                args.alpha, args.gamma, args.run_id)
-                lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_4600_lg_cvae.pt')
+                lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_4500_lg_cvae.pt')
 
                 if self.device == 'cuda':
                     self.lg_cvae = torch.load(lg_cvae_path)
