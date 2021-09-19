@@ -357,14 +357,11 @@ class Decoder(nn.Module):
         stds = []
         j=0
         for i in range(self.seq_len):
-            # tf=False
-            # if (i < sg_update_idx[-1]+1) and (i == sg_update_idx[j]):
-            if (i < sg_update_idx[-1]+1) and (i == sg_update_idx[j]):
-                rel_to_goal = (last_ob_sg[:,j+1] - last_ob_sg[:,j]) / dt
+            if (i < 9) and (i == sg_update_idx[j]):
+                goal = sg[:, j]
                 j+=1
-                # pred_pos = integrate_samples(a, last_obs_state[:, :2], dt=self.dt)
 
-            decoder_h= self.rnn_decoder(torch.cat([zx, a, rel_to_goal], dim=1), decoder_h) #493, 128
+            decoder_h= self.rnn_decoder(torch.cat([zx, a, goal], dim=1), decoder_h) #493, 128
             mu= self.fc_mu(decoder_h)
             logVar = self.fc_std(decoder_h)
             std = torch.sqrt(torch.exp(logVar))
