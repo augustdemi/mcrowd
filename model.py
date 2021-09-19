@@ -176,7 +176,7 @@ class EncoderX(nn.Module):
 
 
         self.fc1 = nn.Linear(enc_h_dim, mlp_dim)
-        self.fc2 = nn.Linear(mlp_dim + map_feat_dim, zS_dim*2)
+        self.fc2 = nn.Linear(mlp_dim + map_feat_dim, zS_dim)
 
         # self.local_map_feat_dim = np.prod([*a])
         self.map_h_dim = 128*5*5
@@ -216,7 +216,7 @@ class EncoderX(nn.Module):
         # map and traj
         stats = self.fc2(torch.cat((hx, map_feat), dim=-1)) # 64(32 without attn) to z dim
 
-        return hx, stats[:,:self.zS_dim], stats[:,self.zS_dim:]
+        return hx, stats
 
 
 class EncoderY(nn.Module):
@@ -245,7 +245,7 @@ class EncoderY(nn.Module):
         )
 
         self.fc1 = nn.Linear(4*enc_h_dim, mlp_dim)
-        self.fc2 = nn.Linear(mlp_dim, zS_dim*2)
+        self.fc2 = nn.Linear(mlp_dim, zS_dim)
 
     def forward(self, last_obs_traj, fut_vel, seq_start_end, obs_enc_feat, train=False):
         """
@@ -278,7 +278,7 @@ class EncoderY(nn.Module):
                       training=train)
         stats = self.fc2(stats)
 
-        return stats[:,:self.zS_dim], stats[:,self.zS_dim:]
+        return stats
 
 
 class Decoder(nn.Module):

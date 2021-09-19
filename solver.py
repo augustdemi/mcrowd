@@ -392,8 +392,7 @@ class Solver(object):
                            recon_sg_heat ** self.gamma)).sum().div(batch_size)
 
             #-------- trajectories --------
-            (hx, mux, log_varx) \
-                = self.encoderMx(obs_traj, seq_start_end, self.sg_unet.enc_feat, local_homo)
+            (hx, logitX) = self.encoderMx(obs_traj, seq_start_end, self.sg_unet.enc_feat, local_homo)
 
             # all_pixel_local = local_ic[0,:8]
             # h = local_homo[0]
@@ -402,18 +401,18 @@ class Solver(object):
             # back_wc = back_wc[:,:2]
             # diff = back_wc-obs_traj[:,0,:2]
 
-            (muy, log_vary) \
-                = self.encoderMy(obs_traj[-1], fut_traj[:,:,2:4], seq_start_end, hx, train=True)
+            logitY = self.encoderMy(obs_traj[-1], fut_traj[:,:,2:4], seq_start_end, hx, train=True)
 
-            p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
-            q_dist = Normal(muy, torch.sqrt(torch.exp(log_vary)))
-
+            p_dist = discrete(logits=logitX)
+            q_dist = discrete(logits=logitY)
+            relaxed_p_dist = concrete(logits=logitX, temperature=0.66)
+            relaxed_q_dist = concrete(logits=logitY, temperature=0.66)
 
             # TF, goals, z~posterior
             fut_rel_pos_dist_tf_post = self.decoderMy(
                 obs_traj[-1],
                 hx,
-                q_dist.rsample(),
+                relaxed_q_dist.rsample(),
                 fut_traj[self.sg_idx, :, :2].permute(1,0,2), # goal
                 self.sg_idx - 3,
                 fut_traj # TF
@@ -454,7 +453,7 @@ class Solver(object):
             fut_rel_pos_dist_prior = self.decoderMy(
                 obs_traj[-1],
                 hx,
-                p_dist.rsample(),
+                relaxed_p_dist.rsample(),
                 pred_sg_wc, # goal
                 self.sg_idx - 3
             )
@@ -630,9 +629,9 @@ class Solver(object):
 
                 ##### trajectories per long&short goal ####
 
-                (hx, mux, log_varx) \
+                (hx, logitX) \
                     = self.encoderMx(obs_traj, seq_start_end, self.sg_unet.enc_feat, local_homo)
-                p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
+                p_dist = discrete(logits=logitX)
                 z_priors = []
                 for _ in range(traj_num):
                     z_priors.append(p_dist.sample())
