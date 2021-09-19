@@ -381,7 +381,7 @@ class Solver(object):
             if self.viz_on and (iteration % self.viz_ll_iter == 0):
                 lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon, test_lg_kl, \
                         sg_recon_loss, sg_ade_min, sg_ade_avg, sg_ade_std = self.evaluate_dist(self.val_loader, loss=True)
-                test_total_loss = test_lg_recon - lg_kl_weight * test_lg_kl
+                test_total_loss = -test_lg_recon - lg_kl_weight * test_lg_kl
                 self.line_gather.insert(iter=iteration,
                                         lg_fde_min=lg_fde_min,
                                         lg_fde_avg=lg_fde_avg,
@@ -390,7 +390,7 @@ class Solver(object):
                                         lg_recon=lg_recon_loss.item(),
                                         lg_kl=lg_kl.item(),
                                         test_total_loss=test_total_loss.item(),
-                                        test_lg_recon=-test_lg_recon.item(),
+                                        test_lg_recon=test_lg_recon.item(),
                                         test_lg_kl=test_lg_kl.item(),
                                         sg_recon=sg_recon_loss.item(),
                                         sg_ade_min=sg_ade_min,
@@ -1287,6 +1287,12 @@ class Solver(object):
         self.viz.close(env=self.name + '/lines', win=self.win_id['lg_fde_min'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['lg_fde_avg'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['lg_fde_std'])
+
+        self.viz.close(env=self.name + '/lines', win=self.win_id['sg_recon'])
+        self.viz.close(env=self.name + '/lines', win=self.win_id['test_sg_recon'])
+        self.viz.close(env=self.name + '/lines', win=self.win_id['sg_ade_min'])
+        self.viz.close(env=self.name + '/lines', win=self.win_id['sg_ade_avg'])
+        self.viz.close(env=self.name + '/lines', win=self.win_id['sg_ade_std'])
     ####
     def visualize_line(self):
 
@@ -1305,6 +1311,53 @@ class Solver(object):
         test_lg_recon = torch.Tensor(data['test_lg_recon'])
         test_lg_kl = torch.Tensor(data['test_lg_kl'])
 
+
+        test_total_loss = torch.Tensor(data['test_total_loss'])
+
+        sg_ade_min = torch.Tensor(data['sg_ade_min'])
+        sg_ade_avg = torch.Tensor(data['sg_ade_avg'])
+        sg_ade_std = torch.Tensor(data['sg_ade_std'])
+        sg_recon = torch.Tensor(data['sg_recon'])
+        test_sg_recon = torch.Tensor(data['test_sg_recon'])
+
+        self.viz.line(
+            X=iters, Y=sg_ade_std, env=self.name + '/lines',
+            win=self.win_id['sg_ade_std'], update='append',
+            opts=dict(xlabel='iter', ylabel='sg_ade_std',
+                      title='sg_ade_std')
+        )
+
+
+        self.viz.line(
+            X=iters, Y=sg_ade_avg, env=self.name + '/lines',
+            win=self.win_id['sg_ade_avg'], update='append',
+            opts=dict(xlabel='iter', ylabel='sg_ade_avg',
+                      title='sg_ade_avg')
+        )
+
+
+
+        self.viz.line(
+            X=iters, Y=sg_ade_min, env=self.name + '/lines',
+            win=self.win_id['sg_ade_min'], update='append',
+            opts=dict(xlabel='iter', ylabel='sg_ade_min',
+                      title='sg_ade_min')
+        )
+
+
+        self.viz.line(
+            X=iters, Y=sg_recon, env=self.name + '/lines',
+            win=self.win_id['sg_recon'], update='append',
+            opts=dict(xlabel='iter', ylabel='sg_recon',
+                      title='sg_recon')
+        )
+
+        self.viz.line(
+            X=iters, Y=test_sg_recon, env=self.name + '/lines',
+            win=self.win_id['test_sg_recon'], update='append',
+            opts=dict(xlabel='iter', ylabel='test_sg_recon',
+                      title='test_sg_recon')
+        )
 
         self.viz.line(
             X=iters, Y=total_loss, env=self.name + '/lines',
