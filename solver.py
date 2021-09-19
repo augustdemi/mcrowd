@@ -665,9 +665,8 @@ class Solver(object):
                                        pred_sg_heat ** self.gamma)).sum().div(batch_size)
 
 
-                    (muy, log_vary) \
-                        = self.encoderMy(obs_traj[-1], fut_traj[:, :, 2:4], seq_start_end, hx, train=False)
-                    q_dist = Normal(muy, torch.sqrt(torch.exp(log_vary)))
+                    logitY  = self.encoderMy(obs_traj[-1], fut_traj[:, :, 2:4], seq_start_end, hx, train=False)
+                    q_dist = discrete(logits=logitY)
 
                     loss_recon -= fut_rel_pos_dist_prior.log_prob(fut_traj[:, :, 2:4]).sum().div(batch_size)
                     kld = kl_divergence(q_dist, p_dist).sum().div(batch_size)
