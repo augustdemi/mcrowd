@@ -305,12 +305,6 @@ class Decoder(nn.Module):
             input_size=mlp_dim + z_dim + 2*n_pred_state, hidden_size=dec_h_dim
         )
 
-        # self.mlp = make_mlp(
-        #     [32 + z_dim, dec_h_dim], #mlp_dim + z_dim = enc_hidden_feat after mlp + z
-        #     activation=activation,
-        #     batch_norm=batch_norm,
-        #     dropout=dropout_mlp
-        # )
 
         self.fc_mu = nn.Linear(dec_h_dim, n_pred_state)
         self.fc_std = nn.Linear(dec_h_dim, n_pred_state)
