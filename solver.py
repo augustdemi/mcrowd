@@ -302,14 +302,9 @@ class Solver(object):
             sg_heat_map = torch.tensor(fut_heat_map[:, self.sg_idx]).float().to(self.device)
 
 
-            #-------- long term goal --------
-
-            pred_lg_heat = F.sigmoid(self.lg_cvae.forward(obs_heat_map, None, training=False))
-
-
             # -------- short term goal --------
             # obs_lg_heat = torch.cat([obs_heat_map, lg_heat_map[:,-1].unsqueeze(1)], dim=1)
-            recon_sg_heat = self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat], dim=1))
+            recon_sg_heat = self.sg_unet.forward(torch.cat([obs_heat_map, lg_heat_map], dim=1))
             recon_sg_heat = F.sigmoid(recon_sg_heat)
 
             sg_recon_loss = - (
@@ -410,11 +405,13 @@ class Solver(object):
                     pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True))
 
                     pred_lg_wc = []
+                    pred_lg_ics = []
                     for i in range(batch_size):
                         pred_lg_ic = []
                         for heat_map in pred_lg_heat[i]:
                             pred_lg_ic.append((heat_map == torch.max(heat_map)).nonzero()[0])
                         pred_lg_ic = torch.stack(pred_lg_ic).float()
+                        pred_lg_ics.append(pred_lg_ic)
 
                         # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
                         back_wc = torch.matmul(
@@ -426,8 +423,16 @@ class Solver(object):
                     pred_lg_wcs.append(pred_lg_wc)
 
                     # -------- short term goal --------
-                    # obs_lg_heat = torch.cat([obs_heat_map, pred_lg_heat[:, -1].unsqueeze(1)], dim=1)
-                    pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat], dim=1)))
+                    pred_lg_heat_from_ic = []
+                    for coord in pred_lg_ics:
+                        heat_map_traj = np.zeros((160, 160))
+                        heat_map_traj[int(coord[0,0]), int(coord[0,1])] = 1
+                        heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+                        pred_lg_heat_from_ic.append(heat_map_traj)
+                    pred_lg_heat_from_ic = torch.tensor(np.stack(pred_lg_heat_from_ic)).unsqueeze(1).float().to(self.device)
+
+                    pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1)))
+                    # pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat], dim=1)))
 
                     pred_sg_wc = []
                     for i in range(batch_size):
