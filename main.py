@@ -43,14 +43,14 @@ def create_parser():
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--run_id', default=22, type=int,
+    parser.add_argument('--run_id', default=21, type=int,
                         help='run id (default=-1 to create a new id)')
 
     parser.add_argument('--device', default='cpu', type=str,
                         help='cpu/cuda')
 
     # training hyperparameters
-    parser.add_argument('--batch_size', default=6, type=int,
+    parser.add_argument('--batch_size', default=64, type=int,
                         help='batch size')
     parser.add_argument('--lr_VAE', default=1e-3, type=float,
                         help='learning rate of the VAE')
@@ -60,10 +60,10 @@ def create_parser():
                         help='beta2 parameter of the Adam optimizer for the VAE')
 
     # saving directories and checkpoint/sample iterations
-    parser.add_argument('--ckpt_load_iter', default=9800, type=int,
+    parser.add_argument('--ckpt_load_iter', default=8000, type=int,
                         help='iter# to load the previously saved model ' +
                              '(default=0 to start from the scratch)')
-    parser.add_argument('--max_iter', default=9800, type=float,
+    parser.add_argument('--max_iter', default=8000, type=float,
                         help='maximum number of batch iterations')
     parser.add_argument('--ckpt_save_iter', default=100, type=int,
                         help='checkpoint saved every # iters')
@@ -98,7 +98,7 @@ def create_parser():
     # dataset
     parser.add_argument('--dataset_dir', default='C:\dataset\HTP-benchmark\Splits', type=str,
                         help='dataset directory')
-    parser.add_argument('--dataset_name', default='lgcvae', type=str,
+    parser.add_argument('--dataset_name', default='sg', type=str,
                         help='dataset name')
     parser.add_argument('--num_workers', default=0, type=int,
                         help='dataloader num_workers')
@@ -124,15 +124,15 @@ def create_parser():
                         help='kl weight')
     parser.add_argument('--lg_kl_weight', default=1, type=int)
 
-    parser.add_argument('--w_dim', default=20, type=int)
+    parser.add_argument('--w_dim', default=10, type=int)
     parser.add_argument('--ll_prior_w', default=1.0, type=float)
-    parser.add_argument('--no_convs_fcomb', default=4, type=int)
+    parser.add_argument('--no_convs_fcomb', default=2, type=int)
     parser.add_argument('--no_convs_per_block', default=1, type=int)
     parser.add_argument('--alpha', default=0.25, type=float)
     parser.add_argument('--gamma', default=2., type=float)
-    parser.add_argument('--fb', default=3., type=float)
+    parser.add_argument('--fb', default=2., type=float)
     parser.add_argument('--anneal_epoch', default=10, type=int)
-    parser.add_argument('--load_e', default=0, type=int)
+    parser.add_argument('--load_e', default=1, type=int)
 
     parser.add_argument('--desc', default='data', type=str,
                         help='run description')
@@ -156,8 +156,55 @@ def main(args):
         # solver.evaluate_dist_gt_goal(test_loader)
         solver.check_feat(test_loader)
 
+        lg_num=5
+        traj_num=4
 
+        ade_min, fde_min, \
+        ade_avg, fde_avg, \
+        ade_std, fde_std, \
+        sg_ade_min, sg_ade_avg, sg_ade_std, \
+        lg_fde_min, lg_fde_avg, lg_fde_std = solver.all_evaluation(test_loader, lg_num=lg_num, traj_num=traj_num)
 
+        print('lg_num: ', lg_num, ' // traj_num: ', traj_num)
+        print('ade min: ', ade_min)
+        print('ade avg: ', ade_avg)
+        print('ade std: ', ade_std)
+        print('fde min: ', fde_min)
+        print('fde avg: ', fde_avg)
+        print('fde std: ', fde_std)
+        print('sg_ade_min: ', sg_ade_min)
+        print('sg_ade_avg: ', sg_ade_avg)
+        print('sg_ade_std: ', sg_ade_std)
+        print('lg_fde_min: ', lg_fde_min)
+        print('lg_fde_avg: ', lg_fde_avg)
+        print('lg_fde_std: ', lg_fde_std)
+        print('------------------------------------------')
+
+        lg_num = 20
+        traj_num = 1
+
+        ade_min, fde_min, \
+        ade_avg, fde_avg, \
+        ade_std, fde_std, \
+        sg_ade_min, sg_ade_avg, sg_ade_std, \
+        lg_fde_min, lg_fde_avg, lg_fde_std = solver.all_evaluation(test_loader, lg_num=lg_num, traj_num=traj_num)
+
+        print('lg_num: ', lg_num, ' // traj_num: ', traj_num)
+        print('ade min: ', ade_min)
+        print('ade avg: ', ade_avg)
+        print('ade std: ', ade_std)
+        print('fde min: ', fde_min)
+        print('fde avg: ', fde_avg)
+        print('fde std: ', fde_std)
+        print('sg_ade_min: ', sg_ade_min)
+        print('sg_ade_avg: ', sg_ade_avg)
+        print('sg_ade_std: ', sg_ade_std)
+        print('lg_fde_min: ', lg_fde_min)
+        print('lg_fde_avg: ', lg_fde_avg)
+        print('lg_fde_std: ', lg_fde_std)
+        print('------------------------------------------')
+
+        '''
         ade_min, fde_min, \
         ade_avg, fde_avg, \
         ade_std, fde_std, \
@@ -177,7 +224,7 @@ def main(args):
         print('lg_fde_avg: ', lg_fde_avg)
         print('lg_fde_std: ', lg_fde_std)
         print('------------------------------------------')
-
+        '''
 
     else:
         solver = Solver(args)
