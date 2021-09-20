@@ -338,7 +338,6 @@ class Solver(object):
                                         lg_fde_avg=lg_fde_avg,
                                         lg_fde_std=lg_fde_std,
                                         test_total_loss=test_total_loss.item(),
-                                        test_lg_kl=test_lg_kl.item(),
                                         sg_recon=sg_recon_loss.item(),
                                         test_sg_recon=test_sg_recon_loss.item(),
                                         sg_ade_min=sg_ade_min,
