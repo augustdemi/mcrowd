@@ -176,16 +176,13 @@ class EncoderX(nn.Module):
 
 
         self.fc1 = nn.Linear(enc_h_dim, mlp_dim)
-        self.fc2 = nn.Linear(mlp_dim + map_feat_dim, zS_dim*2)
+        self.fc2 = nn.Linear(mlp_dim, zS_dim*2)
 
         # self.local_map_feat_dim = np.prod([*a])
         self.map_h_dim = 128*5*5
 
-        self.map_fc1 = nn.Linear(self.map_h_dim + 9, map_mlp_dim)
-        self.map_fc2 = nn.Linear(map_mlp_dim, map_feat_dim)
 
-
-    def forward(self, obs_traj, seq_start_end, local_map_feat, local_homo, train=False):
+    def forward(self, obs_traj, seq_start_end, train=False):
         """
         Inputs:
         - obs_traj: Tensor of shape (obs_len, batch, 2)
@@ -204,17 +201,10 @@ class EncoderX(nn.Module):
                       p=self.dropout_mlp,
                       training=train)
 
-        # map enc
-        local_map_feat = local_map_feat.view(-1, self.map_h_dim)
-        local_homo = local_homo.view(-1, 9)
-        map_feat = self.map_fc1(torch.cat((local_map_feat, local_homo), dim=-1))
-        map_feat = F.dropout(F.relu(map_feat),
-                      p=self.dropout_mlp,
-                      training=train)
-        map_feat = self.map_fc2(map_feat)
+
 
         # map and traj
-        stats = self.fc2(torch.cat((hx, map_feat), dim=-1)) # 64(32 without attn) to z dim
+        stats = self.fc2(hx) # 64(32 without attn) to z dim
 
         return hx, stats[:,:self.zS_dim], stats[:,self.zS_dim:]
 
@@ -357,11 +347,14 @@ class Decoder(nn.Module):
         stds = []
         j=0
         for i in range(self.seq_len):
-            if (i < 9) and (i == sg_update_idx[j]):
-                goal = sg[:, j]
+            # tf=False
+            # if (i < sg_update_idx[-1]+1) and (i == sg_update_idx[j]):
+            if (i < sg_update_idx[-1]+1) and (i == sg_update_idx[j]):
+                rel_to_goal = (last_ob_sg[:,j+1] - last_ob_sg[:,j]) / dt
                 j+=1
+                # pred_pos = integrate_samples(a, last_obs_state[:, :2], dt=self.dt)
 
-            decoder_h= self.rnn_decoder(torch.cat([zx, a, goal], dim=1), decoder_h) #493, 128
+            decoder_h= self.rnn_decoder(torch.cat([zx, a, rel_to_goal], dim=1), decoder_h) #493, 128
             mu= self.fc_mu(decoder_h)
             logVar = self.fc_std(decoder_h)
             std = torch.sqrt(torch.exp(logVar))
