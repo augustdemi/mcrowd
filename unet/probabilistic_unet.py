@@ -6,8 +6,6 @@ from .unet import Unet
 from .utils import init_weights, init_weights_orthogonal_normal, l2_regularisation
 import torch.nn.functional as F
 from torch.distributions import Normal, Independent, kl
-from torch.distributions import RelaxedOneHotCategorical as concrete
-from torch.distributions import OneHotCategorical as discrete
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -85,7 +83,7 @@ class AxisAlignedConvGaussian(nn.Module):
                 nn.ReLU(inplace=True),
             )
 
-        self.conv_layer = nn.Conv2d(num_filters[-1], self.latent_dim, (1, 1), stride=1)
+        self.conv_layer = nn.Conv2d(num_filters[-1], 2 * self.latent_dim, (1, 1), stride=1)
 
         nn.init.kaiming_normal_(self.conv_layer.weight, mode='fan_in', nonlinearity='relu')
         nn.init.normal_(self.conv_layer.bias)
@@ -104,19 +102,20 @@ class AxisAlignedConvGaussian(nn.Module):
         encoding = torch.mean(encoding, dim=3, keepdim=True)
 
         # Convert encoding to 2 x latent dim and split up for mu and log_sigma
-        logit = self.conv_layer(encoding)
+        mu_log_sigma = self.conv_layer(encoding)
 
         # We squeeze the second dimension twice, since otherwise it won't work when batch size is equal to 1
-        logit = torch.squeeze(logit, dim=2)
-        logit = torch.squeeze(logit, dim=2)
+        mu_log_sigma = torch.squeeze(mu_log_sigma, dim=2)
+        mu_log_sigma = torch.squeeze(mu_log_sigma, dim=2)
 
+        mu = mu_log_sigma[:, :self.latent_dim]
+        log_var = mu_log_sigma[:, self.latent_dim:]
 
         # This is a multivariate normal with diagonal covariance matrix sigma
         # https://github.com/pytorch/pytorch/pull/11178
         # dist = Independent(Normal(loc=mu, scale=torch.sqrt(torch.exp(log_var))), 1)
-        dist = discrete(logits=logit)
-        relaxed_dist = concrete(logits=logit, temperature=0.66)
-        return dist, relaxed_dist
+        dist = Normal(loc=mu, scale=torch.sqrt(torch.exp(log_var)))
+        return dist
 
 
 
@@ -234,13 +233,13 @@ class ProbabilisticUnet(nn.Module):
 
         # latent dist
         if training:
-            self.posterior_latent_space, self.relaxed_post = self.posterior.forward(patch, segm)
-        self.prior_latent_space, self.relaxed_prior = self.prior.forward(self.unet_enc_feat)
+            self.posterior_latent_space = self.posterior.forward(patch, segm)
+        self.prior_latent_space = self.prior.forward(self.unet_enc_feat)
 
         if training:
-            z = self.relaxed_post.rsample()
+            z = self.posterior_latent_space.rsample()
         else:
-            z = self.prior_latent_space.sample()
+            z = self.prior_latent_space.rsample()
         '''
         # expand z in spatial dim by replicating
         z = torch.unsqueeze(z, 2)  # (bs, latent_dim) -> (bs, l_d, 1)
@@ -267,11 +266,23 @@ class ProbabilisticUnet(nn.Module):
                 z_prior = self.prior_latent_space.sample()
                 # self.z_prior_sample = z_prior
             else:
-                z_prior = self.relaxed_prior.rsample()
+                z_prior = self.prior_latent_space.rsample()
                 # self.z_prior_sample = z_prior
         x = self.fcomb.forward(self.unet_enc_feat, z_prior)
         return self.unet.up_forward(x)
 
+    def reconstruct(self, use_posterior_mean=False, calculate_posterior=False, z_posterior=None):
+        """
+        Reconstruct a segmentation from a posterior sample (decoding a posterior sample) and UNet feature map
+        use_posterior_mean: use posterior_mean instead of sampling z_q
+        calculate_posterior: use a provided sample or sample from posterior latent space
+        """
+        if use_posterior_mean:
+            z_posterior = self.posterior_latent_space.loc
+        else:
+            if calculate_posterior:
+                z_posterior = self.posterior_latent_space.rsample()
+        return self.fcomb.forward(self.unet_features, z_posterior)
 
     def kl_divergence(self, analytic=True, calculate_posterior=False, z_posterior=None):
         """
@@ -290,3 +301,23 @@ class ProbabilisticUnet(nn.Module):
             kl_div = log_posterior_prob - log_prior_prob
         return kl_div
 
+    def elbo(self, segm, analytic_kl=True, reconstruct_posterior_mean=False):
+        """
+        Calculate the evidence lower bound of the log-likelihood of P(Y|X)
+        """
+
+        criterion = nn.BCEWithLogitsLoss(size_average=False, reduce=False, reduction=None)
+        z_posterior = self.posterior_latent_space.rsample()
+
+        self.kl = torch.mean(
+            self.kl_divergence(analytic=analytic_kl, calculate_posterior=False, z_posterior=z_posterior))
+
+        # Here we use the posterior sample sampled above
+        self.reconstruction = self.reconstruct(use_posterior_mean=reconstruct_posterior_mean, calculate_posterior=False,
+                                               z_posterior=z_posterior)
+
+        reconstruction_loss = criterion(input=self.reconstruction, target=segm)
+        self.reconstruction_loss = torch.sum(reconstruction_loss)
+        self.mean_reconstruction_loss = torch.mean(reconstruction_loss)
+
+        return -(self.reconstruction_loss + self.beta * self.kl)
