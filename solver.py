@@ -1543,6 +1543,8 @@ class Solver(object):
     def load_checkpoint(self):
         traj_path = 'traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_1.0_ll_prior_w_1.0_' \
                     'zfb_0.5_run_2'
+        traj_path = os.path.join("ckpts", traj_path)
+        
         encoderMx_path = os.path.join(
             traj_path,
             'iter_3000_encoderMx.pt'
