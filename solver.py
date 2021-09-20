@@ -156,6 +156,15 @@ class Solver(object):
         self.decoder_h_dim = args.decoder_h_dim
 
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
+            lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.001_a_0.25_r_2.0_run_21'
+            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_4600_lg_cvae.pt')
+
+            if self.device == 'cuda':
+                self.lg_cvae = torch.load(lg_cvae_path)
+            else:
+                self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
+
+            print(">>>>>>>>> Init: ", lg_cvae_path)
 
             self.encoderMx = EncoderX(
                 args.zS_dim,
@@ -297,9 +306,14 @@ class Solver(object):
             batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
 
+            obs_heat_map, _ =  self.make_heatmap(local_ic, local_map)
+
+            #-------- map encoding from lgvae --------
+            unet_enc_feat = self.lg_cvae.unet.down_forward(obs_heat_map)
+
             #-------- trajectories --------
             (hx, mux, log_varx) \
-                = self.encoderMx(obs_traj, seq_start_end)
+                = self.encoderMx(obs_traj, seq_start_end, unet_enc_feat, local_homo)
 
 
             (muy, log_vary) \
@@ -425,9 +439,14 @@ class Solver(object):
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
+                obs_heat_map, _ = self.make_heatmap(local_ic, local_map)
+
+                # -------- map encoding from lgvae --------
+                unet_enc_feat = self.lg_cvae.unet.down_forward(obs_heat_map)
+
                 # -------- trajectories --------
                 (hx, mux, log_varx) \
-                    = self.encoderMx(obs_traj, seq_start_end)
+                    = self.encoderMx(obs_traj, seq_start_end, unet_enc_feat, local_homo)
                 p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
 
                 fut_rel_pos_dist20 = []
