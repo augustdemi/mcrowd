@@ -304,7 +304,7 @@ class Decoder(nn.Module):
         self.fc_std = nn.Linear(dec_h_dim, n_pred_state)
 
 
-    def forward(self, last_obs_state, enc_h_feat, z, sg, sg_update_idx, fut_traj=None):
+    def forward(self, last_obs_state, enc_h_feat, z, sg, fut_traj=None):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
@@ -323,9 +323,9 @@ class Decoder(nn.Module):
         a = self.to_vel(last_obs_state)
         # a = self.to_vel(torch.cat((last_obs_traj_st, map[0]), dim=-1)) # map[0] = last observed map
 
-        dt = 0.4*4
-        last_ob_sg = torch.cat([last_obs_state[:, :2].unsqueeze(1), sg], dim=1) # bs, 4, 2
+        dt = 0.4*12
 
+        rel_to_goal = (sg - last_obs_state[:, :2]) / dt
         # sg_vel_x = []
         # sg_vel_y = []
         # for pos in last_ob_sg:
@@ -345,12 +345,7 @@ class Decoder(nn.Module):
         stds = []
         j=0
         for i in range(self.seq_len):
-            # tf=False
-            # if (i < sg_update_idx[-1]+1) and (i == sg_update_idx[j]):
-            if (i < sg_update_idx[-1]+1) and (i == sg_update_idx[j]):
-                rel_to_goal = (last_ob_sg[:,j+1] - last_ob_sg[:,j]) / dt
-                j+=1
-                # pred_pos = integrate_samples(a, last_obs_state[:, :2], dt=self.dt)
+
 
             decoder_h= self.rnn_decoder(torch.cat([zx, a, rel_to_goal], dim=1), decoder_h) #493, 128
             mu= self.fc_mu(decoder_h)

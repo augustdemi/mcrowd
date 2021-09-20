@@ -314,8 +314,7 @@ class Solver(object):
                 obs_traj[-1],
                 hx,
                 q_dist.rsample(),
-                fut_traj[self.sg_idx, :, :2].permute(1,0,2), # goal
-                self.sg_idx - 3,
+                fut_traj[-1, :, :2],
                 fut_traj # TF
             )
 
@@ -325,8 +324,7 @@ class Solver(object):
                 obs_traj[-1],
                 hx,
                 p_dist.rsample(),
-                fut_traj[self.sg_idx, :, :2].permute(1, 0, 2),  # goal
-                self.sg_idx - 3
+                fut_traj[-1, :, :2]
             )
 
 
@@ -439,8 +437,7 @@ class Solver(object):
                         obs_traj[-1],
                         hx,
                         p_dist.rsample(),
-                        fut_traj[self.sg_idx, :, :2].permute(1, 0, 2),  # goal
-                        self.sg_idx-3
+                        fut_traj[-1, :, :2]
                     )
                     fut_rel_pos_dist20.append(fut_rel_pos_dist_prior)
 
