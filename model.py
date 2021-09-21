@@ -316,9 +316,7 @@ class Decoder(nn.Module):
         self.fc_mu = nn.Linear(dec_h_dim, n_pred_state)
         self.fc_std = nn.Linear(dec_h_dim, n_pred_state)
 
-        self.sg_rnn_enc = nn.LSTM(
-            input_size=n_state, hidden_size=enc_h_dim, num_layers=1, bidirectional=True)
-        self.sg_fc = nn.Linear(4*enc_h_dim, n_pred_state)
+        self.sg_fc = nn.Linear(4, n_pred_state)
 
 
     def forward(self, last_obs_state, enc_h_feat, z, sg, sg_update_idx, fut_traj=None):
@@ -343,25 +341,10 @@ class Decoder(nn.Module):
         dt = 0.4*4
         last_ob_sg = torch.cat([last_obs_state[:, :2].unsqueeze(1), sg], dim=1).detach().cpu().numpy()
         sg_state = []
-        for pos in last_ob_sg:
-            vx = np.gradient(pos[:,0], dt)
-            vy = np.gradient(pos[:,1], dt)
-            ax = np.gradient(vx, dt)
-            ay = np.gradient(vy, dt)
-            sg_state.append(np.array([pos[:,0], pos[:,1], vx, vy, ax, ay]))
-        sg_state = torch.tensor(np.stack(sg_state)).permute((2,0,1)).float().to(z.device)
-
-        ### sg encoding
-        _, sg_h = self.sg_rnn_enc(sg_state) # [8, 656, 16], 두개의 [1, 656, 32]
-        sg_h = torch.cat(sg_h, dim=0).permute(1, 0, 2)
-        if fut_traj is not None:
-            train=True
-        else:
-            train=False
-        sg_h = F.dropout(sg_h,
-                        p=self.dropout_rnn,
-                        training=train)  # [bs, max_time, enc_rnn_dim]
-        sg_heat = self.sg_fc(sg_h.reshape(-1, 4 * self.enc_h_dim))
+        for j in range(len(sg_update_idx)):
+            v = (last_ob_sg[:, j + 1] - last_ob_sg[:, j]) / dt
+            sg_state.append(torch.cat([last_ob_sg[:, j + 1], v], dim=1))
+        sg_state = torch.stack(sg_state)
 
         #
         # for i in range(3):
@@ -375,7 +358,10 @@ class Decoder(nn.Module):
         stds = []
         j=0
         for i in range(self.seq_len):
-            decoder_h= self.rnn_decoder(torch.cat([zx, a, sg_heat], dim=1), decoder_h) #493, 128
+            if (i < sg_update_idx[-1]+1) and (i == sg_update_idx[j]):
+                sg_feat = self.sg_fc(sg_state[j])
+                j+=1
+            decoder_h= self.rnn_decoder(torch.cat([zx, a, sg_feat], dim=1), decoder_h) #493, 128
             mu= self.fc_mu(decoder_h)
             logVar = self.fc_std(decoder_h)
             std = torch.sqrt(torch.exp(logVar))
