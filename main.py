@@ -43,7 +43,7 @@ def create_parser():
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--run_id', default=21, type=int,
+    parser.add_argument('--run_id', default=0, type=int,
                         help='run id (default=-1 to create a new id)')
 
     parser.add_argument('--device', default='cpu', type=str,
@@ -60,10 +60,10 @@ def create_parser():
                         help='beta2 parameter of the Adam optimizer for the VAE')
 
     # saving directories and checkpoint/sample iterations
-    parser.add_argument('--ckpt_load_iter', default=8000, type=int,
+    parser.add_argument('--ckpt_load_iter', default=18500, type=int,
                         help='iter# to load the previously saved model ' +
                              '(default=0 to start from the scratch)')
-    parser.add_argument('--max_iter', default=8000, type=float,
+    parser.add_argument('--max_iter', default=18500, type=float,
                         help='maximum number of batch iterations')
     parser.add_argument('--ckpt_save_iter', default=100, type=int,
                         help='checkpoint saved every # iters')
@@ -152,9 +152,28 @@ def main(args):
         args.batch_size = 30
         _, test_loader = data_loader(args, test_path, shuffle=True)
 
+
+        gh = True
+        print("GEN HEAT MAP: ", gh)
+
+        traj_path = 'traj_zD_10_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_0.07_run_0'
+        traj_path = 'traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_0.5_run_0'
+
+        traj_iter = '4000'
+        traj_iter = '28000'
+        traj_ckpt = {'ckpt_dir': os.path.join('ckpts', traj_path), 'iter': traj_iter}
+        print('===== TRAJECTORY:', traj_ckpt)
+
+        lg_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_2.0_anneal_e_0_load_e_1_run_21'
+        lg_iter = '26000'
+        lg_ckpt = {'ckpt_dir': os.path.join('ckpts', lg_path), 'iter': lg_iter}
+        print('===== LG CVAE:', traj_ckpt)
+
+        solver.pretrain_load_checkpoint(traj_ckpt, lg_ckpt)
+
         # solver.plot_traj_var(test_loader)
         # solver.evaluate_dist_gt_goal(test_loader)
-        solver.check_feat(test_loader)
+        # solver.check_feat(test_loader)
 
         lg_num=5
         traj_num=4
@@ -163,7 +182,7 @@ def main(args):
         ade_avg, fde_avg, \
         ade_std, fde_std, \
         sg_ade_min, sg_ade_avg, sg_ade_std, \
-        lg_fde_min, lg_fde_avg, lg_fde_std = solver.all_evaluation(test_loader, lg_num=lg_num, traj_num=traj_num)
+        lg_fde_min, lg_fde_avg, lg_fde_std = solver.all_evaluation(test_loader, lg_num=lg_num, traj_num=traj_num, generate_heat=gh)
 
         print('lg_num: ', lg_num, ' // traj_num: ', traj_num)
         print('ade min: ', ade_min)
@@ -187,7 +206,7 @@ def main(args):
         ade_avg, fde_avg, \
         ade_std, fde_std, \
         sg_ade_min, sg_ade_avg, sg_ade_std, \
-        lg_fde_min, lg_fde_avg, lg_fde_std = solver.all_evaluation(test_loader, lg_num=lg_num, traj_num=traj_num)
+        lg_fde_min, lg_fde_avg, lg_fde_std = solver.all_evaluation(test_loader, lg_num=lg_num, traj_num=traj_num, generate_heat=gh)
 
         print('lg_num: ', lg_num, ' // traj_num: ', traj_num)
         print('ade min: ', ade_min)
@@ -204,7 +223,7 @@ def main(args):
         print('lg_fde_std: ', lg_fde_std)
         print('------------------------------------------')
 
-        '''
+
         ade_min, fde_min, \
         ade_avg, fde_avg, \
         ade_std, fde_std, \
@@ -224,7 +243,7 @@ def main(args):
         print('lg_fde_avg: ', lg_fde_avg)
         print('lg_fde_std: ', lg_fde_std)
         print('------------------------------------------')
-        '''
+
 
     else:
         solver = Solver(args)
