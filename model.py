@@ -176,11 +176,16 @@ class EncoderX(nn.Module):
 
 
         self.fc1 = nn.Linear(enc_h_dim, mlp_dim)
-        self.fc2 = nn.Linear(mlp_dim, zS_dim*2)
+        self.fc2 = nn.Linear(mlp_dim + map_feat_dim, zS_dim*2)
+
+        # self.local_map_feat_dim = np.prod([*a])
+        self.map_h_dim = 64*10*10
+
+        self.map_fc1 = nn.Linear(self.map_h_dim + 9, map_mlp_dim)
+        self.map_fc2 = nn.Linear(map_mlp_dim, map_feat_dim)
 
 
-
-    def forward(self, obs_traj, seq_start_end, train=False):
+    def forward(self, obs_traj, seq_start_end, local_map_feat, local_homo, train=False):
         """
         Inputs:
         - obs_traj: Tensor of shape (obs_len, batch, 2)
@@ -199,10 +204,17 @@ class EncoderX(nn.Module):
                       p=self.dropout_mlp,
                       training=train)
 
-
+        # map enc
+        local_map_feat = local_map_feat.view(-1, self.map_h_dim)
+        local_homo = local_homo.view(-1, 9)
+        map_feat = self.map_fc1(torch.cat((local_map_feat, local_homo), dim=-1))
+        map_feat = F.dropout(F.relu(map_feat),
+                      p=self.dropout_mlp,
+                      training=train)
+        map_feat = self.map_fc2(map_feat)
 
         # map and traj
-        stats = self.fc2(hx) # 64(32 without attn) to z dim
+        stats = self.fc2(torch.cat((hx, map_feat), dim=-1)) # 64(32 without attn) to z dim
 
         return hx, stats[:,:self.zS_dim], stats[:,self.zS_dim:]
 
@@ -367,15 +379,3 @@ class Decoder(nn.Module):
         mus = torch.stack(mus, dim=0)
         stds = torch.stack(stds, dim=0)
         return Normal(mus, stds)
-
-
-# def integrate_samples(v, p_0, dt=1):
-#     """
-#     Integrates deterministic samples of velocity.
-#
-#     :param v: Velocity samples
-#     :return: Position samples
-#     """
-#     v=v.permute(1, 0, 2) #(t, bs, 2) -> (bs,t,2)
-#     abs_traj = torch.cumsum(v, dim=1) * dt + p_0.unsqueeze(1)
-#     return  abs_traj.permute((1, 0, 2))
