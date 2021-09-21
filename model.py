@@ -341,15 +341,15 @@ class Decoder(nn.Module):
 
         ### make six states
         dt = 0.4*4
-        last_ob_sg = torch.cat([last_obs_state[:, :2].unsqueeze(1), sg], dim=1) # bs, 4, 2
+        last_ob_sg = torch.cat([last_obs_state[:, :2].unsqueeze(1), sg], dim=1).detach().cpu().numpy()
         sg_state = []
         for pos in last_ob_sg:
-            vx = torch.gradient(pos[:,0], spacing=dt)[0]
-            vy = torch.gradient(pos[:,1], spacing=dt)[0]
-            ax = torch.gradient(vx, spacing=dt)[0]
-            ay = torch.gradient(vy, spacing=dt)[0]
-            sg_state.append(torch.stack([pos[:,0], pos[:,1], vx, vy, ax, ay]))
-        sg_state = torch.stack(sg_state).permute((2,0,1))
+            vx = np.gradient(pos[:,0], dt)
+            vy = np.gradient(pos[:,1], dt)
+            ax = np.gradient(vx, dt)
+            ay = np.gradient(vy, dt)
+            sg_state.append(np.array([pos[:,0], pos[:,1], vx, vy, ax, ay]))
+        sg_state = torch.tensor(np.stack(sg_state)).permute((2,0,1)).float().to(z.device)
 
         ### sg encoding
         _, sg_h = self.sg_rnn_enc(sg_state) # [8, 656, 16], 두개의 [1, 656, 32]
