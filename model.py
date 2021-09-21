@@ -176,16 +176,11 @@ class EncoderX(nn.Module):
 
 
         self.fc1 = nn.Linear(enc_h_dim, mlp_dim)
-        self.fc2 = nn.Linear(mlp_dim + map_feat_dim, zS_dim*2)
-
-        # self.local_map_feat_dim = np.prod([*a])
-        self.map_h_dim = 64*10*10
-
-        self.map_fc1 = nn.Linear(self.map_h_dim + 9, map_mlp_dim)
-        self.map_fc2 = nn.Linear(map_mlp_dim, map_feat_dim)
+        self.fc2 = nn.Linear(mlp_dim, zS_dim*2)
 
 
-    def forward(self, obs_traj, seq_start_end, local_map_feat, local_homo, train=False):
+
+    def forward(self, obs_traj, seq_start_end, train=False):
         """
         Inputs:
         - obs_traj: Tensor of shape (obs_len, batch, 2)
@@ -204,17 +199,10 @@ class EncoderX(nn.Module):
                       p=self.dropout_mlp,
                       training=train)
 
-        # map enc
-        local_map_feat = local_map_feat.view(-1, self.map_h_dim)
-        local_homo = local_homo.view(-1, 9)
-        map_feat = self.map_fc1(torch.cat((local_map_feat, local_homo), dim=-1))
-        map_feat = F.dropout(F.relu(map_feat),
-                      p=self.dropout_mlp,
-                      training=train)
-        map_feat = self.map_fc2(map_feat)
+
 
         # map and traj
-        stats = self.fc2(torch.cat((hx, map_feat), dim=-1)) # 64(32 without attn) to z dim
+        stats = self.fc2(hx) # 64(32 without attn) to z dim
 
         return hx, stats[:,:self.zS_dim], stats[:,self.zS_dim:]
 
@@ -297,7 +285,6 @@ class Decoder(nn.Module):
         self.enc_h_dim = enc_h_dim
         self.device=device
         self.num_layers = num_layers
-        self.dropout_rnn = dropout_rnn
 
         self.dec_hidden = nn.Linear(mlp_dim + z_dim, dec_h_dim)
         self.to_vel = nn.Linear(n_state, n_pred_state)
@@ -315,10 +302,6 @@ class Decoder(nn.Module):
 
         self.fc_mu = nn.Linear(dec_h_dim, n_pred_state)
         self.fc_std = nn.Linear(dec_h_dim, n_pred_state)
-
-        self.sg_rnn_enc = nn.LSTM(
-            input_size=n_state, hidden_size=enc_h_dim, num_layers=1, bidirectional=True)
-        self.sg_fc = nn.Linear(4*enc_h_dim, n_pred_state)
 
 
     def forward(self, last_obs_state, enc_h_feat, z, sg, sg_update_idx, fut_traj=None):
@@ -338,31 +321,19 @@ class Decoder(nn.Module):
         decoder_h=self.dec_hidden(zx) # 493, 128
         # Infer initial action state for node from current state
         a = self.to_vel(last_obs_state)
+        # a = self.to_vel(torch.cat((last_obs_traj_st, map[0]), dim=-1)) # map[0] = last observed map
 
-        ### make six states
         dt = 0.4*4
-        last_ob_sg = torch.cat([last_obs_state[:, :2].unsqueeze(1), sg], dim=1).detach().cpu().numpy()
-        sg_state = []
-        for pos in last_ob_sg:
-            vx = np.gradient(pos[:,0], dt)
-            vy = np.gradient(pos[:,1], dt)
-            ax = np.gradient(vx, dt)
-            ay = np.gradient(vy, dt)
-            sg_state.append(np.array([pos[:,0], pos[:,1], vx, vy, ax, ay]))
-        sg_state = torch.tensor(np.stack(sg_state)).permute((2,0,1)).float().to(z.device)
+        last_ob_sg = torch.cat([last_obs_state[:, :2].unsqueeze(1), sg], dim=1) # bs, 4, 2
 
-        ### sg encoding
-        _, sg_h = self.sg_rnn_enc(sg_state) # [8, 656, 16], 두개의 [1, 656, 32]
-        sg_h = torch.cat(sg_h, dim=0).permute(1, 0, 2)
-        if fut_traj is not None:
-            train=True
-        else:
-            train=False
-        sg_h = F.dropout(sg_h,
-                        p=self.dropout_rnn,
-                        training=train)  # [bs, max_time, enc_rnn_dim]
-        sg_heat = self.sg_fc(sg_h.reshape(-1, 4 * self.enc_h_dim))
-
+        # sg_vel_x = []
+        # sg_vel_y = []
+        # for pos in last_ob_sg:
+        #     sg_vel_x.append(torch.gradient(pos[:,0], spacing=dt)[0])
+        #     sg_vel_y.append(torch.gradient(pos[:,1], spacing=dt)[0])
+        # sg_vel_x = torch.stack(sg_vel_x)
+        # sg_vel_y = torch.stack(sg_vel_y)
+        # sg_vel = torch.stack([sg_vel_x, sg_vel_y], dim=-1)
         #
         # for i in range(3):
         #     print((last_ob_sg[1, i+1] - last_ob_sg[1, i]) / dt)
@@ -370,12 +341,18 @@ class Decoder(nn.Module):
         #     print('--------------')
         # print(sg_vel[1,3])
 
-        ### traj decoding
         mus = []
         stds = []
         j=0
         for i in range(self.seq_len):
-            decoder_h= self.rnn_decoder(torch.cat([zx, a, sg_heat], dim=1), decoder_h) #493, 128
+            # tf=False
+            # if (i < sg_update_idx[-1]+1) and (i == sg_update_idx[j]):
+            if (i < sg_update_idx[-1]+1) and (i == sg_update_idx[j]):
+                rel_to_goal = (last_ob_sg[:,j+1] - last_ob_sg[:,j]) / dt
+                j+=1
+                # pred_pos = integrate_samples(a, last_obs_state[:, :2], dt=self.dt)
+
+            decoder_h= self.rnn_decoder(torch.cat([zx, a, rel_to_goal], dim=1), decoder_h) #493, 128
             mu= self.fc_mu(decoder_h)
             logVar = self.fc_std(decoder_h)
             std = torch.sqrt(torch.exp(logVar))
@@ -390,3 +367,15 @@ class Decoder(nn.Module):
         mus = torch.stack(mus, dim=0)
         stds = torch.stack(stds, dim=0)
         return Normal(mus, stds)
+
+
+# def integrate_samples(v, p_0, dt=1):
+#     """
+#     Integrates deterministic samples of velocity.
+#
+#     :param v: Velocity samples
+#     :return: Position samples
+#     """
+#     v=v.permute(1, 0, 2) #(t, bs, 2) -> (bs,t,2)
+#     abs_traj = torch.cumsum(v, dim=1) * dt + p_0.unsqueeze(1)
+#     return  abs_traj.permute((1, 0, 2))
