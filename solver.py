@@ -1610,15 +1610,15 @@ class Solver(object):
 
         encoderMx_path = os.path.join(
             traj['ckpt_dir'],
-            'iter_%s_lg_cvae.pt' % traj['iter']
+            'iter_%s_encoderMx.pt' % traj['iter']
         )
         encoderMy_path = os.path.join(
             traj['ckpt_dir'],
-            'iter_%s_lg_cvae.pt' % traj['iter']
+            'iter_%s_encoderMy.pt' % traj['iter']
         )
         decoderMy_path = os.path.join(
             traj['ckpt_dir'],
-            'iter_%s_lg_cvae.pt' %  traj['iter']
+            'iter_%s_decoderMy.pt' %  traj['iter']
         )
         lg_cvae_path = os.path.join(
             lg['ckpt_dir'],
