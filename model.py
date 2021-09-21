@@ -339,7 +339,7 @@ class Decoder(nn.Module):
 
         ### make six states
         dt = 0.4*4
-        last_ob_sg = torch.cat([last_obs_state[:, :2].unsqueeze(1), sg], dim=1).detach().cpu().numpy()
+        last_ob_sg = torch.cat([last_obs_state[:, :2].unsqueeze(1), sg], dim=1)
         sg_state = []
         for j in range(len(sg_update_idx)):
             v = (last_ob_sg[:, j + 1] - last_ob_sg[:, j]) / dt
