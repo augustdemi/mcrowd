@@ -234,6 +234,7 @@ class Solver(object):
     def make_heatmap(self, local_ic, local_map):
         obs_heat_map = []
         fut_heat_map = []
+        lg_heat_map = []
         for i in range(len(local_ic)):
             ohm = [local_map[i, 0].detach().cpu().numpy()]
 
@@ -254,6 +255,14 @@ class Solver(object):
                 fhm.append(heat_map_traj)
             obs_heat_map.append(np.stack(ohm))
             fut_heat_map.append(np.stack(fhm))
+
+
+            heat_map_traj = np.zeros((160, 160))
+            heat_map_traj[local_ic[i, -1, 0], local_ic[i, -1, 1]] = 1
+            # as Y-net used variance 4 for the GT heatmap representation.
+            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=4)
+            lg_heat_map.append(heat_map_traj)
+
             '''
             heat_map_traj = np.zeros((160, 160))
             # for t in range(self.obs_len + self.pred_len):
@@ -264,9 +273,10 @@ class Solver(object):
             plt.imshow(heat_map_traj)
             '''
         obs_heat_map = torch.tensor(np.stack(obs_heat_map)).float().to(self.device)
+        lg_heat_map = torch.tensor(np.stack(lg_heat_map)).float().to(self.device).unsqueeze(1)
         fut_heat_map = np.stack(fut_heat_map)
         # obs_heat_map[:,0] *= obs_heat_map[:,1].max() * 0.5
-        return obs_heat_map, fut_heat_map
+        return obs_heat_map, fut_heat_map, lg_heat_map
 
     ####
     def train(self):
@@ -307,8 +317,7 @@ class Solver(object):
              local_map, local_ic, local_homo) = next(iterator)
             batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
-            obs_heat_map, fut_heat_map =  self.make_heatmap(local_ic, local_map)
-            lg_heat_map = torch.tensor(fut_heat_map[:,11]).float().to(self.device).unsqueeze(1)
+            obs_heat_map, fut_heat_map, lg_heat_map =  self.make_heatmap(local_ic, local_map)
             sg_heat_map = torch.tensor(fut_heat_map[:, self.sg_idx]).float().to(self.device)
 
 
@@ -403,8 +412,7 @@ class Solver(object):
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
-                obs_heat_map, fut_heat_map = self.make_heatmap(local_ic, local_map)
-                lg_heat_map = torch.tensor(fut_heat_map[:, 11]).float().to(self.device).unsqueeze(1)
+                obs_heat_map, fut_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
                 sg_heat_map = torch.tensor(fut_heat_map[:, self.sg_idx]).float().to(self.device)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
@@ -514,8 +522,7 @@ class Solver(object):
                  obs_frames, pred_frames, map_path, inv_h_t,
                  local_map, local_ic, local_homo) = batch
 
-                obs_heat_map, fut_heat_map = self.make_heatmap(local_ic, local_map)
-                lg_heat_map = torch.tensor(fut_heat_map[:, 11]).float().to(self.device).unsqueeze(1)
+                obs_heat_map, fut_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
                 sg_heat_map = torch.tensor(fut_heat_map[:, self.sg_idx]).float().to(self.device)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
@@ -780,7 +787,7 @@ class Solver(object):
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
-                obs_heat_map, _ = self.make_heatmap(local_ic, local_map)
+                obs_heat_map, _, _ = self.make_heatmap(local_ic, local_map)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 fut_rel_pos_dists = []
