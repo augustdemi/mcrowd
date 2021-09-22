@@ -49,10 +49,10 @@ class Solver(object):
 
         self.args = args
 
-        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_lg_klw_%s_a_%s_r_%s_fb_%s_anneal_e_%s_load_e_%s' % \
-                    (args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE,
-                     args.lg_kl_weight, args.alpha, args.gamma, args.fb, args.anneal_epoch, args.load_e)
-        # self.name = 'sg_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_2.0_anneal_e_10_load_e_1'
+        # self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_lg_klw_%s_a_%s_r_%s_fb_%s_anneal_e_%s_load_e_%s' % \
+        #             (args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE,
+        #              args.lg_kl_weight, args.alpha, args.gamma, args.fb, args.anneal_epoch, args.load_e)
+        self.name = 'sg_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_2.0_anneal_e_10_load_e_1'
 
         # to be appended by run_id
 
@@ -165,8 +165,8 @@ class Solver(object):
 
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
 
-            lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_2.0_anneal_e_0_load_e_1_run_21'
-            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_44000_lg_cvae.pt')
+            lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_2.0_anneal_e_10_load_e_1_run_21'
+            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_26000_lg_cvae.pt')
 
             if self.device == 'cuda':
                 self.lg_cvae = torch.load(lg_cvae_path)
@@ -175,7 +175,7 @@ class Solver(object):
 
             print(">>>>>>>>> Init: ", lg_cvae_path)
 
-            num_filters = [32, 32, 64, 64, 64]
+            num_filters = [32, 32, 64, 64, 64, 128]
             # input = env + 8 past + lg / output = env + sg(including lg)
             self.sg_unet = Unet(input_channels=3, num_classes=3, num_filters=num_filters,
                              apply_last_layer=True, padding=True).to(self.device)
@@ -184,7 +184,7 @@ class Solver(object):
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
             self.load_checkpoint()
-            lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_2.0_anneal_e_0_load_e_1_run_21'
+            lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_2.0_anneal_e_10_load_e_1_run_21'
             lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_26000_lg_cvae.pt')
 
             if self.device == 'cuda':
@@ -234,7 +234,6 @@ class Solver(object):
     def make_heatmap(self, local_ic, local_map):
         obs_heat_map = []
         fut_heat_map = []
-        lg_heat_map = []
         for i in range(len(local_ic)):
             ohm = [local_map[i, 0].detach().cpu().numpy()]
 
@@ -255,14 +254,6 @@ class Solver(object):
                 fhm.append(heat_map_traj)
             obs_heat_map.append(np.stack(ohm))
             fut_heat_map.append(np.stack(fhm))
-
-
-            heat_map_traj = np.zeros((160, 160))
-            heat_map_traj[local_ic[i, -1, 0], local_ic[i, -1, 1]] = 1
-            # as Y-net used variance 4 for the GT heatmap representation.
-            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=4)
-            lg_heat_map.append(heat_map_traj)
-
             '''
             heat_map_traj = np.zeros((160, 160))
             # for t in range(self.obs_len + self.pred_len):
@@ -273,10 +264,9 @@ class Solver(object):
             plt.imshow(heat_map_traj)
             '''
         obs_heat_map = torch.tensor(np.stack(obs_heat_map)).float().to(self.device)
-        lg_heat_map = torch.tensor(np.stack(lg_heat_map)).float().to(self.device).unsqueeze(1)
         fut_heat_map = np.stack(fut_heat_map)
         # obs_heat_map[:,0] *= obs_heat_map[:,1].max() * 0.5
-        return obs_heat_map, fut_heat_map, lg_heat_map
+        return obs_heat_map, fut_heat_map
 
     ####
     def train(self):
@@ -317,7 +307,8 @@ class Solver(object):
              local_map, local_ic, local_homo) = next(iterator)
             batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
-            obs_heat_map, fut_heat_map, lg_heat_map =  self.make_heatmap(local_ic, local_map)
+            obs_heat_map, fut_heat_map =  self.make_heatmap(local_ic, local_map)
+            lg_heat_map = torch.tensor(fut_heat_map[:,11]).float().to(self.device).unsqueeze(1)
             sg_heat_map = torch.tensor(fut_heat_map[:, self.sg_idx]).float().to(self.device)
 
 
@@ -412,7 +403,8 @@ class Solver(object):
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
-                obs_heat_map, fut_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
+                obs_heat_map, fut_heat_map = self.make_heatmap(local_ic, local_map)
+                lg_heat_map = torch.tensor(fut_heat_map[:, 11]).float().to(self.device).unsqueeze(1)
                 sg_heat_map = torch.tensor(fut_heat_map[:, self.sg_idx]).float().to(self.device)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
@@ -521,7 +513,8 @@ class Solver(object):
                  obs_frames, pred_frames, map_path, inv_h_t,
                  local_map, local_ic, local_homo) = batch
 
-                obs_heat_map, fut_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
+                obs_heat_map, fut_heat_map = self.make_heatmap(local_ic, local_map)
+                lg_heat_map = torch.tensor(fut_heat_map[:, 11]).float().to(self.device).unsqueeze(1)
                 sg_heat_map = torch.tensor(fut_heat_map[:, self.sg_idx]).float().to(self.device)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
@@ -590,19 +583,15 @@ class Solver(object):
 
 
 #4444444444444444444t
+                pred_lg_patch = self.lg_cvae.unet.up_forward(self.lg_cvae.unet_enc_feat)
 
-                zs = []
-                for _ in range(10):
-                    zs.append(self.lg_cvae.prior_latent_space.rsample())
+
 
                 mm = []
-                for k in range(5):
-                    mm.append(F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, zs[k])))
-                # mm.append(F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, self.lg_cvae.posterior_latent_space.rsample())))
-
-                mmm = []
-                for k in range(5,10):
-                    mmm.append(F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, zs[k])))
+                zs = []
+                for _ in range(5):
+                    zs.append(self.lg_cvae.prior_latent_space.rsample())
+                    mm.append(F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, zs[-1])))
                 # mm.append(F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, self.lg_cvae.posterior_latent_space.rsample())))
 
 
@@ -612,42 +601,37 @@ class Solver(object):
                     heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 20
                 heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
 
-                fig = plt.figure(figsize=(15, 10))
-                fig.tight_layout()
-                for k in range(10):
-                    ax = fig.add_subplot(4, 5, k + 1)
-                    ax.set_title('prior' + str(k % 5 + 1))
+                title = ['prior1', 'prior2','prior3', 'prior4', 'prior5', 'prior1', 'prior2','prior3', 'prior4', 'prior5']
+                fig = plt.figure(figsize=(8, 8))
+                for k in range(len(title)):
+                    ax = fig.add_subplot(2, 5, k + 1)
+                    ax.set_title(title[k])
                     if k < 5:
                         ax.imshow(np.stack([mm[k-1][i, 0] / mm[k-1][i, 0].max(), env, heat_map_traj],axis=2))
                     else:
                         ax.imshow(mm[(k-1) % 5][i, 0])
-                for k in range(10):
-                    ax = fig.add_subplot(4, 5, k + 11)
-                    ax.set_title('prior' + str(k % 5 + 6))
-                    if k < 5:
-                        ax.imshow(np.stack([mmm[k - 1][i, 0] / mmm[k - 1][i, 0].max(), env, heat_map_traj], axis=2))
-                    else:
-                        ax.imshow(mmm[(k - 1) % 5][i, 0])
-                ################################################################
+
+                    # ax.imshow(np.stack([m[i, 0] / m[i, 0].max(), env, heat_map_traj],axis=2))
+
 
 
                 axis_max = []
                 axis_min = []
                 b = np.stack(zs)
                 for k in range(self.w_dim):
-                    axis_max.append(b[:,:,k].max())
-                    axis_min.append(b[:,:,k].min())
+                    axis_max.append(b[:,k].max())
+                    axis_min.append(b[:,k].min())
 
                 # zs = []
                 # for i in range(self.w_dim):
 
 
-                sample_dim=0
+
                 mm2 = []
                 zs2 = []
-                for latent_d_idx in range(10):
-                    a = zs[sample_dim].clone()
-                    a[:,latent_d_idx] = torch.tensor(axis_max[latent_d_idx])
+                for k in range(5):
+                    a = zs[k].clone()
+                    a[:,0] = 3
                     zs2.append(a)
                     mm2.append(F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, zs2[-1])))
 
@@ -658,116 +642,45 @@ class Solver(object):
                     heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 20
                 heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
 
+                title = ['prior1', 'prior2','prior3', 'prior4', 'prior5', 'prior1', 'prior2','prior3', 'prior4', 'prior5']
                 fig = plt.figure(figsize=(8, 8))
-                for k in range(10):
+                for k in range(len(title)):
                     ax = fig.add_subplot(2, 5, k + 1)
-                    ax.set_title('w dim ' + str(k+1) + ': max ' + str(np.round(axis_max[k],2)))
-                    ax.imshow(np.stack([mm2[k - 1][i, 0] / mm2[k - 1][i, 0].max(), env, heat_map_traj], axis=2))
+                    ax.set_title(title[k])
+                    if k < 5:
+                        ax.imshow(np.stack([mm2[k-1][i, 0] / mm2[k-1][i, 0].max(), env, heat_map_traj],axis=2))
+                    else:
+                        ax.imshow(mm2[(k-1) % 5][i, 0])
 
+                    # ax.imshow(np.stack([m[i, 0] / m[i, 0].max(), env, heat_map_traj],axis=2))
 
-
-                sample_dim=0
-                mm3 = []
-                zs3 = []
-                for latent_d_idx in range(10):
-                    a = zs[sample_dim].clone()
-                    a[:,latent_d_idx] = torch.tensor(axis_min[latent_d_idx])
-                    zs3.append(a)
-                    mm3.append(F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, zs3[-1])))
-
-
-                env = local_map[i,0].detach().cpu().numpy()
-                heat_map_traj = np.zeros_like(env)
-                for t in [0, 1, 2, 3, 4, 5, 6, 7, 11, 15, 19]:
-                    heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 20
-                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-
-                fig = plt.figure(figsize=(8, 8))
-                for k in range(10):
-                    ax = fig.add_subplot(2, 5, k + 1)
-                    ax.set_title('w dim ' + str(k+1) + ': min ' + str(np.round(axis_min[k],2)))
-                    ax.imshow(np.stack([mm3[k - 1][i, 0] / mm3[k - 1][i, 0].max(), env, heat_map_traj], axis=2))
 
 
 
 
                 ###################################################
                 # ---------- SG
-
-                pred_sgs = []
-                for m in mm:
-                    pred_sgs.append(F.sigmoid(
-                    self.sg_unet.forward(torch.cat([obs_heat_map, m], dim=1))))
-
-                pred_lg_prior = F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, self.lg_cvae.prior_latent_space.sample()))
+                pred_sg_heat = F.sigmoid(
+                    self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_prior], dim=1)))
 
                 pred_sg_gt = F.sigmoid(
                     self.sg_unet.forward(torch.cat([obs_heat_map, lg_heat_map], dim=1), training=False))
 
                 ###### =============== plot SG ==================#######
-
-                pred_lg_ics = []
-                for k in range(lg_heat_map.shape[0]):
-                    pred_lg_ic = []
-                    for heat_map in pred_lg_prior[k]:
-                        pred_lg_ic.append((heat_map == torch.max(heat_map)).nonzero()[0])
-                    pred_lg_ic = torch.stack(pred_lg_ic).float()
-                    pred_lg_ics.append(pred_lg_ic)
-
-                pred_lg_heat_from_ic = []
-                for coord in pred_lg_ics:
-                    heat_map_traj = np.zeros((160, 160))
-                    heat_map_traj[int(coord[0,0]), int(coord[0,1])] = 1
-                    heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-                    pred_lg_heat_from_ic.append(heat_map_traj)
-                pred_lg_heat_from_ic = torch.tensor(np.stack(pred_lg_heat_from_ic)).unsqueeze(1).float().to(self.device)
-
-                pred_sg = F.sigmoid(
-                    self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1)))
-
-
                 fig = plt.figure(figsize=(10, 5))
+                k = 0
                 env = local_map[i,0].detach().cpu().numpy()
 
                 heat_map_traj = np.zeros_like(env)
                 for t in [0, 1, 2, 3, 4, 5, 6, 7, 11, 15, 19]:
                     heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 20
                 heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-                k=0
 
-                for m in pred_sg[i]:
-                    k+=1
-                    ax = fig.add_subplot(2,3,k)
+                for m in pred_sg_heat[i]:
+                    k += 1
+                    ax = fig.add_subplot(1, 3, k)
                     ax.set_title('sg' + str(k))
                     ax.imshow(np.stack([m / m.max(), env, heat_map_traj],axis=2))
-
-                for m in pred_sg[i]:
-                    k+=1
-                    ax = fig.add_subplot(2,3,k)
-                    ax.set_title('sg' + str(k))
-                    ax.imshow(m)
-
-                heat_map_traj = np.zeros((160, 160))
-                heat_map_traj[local_ic[i, -1, 0], local_ic[i, -1, 1]] = 1
-                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=4)
-
-                # fig = plt.figure(figsize=(10, 5))
-                # env = local_map[i,0].detach().cpu().numpy()
-                #
-                # heat_map_traj = np.zeros_like(env)
-                # for t in [0, 1, 2, 3, 4, 5, 6, 7, 11, 15, 19]:
-                #     heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 20
-                # heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-                #
-                # for p in range(len(pred_sgs)):
-                #     m = pred_sgs[p][i]
-                #     for k in range(3):
-                #         ax = fig.add_subplot(3, 5, 5*k + (p+1))
-                #         ax.set_title('sg' + str(k))
-                #         ax.imshow(np.stack([m[k] / m[k].max(), env, heat_map_traj],axis=2))
-
-
-
 
 
 
@@ -866,7 +779,7 @@ class Solver(object):
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
-                obs_heat_map, _, _ = self.make_heatmap(local_ic, local_map)
+                obs_heat_map, _ = self.make_heatmap(local_ic, local_map)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 fut_rel_pos_dists = []
@@ -1019,7 +932,8 @@ class Solver(object):
                  local_map, local_ic, local_homo) = batch
                 total_traj += fut_traj.size(1)
 
-                obs_heat_map, fut_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
+                obs_heat_map, fut_heat_map = self.make_heatmap(local_ic, local_map)
+                lg_heat_map = torch.tensor(fut_heat_map[:, 1]).float().to(self.device).unsqueeze(1)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
 
