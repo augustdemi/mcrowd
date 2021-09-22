@@ -476,10 +476,11 @@ class Solver(object):
                                     + (1 - self.alpha) * (1 - sg_heat_map) * torch.log(1 - pred_sg_heat + self.eps) * (
                                        pred_sg_heat ** self.gamma)).sum().div(batch_size)
 
-                lg_fde.append(torch.sqrt(((torch.stack(pred_lg_wcs)
-                                           - fut_traj[-1,:,:2].unsqueeze(0).repeat((20,1,1)))**2).sum(-1))) # 20, 3, 4, 2
-                sg_ade.append(torch.sqrt(((torch.stack(pred_sg_wcs).permute(0, 2, 1, 3)
-                                           - fut_traj[self.sg_idx, :, :2].unsqueeze(0).repeat(
+                pred_lg_traj = torch.stack(pred_lg_wcs)
+                lg_fde.append(torch.sqrt(((pred_lg_traj - fut_traj[-1,:,:2].unsqueeze(0).repeat((20,1,1)))**2).sum(-1))) # 20, 3, 4, 2
+
+                pred_fut_traj = torch.cat([torch.stack(pred_sg_wcs).permute(0, 2, 1, 3), pred_lg_traj.unsqueeze(1)], dim=1)
+                sg_ade.append(torch.sqrt(((pred_fut_traj - fut_traj[:, :, :2].unsqueeze(0).repeat(
                     (20, 1, 1, 1))) ** 2).sum(-1)).sum(1))
 
             lg_fde=torch.cat(lg_fde, dim=1).cpu().numpy() # all batches are concatenated
