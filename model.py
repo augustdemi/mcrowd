@@ -297,7 +297,6 @@ class Decoder(nn.Module):
         self.enc_h_dim = enc_h_dim
         self.device=device
         self.num_layers = num_layers
-        self.dropout_rnn = dropout_rnn
 
         self.dec_hidden = nn.Linear(mlp_dim + z_dim, dec_h_dim)
         self.to_vel = nn.Linear(n_state, n_pred_state)
@@ -315,8 +314,6 @@ class Decoder(nn.Module):
 
         self.fc_mu = nn.Linear(dec_h_dim, n_pred_state)
         self.fc_std = nn.Linear(dec_h_dim, n_pred_state)
-
-        self.sg_fc = nn.Linear(4, n_pred_state)
 
 
     def forward(self, last_obs_state, enc_h_feat, z, sg, sg_update_idx, fut_traj=None):
@@ -336,16 +333,19 @@ class Decoder(nn.Module):
         decoder_h=self.dec_hidden(zx) # 493, 128
         # Infer initial action state for node from current state
         a = self.to_vel(last_obs_state)
+        # a = self.to_vel(torch.cat((last_obs_traj_st, map[0]), dim=-1)) # map[0] = last observed map
 
-        ### make six states
         dt = 0.4*4
-        last_ob_sg = torch.cat([last_obs_state[:, :2].unsqueeze(1), sg], dim=1)
-        sg_state = []
-        for j in range(len(sg_update_idx)):
-            v = (last_ob_sg[:, j + 1] - last_ob_sg[:, j]) / dt
-            sg_state.append(torch.cat([last_ob_sg[:, j + 1], v], dim=1))
-        sg_state = torch.stack(sg_state)
+        last_ob_sg = torch.cat([last_obs_state[:, :2].unsqueeze(1), sg], dim=1) # bs, 4, 2
 
+        # sg_vel_x = []
+        # sg_vel_y = []
+        # for pos in last_ob_sg:
+        #     sg_vel_x.append(torch.gradient(pos[:,0], spacing=dt)[0])
+        #     sg_vel_y.append(torch.gradient(pos[:,1], spacing=dt)[0])
+        # sg_vel_x = torch.stack(sg_vel_x)
+        # sg_vel_y = torch.stack(sg_vel_y)
+        # sg_vel = torch.stack([sg_vel_x, sg_vel_y], dim=-1)
         #
         # for i in range(3):
         #     print((last_ob_sg[1, i+1] - last_ob_sg[1, i]) / dt)
@@ -353,15 +353,18 @@ class Decoder(nn.Module):
         #     print('--------------')
         # print(sg_vel[1,3])
 
-        ### traj decoding
         mus = []
         stds = []
         j=0
         for i in range(self.seq_len):
+            # tf=False
+            # if (i < sg_update_idx[-1]+1) and (i == sg_update_idx[j]):
             if (i < sg_update_idx[-1]+1) and (i == sg_update_idx[j]):
-                sg_feat = self.sg_fc(sg_state[j])
+                rel_to_goal = (last_ob_sg[:,j+1] - last_ob_sg[:,j]) / dt
                 j+=1
-            decoder_h= self.rnn_decoder(torch.cat([zx, a, sg_feat], dim=1), decoder_h) #493, 128
+                # pred_pos = integrate_samples(a, last_obs_state[:, :2], dt=self.dt)
+
+            decoder_h= self.rnn_decoder(torch.cat([zx, a, rel_to_goal], dim=1), decoder_h) #493, 128
             mu= self.fc_mu(decoder_h)
             logVar = self.fc_std(decoder_h)
             std = torch.sqrt(torch.exp(logVar))
