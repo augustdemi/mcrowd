@@ -234,39 +234,26 @@ class Solver(object):
     def make_heatmap(self, local_ic, local_map):
         obs_heat_map = []
         fut_heat_map = []
-        size = local_map[0,0].shape[0]
-
         for i in range(len(local_ic)):
-            env_map = transforms.Compose([
-                transforms.ToTensor(),
-                transforms.Resize(160)
-            ])(Image.fromarray(local_map[i, 0]))
+            ohm = [local_map[i, 0].detach().cpu().numpy()]
 
-            ohm = [env_map.squeeze(0)]
-            heat_map_traj = np.zeros((size, size))
-            heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 1
-            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=5)
-            heat_map_traj = transforms.Compose([
-                transforms.ToTensor(),
-                transforms.Resize(160)
-            ])(Image.fromarray(heat_map_traj))
-            ohm.append(heat_map_traj.squeeze(0))
+            heat_map_traj = np.zeros((160, 160))
+            for t in range(self.obs_len):
+                heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
+                # as Y-net used variance 4 for the GT heatmap representation.
+            ohm.append(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2))
 
 
             fhm = []
             for t in range(self.obs_len, self.obs_len+self.pred_len):
-                heat_map_traj = np.zeros((size,size))
+                heat_map_traj = np.zeros((160,160))
                 heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
                 # as Y-net used variance 4 for the GT heatmap representation.
-                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=5)
-                heat_map_traj = transforms.Compose([
-                    transforms.ToTensor(),
-                    transforms.Resize(160)
-                ])(Image.fromarray(heat_map_traj))
-                fhm.append(heat_map_traj.squeeze(0))
-
-            obs_heat_map.append(torch.stack(ohm))
-            fut_heat_map.append(torch.stack(fhm))
+                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+                # plt.imshow(heat_map_traj)
+                fhm.append(heat_map_traj)
+            obs_heat_map.append(np.stack(ohm))
+            fut_heat_map.append(np.stack(fhm))
             '''
             heat_map_traj = np.zeros((160, 160))
             # for t in range(self.obs_len + self.pred_len):
@@ -276,10 +263,9 @@ class Solver(object):
             heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
             plt.imshow(heat_map_traj)
             '''
-        obs_heat_map = torch.stack(obs_heat_map).float().to(self.device)
-        fut_heat_map = torch.stack(fut_heat_map).float().to(self.device)
+        obs_heat_map = torch.tensor(np.stack(obs_heat_map)).float().to(self.device)
+        fut_heat_map = np.stack(fut_heat_map)
         # obs_heat_map[:,0] *= obs_heat_map[:,1].max() * 0.5
-
         return obs_heat_map, fut_heat_map
 
     ####
@@ -528,8 +514,8 @@ class Solver(object):
                  local_map, local_ic, local_homo) = batch
 
                 obs_heat_map, fut_heat_map = self.make_heatmap(local_ic, local_map)
-                lg_heat_map = fut_heat_map[:, 11].unsqueeze(1)
-                sg_heat_map = fut_heat_map[:, self.sg_idx]
+                lg_heat_map = torch.tensor(fut_heat_map[:, 11]).float().to(self.device).unsqueeze(1)
+                sg_heat_map = torch.tensor(fut_heat_map[:, self.sg_idx]).float().to(self.device)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 recon_lg_heat = self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
@@ -539,15 +525,15 @@ class Solver(object):
                 plt.imshow(local_map[i, 0])
 
                 # ----------- 12 traj
-                heat_map_traj = np.zeros((map_size, map_size))
-                # heat_map_traj = local_map[i, 0].detach().cpu().numpy().copy()
+                # heat_map_traj = np.zeros((160, 160))
+                heat_map_traj = local_map[i, 0].detach().cpu().numpy().copy()
                 # for t in range(self.obs_len):
                 for t in [0, 1, 2, 3, 4, 5, 6, 7, 11, 15, 19]:
                     heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 100
                     # as Y-net used variance 4 for the GT heatmap representation.
-                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=6)
-                # plt.imshow(heat_map_traj)
-                plt.imshow(np.stack([heat_map_traj, local_map[i,0],  local_map[i,0]],axis=2))
+                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+                plt.imshow(heat_map_traj)
+                # plt.imshow(np.stack([heat_map_traj, local_map[i,0]],axis=2))
 
 
                 # ----------- feature map
@@ -609,15 +595,11 @@ class Solver(object):
                 # mm.append(F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, self.lg_cvae.posterior_latent_space.rsample())))
 
 
-                env = local_map[i,0]
-                from skimage.transform import resize
-                env = resize(env, (160,160))
-
-                heat_map_traj = np.zeros_like(local_map[i,0])
+                env = local_map[i,0].detach().cpu().numpy()
+                heat_map_traj = np.zeros_like(env)
                 for t in [0, 1, 2, 3, 4, 5, 6, 7, 11, 15, 19]:
                     heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 20
-                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=5)
-                heat_map_traj = resize(heat_map_traj, (160, 160))
+                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
 
                 title = ['prior1', 'prior2','prior3', 'prior4', 'prior5', 'prior1', 'prior2','prior3', 'prior4', 'prior5']
                 fig = plt.figure(figsize=(8, 8))
@@ -630,26 +612,6 @@ class Solver(object):
                         ax.imshow(mm[(k-1) % 5][i, 0])
 
                     # ax.imshow(np.stack([m[i, 0] / m[i, 0].max(), env, heat_map_traj],axis=2))
-
-                a = mm[1][0,0].detach().cpu().numpy()
-                import torch.nn.functional as nnf
-
-                pred_lg_ic = []
-                for heat_map in mm[0][i]:
-                    out = nnf.interpolate(mm[0], size=(512, 512), mode='bicubic', align_corners=False)
-
-                    pred_lg_ic.append((heat_map == torch.max(heat_map)).nonzero()[0])
-                pred_lg_ic = torch.stack(pred_lg_ic).float()
-
-                # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
-                back_wc = torch.matmul(
-                    torch.cat([pred_lg_ic, torch.ones((len(pred_lg_ic), 1)).to(self.device)], dim=1),
-                    torch.transpose(local_homo[i], 1, 0))
-                pred_lg_wc = back_wc[0, :2] / back_wc[0, 2]
-                # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
-
-
-
 
 
 
@@ -817,8 +779,6 @@ class Solver(object):
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
-                # map_size = local_map[0,0].shape[0]
-                map_size = 512
                 obs_heat_map, _ = self.make_heatmap(local_ic, local_map)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
@@ -859,7 +819,7 @@ class Solver(object):
                     if generate_heat:
                         pred_lg_heat_from_ic = []
                         for coord in pred_lg_ics:
-                            heat_map_traj = np.zeros((map_size, map_size))
+                            heat_map_traj = np.zeros((160, 160))
                             heat_map_traj[int(coord[0, 0]), int(coord[0, 1])] = 1
                             heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
                             pred_lg_heat_from_ic.append(heat_map_traj)
