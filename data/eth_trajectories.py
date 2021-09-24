@@ -119,7 +119,7 @@ class TrajectoryDataset(Dataset):
         # self.data_dir = '../../datasets/eth/test'
         self.obs_len = obs_len
         self.pred_len = pred_len
-        self.skip = skip
+        self.skip = 1
         self.seq_len = self.obs_len + self.pred_len
         self.delim = '\t'
         self.device = device
@@ -162,7 +162,13 @@ class TrajectoryDataset(Dataset):
             elif 'students003' in path.split(deli)[-1]:
                 map_file_name = 'univ'
             else:
-                map_file_name = ''
+                if skip > 0:
+                    map_file_name = 'skip'
+                    print('map path: ', map_file_name)
+
+                    continue
+                else:
+                    map_file_name = ''
 
             print('map path: ', map_file_name)
 
@@ -292,7 +298,7 @@ class TrajectoryDataset(Dataset):
             per_step_dist = np.array(per_step_dist)
             # max_per_step_dist_of_seq = per_step_dist[np.where(per_step_dist>0.1)[0]].max()
             # local_map_size.extend([int(max_per_step_dist_of_seq * 13)] * len(this_seq_obs)
-            local_map_size.extend(list((np.clip(per_step_dist, mean_pixel_dist, None) * 14).astype(int)))
+            local_map_size.extend(list((np.clip(per_step_dist, mean_pixel_dist, None) * 16).astype(int)))
 
 
 
