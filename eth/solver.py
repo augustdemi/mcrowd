@@ -149,14 +149,8 @@ class Solver(object):
         self.record_file = 'records/%s.txt' % self.name
 
         # checkpoints
-        self.ckpt_dir = os.path.join("ckpts", self.name)
+        self.ckpt_dir = os.path.join("../ckpts", self.name)
 
-        # outputs
-        self.output_dir_recon = os.path.join("outputs", self.name + '_recon')
-        # dir for reconstructed images
-        self.output_dir_synth = os.path.join("outputs", self.name + '_synth')
-        # dir for synthesized images
-        self.output_dir_trvsl = os.path.join("outputs", self.name + '_trvsl')
 
         #### create a new model or load a previously saved model
 
@@ -174,7 +168,7 @@ class Solver(object):
 
             if args.load_e > 0:
                 lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_0.5_anneal_e_0_load_e_1_run_24'
-                lg_cvae_path = os.path.join('ckpts', lg_cvae_path, '57100.pt')
+                lg_cvae_path = os.path.join('../ckpts', lg_cvae_path, '57100.pt')
 
                 if self.device == 'cuda':
                     self.lg_cvae = torch.load(lg_cvae_path)
