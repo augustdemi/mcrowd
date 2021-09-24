@@ -52,9 +52,9 @@ class Solver(object):
 
         self.args = args
 
-        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_a_%s_r_%s' % \
+        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_a_%s_r_%s_skip_%s' % \
                     (args.model_name + '.' +args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE,
-                     args.alpha, args.gamma)
+                     args.alpha, args.gamma, args.skip)
 
         # to be appended by run_id
 
