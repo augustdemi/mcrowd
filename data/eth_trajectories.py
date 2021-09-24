@@ -422,8 +422,8 @@ def get_local_map_ic_no_map(all_traj, zoom=20, radius=8):
     # back_wc = back_wc[:, :2]
     # (back_wc - all_traj).max()
     local_map = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Resize(160)
+        transforms.Resize(160),
+        transforms.ToTensor()
     ])(Image.fromarray(1 - local_map / 255))
 
     # return np.expand_dims(1 - local_map / 255, 0), torch.tensor(all_pixel_local), torch.tensor(h).float()
@@ -521,8 +521,8 @@ def get_local_map_ic(map, all_traj, inv_h_t, zoom=10, radius=8):
 
 
     local_map = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Resize(160)
+        transforms.Resize(160),
+        transforms.ToTensor()
     ])(Image.fromarray(1 - local_map / 255))
 
     # return np.expand_dims(1 - local_map / 255, 0), torch.tensor(all_pixel_local), torch.tensor(h).float()

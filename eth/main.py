@@ -3,8 +3,12 @@ import numpy as np
 import torch
 
 # -----------------------------------------------------------------------------#
-from data.loader import data_loader
 from solver import Solver
+
+import sys
+sys.path.append('../')
+from data.loader import data_loader
+sys.path.append('../')
 from utils import str2bool, bool_flag
 import os
 

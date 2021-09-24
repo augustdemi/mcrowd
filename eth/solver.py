@@ -2,6 +2,9 @@ import os
 
 import torch.optim as optim
 # -----------------------------------------------------------------------------#
+
+import sys
+sys.path.append('../')
 from utils import DataGather, mkdirs, grid2gif2, apply_poe, sample_gaussian, sample_gumbel_softmax
 from model import *
 from loss import kl_two_gaussian, displacement_error, final_displacement_error
