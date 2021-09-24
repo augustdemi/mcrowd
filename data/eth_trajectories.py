@@ -186,12 +186,12 @@ class TrajectoryDataset(Dataset):
             frame_data = [] # all data per frame
             for frame in frames:
                 frame_data.append(data[frame == data[:, 0], :])
-            num_sequences = int(math.ceil((len(frames) - self.seq_len + 1) / skip)) # seq_len=obs+pred길이씩 잘라서 (input=obs, output=pred)주면서 train시킬것. 그래서 seq_len씩 slide시키면서 총 num_seq만큼의 iteration하게됨
+            num_sequences = int(math.ceil((len(frames) - self.seq_len + 1) / self.skip)) # seq_len=obs+pred길이씩 잘라서 (input=obs, output=pred)주면서 train시킬것. 그래서 seq_len씩 slide시키면서 총 num_seq만큼의 iteration하게됨
 
             this_seq_obs = []
 
             # all frames를 seq_len(kernel size)만큼씩 sliding해가며 볼것. 이때 skip = stride.
-            for idx in range(0, num_sequences * self.skip + 1, skip):
+            for idx in range(0, num_sequences * self.skip + 1, self.skip):
                 curr_seq_data = np.concatenate(
                     frame_data[idx:idx + self.seq_len], axis=0) # frame을 seq_len만큼씩 잘라서 볼것 = curr_seq_data. 각 frame이 가진 데이터(agent)수는 다를수 잇음. 하지만 각 데이터의 길이는 4(frame #, agent id, pos_x, pos_y)
                 peds_in_curr_seq = np.unique(curr_seq_data[:, 1]) # unique agent id
