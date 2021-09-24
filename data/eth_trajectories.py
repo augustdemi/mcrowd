@@ -257,7 +257,7 @@ class TrajectoryDataset(Dataset):
                 for obs_traj in np.concatenate(this_seq_obs):
                     obs_traj = obs_traj.transpose(1, 0)
                     per_step_dist.append(np.sqrt(((obs_traj[1:] - obs_traj[:-1]) ** 2).sum(1)).mean())
-                mean_pixel_dist = 0.6
+                mean_pixel_dist = 0.7
                 # argmax = np.concatenate(this_seq_obs)[np.array(per_step_dist).argmax()].transpose(1,0)
                 # plt.scatter(argmax[:, 1], argmax[:, 0], s=1)
 
@@ -276,7 +276,7 @@ class TrajectoryDataset(Dataset):
                 for all_pixel in all_pixels:
                     per_step_dist.append(np.sqrt(((all_pixel[1:] - all_pixel[:-1]) ** 2).sum(1)).mean())
 
-                two_wc_pts = np.array([[0,0], [0,0.6]])
+                two_wc_pts = np.array([[0,0], [0,0.7]])
                 two_ic_pts = np.matmul(np.concatenate([two_wc_pts, np.ones((len(two_wc_pts), 1))], axis=1),
                                       inv_h_t)
                 two_ic_pts /= np.expand_dims(two_ic_pts[:, 2], 1)
