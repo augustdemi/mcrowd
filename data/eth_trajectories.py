@@ -116,7 +116,7 @@ class TrajectoryDataset(Dataset):
         super(TrajectoryDataset, self).__init__()
 
         self.data_dir = data_dir
-        self.data_dir = '../../datasets/eth/test'
+        # self.data_dir = '../../datasets/eth/test'
         self.obs_len = obs_len
         self.pred_len = pred_len
         self.skip = skip
@@ -149,8 +149,8 @@ class TrajectoryDataset(Dataset):
             # if 'zara' in path or 'eth' in path or 'hotel' in path:
             # if 'zara' in path or 'hotel' in path:
             #     continue
-            if 'students003' in path:
-                continue
+            # if 'students003' in path:
+            #     continue
             if 'zara01' in path.split(deli)[-1]:
                 map_file_name = 'zara01'
             elif 'zara02' in path.split(deli)[-1]:
@@ -292,7 +292,7 @@ class TrajectoryDataset(Dataset):
             per_step_dist = np.array(per_step_dist)
             # max_per_step_dist_of_seq = per_step_dist[np.where(per_step_dist>0.1)[0]].max()
             # local_map_size.extend([int(max_per_step_dist_of_seq * 13)] * len(this_seq_obs)
-            local_map_size.extend(list((np.clip(per_step_dist, mean_pixel_dist, None) * 13).astype(int)))
+            local_map_size.extend(list((np.clip(per_step_dist, mean_pixel_dist, None) * 14).astype(int)))
 
 
 

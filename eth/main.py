@@ -63,7 +63,7 @@ def create_parser():
     parser.add_argument('--ckpt_load_iter', default=0, type=int,
                         help='iter# to load the previously saved model ' +
                              '(default=0 to start from the scratch)')
-    parser.add_argument('--max_iter', default=18000, type=float,
+    parser.add_argument('--max_iter', default=0, type=float,
                         help='maximum number of batch iterations')
     parser.add_argument('--ckpt_save_iter', default=100, type=int,
                         help='checkpoint saved every # iters')
@@ -96,9 +96,11 @@ def create_parser():
     parser.add_argument('--pred_len', default=12, type=int)
     parser.add_argument('--skip', default=1, type=int)
     # dataset
-    parser.add_argument('--dataset_dir', default='C:\dataset\HTP-benchmark\Splits', type=str,
+    parser.add_argument('--dataset_dir', default='../../datasets', type=str,
                         help='dataset directory')
-    parser.add_argument('--dataset_name', default='sg', type=str,
+    parser.add_argument('--model_name', default='lgcvae', type=str,
+                        help='dataset name')
+    parser.add_argument('--dataset_name', default='eth', type=str,
                         help='dataset name')
     parser.add_argument('--num_workers', default=0, type=int,
                         help='dataloader num_workers')
@@ -148,11 +150,11 @@ def main(args):
         solver = Solver(args)
 
         print('--------------------', args.dataset_name, '----------------------')
-        test_path = os.path.join(args.dataset_dir, args.dataset_name, 'Test.txt')
+        test_path = os.path.join(args.dataset_dir, args.dataset_name, 'test')
         args.batch_size = 5
         _, test_loader = data_loader(args, test_path, shuffle=True)
 
-        # solver.evaluate_dist(test_loader, loss=False)
+        solver.evaluate_dist(test_loader, loss=False)
         solver.check_feat(test_loader)
 
         gh = True
