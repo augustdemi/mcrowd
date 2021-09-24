@@ -38,7 +38,7 @@ def seq_collate(data):
     inv_h_t = np.concatenate(inv_h_t, 0)
     # local_map = np.array(np.concatenate(local_map, 0))
     local_map = torch.cat(local_map, 0)
-    local_ic = torch.cat(local_ic, 0)
+    local_ic = np.concatenate(local_ic, 0)
     local_homo = torch.cat(local_homo, 0)
     local_map_size = np.concatenate(local_map_size, 0)
 
@@ -377,7 +377,7 @@ class TrajectoryDataset(Dataset):
             # plt.scatter(local_ic[:, 1], local_ic[:, 0], s=1)
             # plt.scatter(local_ic[7, 1], local_ic[7, 0], s=1, c='r')
         local_maps = torch.stack(local_maps)
-        local_ics = torch.stack(local_ics)
+        local_ics = np.stack(local_ics)
         local_homos = torch.stack(local_homos)
 
         #########
@@ -385,7 +385,7 @@ class TrajectoryDataset(Dataset):
             self.obs_traj[start:end, :].to(self.device), self.pred_traj[start:end, :].to(self.device),
             self.obs_frame_num[start:end], self.fut_frame_num[start:end],
             np.array([self.map_file_name[index]] * (end - start)), np.array([inv_h_t] * (end - start)),
-            local_maps.to(self.device), local_ics.to(self.device), local_homos.to(self.device), local_map_size
+            local_maps.to(self.device), local_ics, local_homos.to(self.device), local_map_size
         ]
         return out
 
@@ -427,7 +427,7 @@ def get_local_map_ic_no_map(all_traj, zoom=20, radius=8):
     ])(Image.fromarray(1 - local_map / 255))
 
     # return np.expand_dims(1 - local_map / 255, 0), torch.tensor(all_pixel_local), torch.tensor(h).float()
-    return local_map, torch.tensor(local_ic), torch.tensor(h).float()
+    return local_map, local_ic, torch.tensor(h).float()
 
 
 
@@ -526,6 +526,6 @@ def get_local_map_ic(map, all_traj, inv_h_t, zoom=10, radius=8):
     ])(Image.fromarray(1 - local_map / 255))
 
     # return np.expand_dims(1 - local_map / 255, 0), torch.tensor(all_pixel_local), torch.tensor(h).float()
-    return local_map, torch.tensor(all_pixel_local), torch.tensor(h).float()
+    return local_map, all_pixel_local, torch.tensor(h).float()
 
 
