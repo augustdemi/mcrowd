@@ -142,7 +142,7 @@ class TrajectoryDataset(Dataset):
         fut_frame_num = []
         map_file_names=[]
         local_map_size = []
-        deli = '\\'
+        deli = '/'
 
         for path in all_files:
             print('data path:', path)
