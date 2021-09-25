@@ -43,14 +43,14 @@ def create_parser():
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--run_id', default=0, type=int,
+    parser.add_argument('--run_id', default=1, type=int,
                         help='run id (default=-1 to create a new id)')
 
     parser.add_argument('--device', default='cpu', type=str,
                         help='cpu/cuda')
 
     # training hyperparameters
-    parser.add_argument('--batch_size', default=64, type=int,
+    parser.add_argument('--batch_size', default=16, type=int,
                         help='batch size')
     parser.add_argument('--lr_VAE', default=1e-3, type=float,
                         help='learning rate of the VAE')
@@ -60,10 +60,10 @@ def create_parser():
                         help='beta2 parameter of the Adam optimizer for the VAE')
 
     # saving directories and checkpoint/sample iterations
-    parser.add_argument('--ckpt_load_iter', default=18500, type=int,
+    parser.add_argument('--ckpt_load_iter', default=0, type=int,
                         help='iter# to load the previously saved model ' +
                              '(default=0 to start from the scratch)')
-    parser.add_argument('--max_iter', default=18500, type=float,
+    parser.add_argument('--max_iter', default=18000, type=float,
                         help='maximum number of batch iterations')
     parser.add_argument('--ckpt_save_iter', default=100, type=int,
                         help='checkpoint saved every # iters')
@@ -96,9 +96,11 @@ def create_parser():
     parser.add_argument('--pred_len', default=12, type=int)
     parser.add_argument('--skip', default=1, type=int)
     # dataset
-    parser.add_argument('--dataset_dir', default='C:\dataset\HTP-benchmark\Splits', type=str,
+    parser.add_argument('--dataset_dir', default='../datasets', type=str,
                         help='dataset directory')
-    parser.add_argument('--dataset_name', default='sg', type=str,
+    parser.add_argument('--dataset_name', default='eth', type=str,
+                        help='dataset name')
+    parser.add_argument('--model_name', default='sg', type=str,
                         help='dataset name')
     parser.add_argument('--num_workers', default=0, type=int,
                         help='dataloader num_workers')
@@ -149,25 +151,25 @@ def main(args):
 
         print('--------------------', args.dataset_name, '----------------------')
         test_path = os.path.join(args.dataset_dir, args.dataset_name, 'Test.txt')
-        args.batch_size = 30
+        args.batch_size = 5
         _, test_loader = data_loader(args, test_path, shuffle=True)
 
+        # solver.evaluate_dist(test_loader, loss=False)
+        solver.check_feat(test_loader)
 
         gh = True
         print("GEN HEAT MAP: ", gh)
 
-        traj_path = 'traj_zD_10_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_0.07_run_0'
-        traj_path = 'traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_0.5_run_0'
+        traj_path = 'traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_0.07_run_4'
 
-        traj_iter = '4000'
-        traj_iter = '28000'
+        traj_iter = '13000'
         traj_ckpt = {'ckpt_dir': os.path.join('ckpts', traj_path), 'iter': traj_iter}
         print('===== TRAJECTORY:', traj_ckpt)
 
         lg_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_2.0_anneal_e_0_load_e_1_run_21'
         lg_iter = '26000'
         lg_ckpt = {'ckpt_dir': os.path.join('ckpts', lg_path), 'iter': lg_iter}
-        print('===== LG CVAE:', traj_ckpt)
+        print('===== LG CVAE:', lg_iter)
 
         solver.pretrain_load_checkpoint(traj_ckpt, lg_ckpt)
 
