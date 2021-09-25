@@ -148,8 +148,8 @@ class TrajectoryDataset(Dataset):
         for path in all_files:
             print('data path:', path)
             # if 'zara' in path or 'eth' in path or 'hotel' in path:
-            # if 'zara' in path or 'hotel' in path:
-            #     continue
+            if 'zara' in path or 'hotel' in path or '003' in path:
+                continue
             # if 'students003' in path:
             #     continue
             if 'zara01' in path.split(deli)[-1]:
@@ -184,7 +184,7 @@ class TrajectoryDataset(Dataset):
                 frames = np.unique(data[:, 0]).tolist()
 
             if 'test' in data_dir or 'val' in data_dir:
-                frames = frames[:(len(frames)//3)*2]
+                frames = frames[:150]
 
             # print('uniq frames: ', len(frames))
             frame_data = [] # all data per frame
