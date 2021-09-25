@@ -282,12 +282,17 @@ class Solver(object):
         lg_kl_weight = 0
         print('kl_w: ', lg_kl_weight)
 
+        avg_batch_size = []
         for iteration in range(start_iter, self.max_iter + 1):
 
             # reset data iterators for each epoch
             if iteration % iter_per_epoch == 0:
                 print('==== epoch %d done ====' % epoch)
                 epoch +=1
+                if epoch ==1:
+                    print(avg_batch_size)
+                print('AVG BS: ', np.array(avg_batch_size).mean())
+                avg_batch_size = []
                 if self.lg_kl_weight > 0:
                     lg_kl_weight = min(self.lg_kl_weight * (epoch / self.anneal_epoch), self.lg_kl_weight)
                     print('kl_w: ', lg_kl_weight)
@@ -303,6 +308,7 @@ class Solver(object):
              obs_frames, pred_frames, map_path, inv_h_t,
              local_map, local_ic, local_homo, local_map_size) = next(iterator)
             batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
+            avg_batch_size.append(batch_size)
 
             obs_heat_map, fut_heat_map =  self.make_heatmap(local_ic, local_map, local_map_size)
             lg_heat_map = torch.tensor(fut_heat_map[:,11]).float().to(self.device).unsqueeze(1)
