@@ -177,12 +177,12 @@ class Solver(object):
 
                 print(">>>>>>>>> Init: ", lg_cvae_path)
 
-                ## random init after latent space
-                for m in self.lg_cvae.unet.upsampling_path:
-                    m.apply(init_weights)
-                self.lg_cvae.fcomb.apply(init_weights)
-                # kl weight
-                self.lg_cvae.beta = args.lg_kl_weight
+                # ## random init after latent space
+                # for m in self.lg_cvae.unet.upsampling_path:
+                #     m.apply(init_weights)
+                # self.lg_cvae.fcomb.apply(init_weights)
+                # # kl weight
+                # self.lg_cvae.beta = args.lg_kl_weight
 
             else:
                 num_filters = [32,32,64,64,64]
