@@ -123,7 +123,7 @@ class TrajectoryDataset(Dataset):
         self.seq_len = self.obs_len + self.pred_len
         self.delim = '\t'
         self.device = device
-        self.map_dir =  '../../datasets/nmap/map/'
+        self.map_dir =  '../datasets/nmap/map/'
 
         n_pred_state=2
         n_state=6
@@ -143,6 +143,7 @@ class TrajectoryDataset(Dataset):
         map_file_names=[]
         local_map_size = []
         deli = '/'
+        # deli = '\\'
 
         for path in all_files:
             print('data path:', path)
