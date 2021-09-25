@@ -320,11 +320,11 @@ class Solver(object):
                 recon_lg_heat ** self.gamma)).sum().div(batch_size)
 
 
-            lg_kl = self.lg_cvae.kl_divergence(analytic=True)
-            lg_kl = torch.clamp(lg_kl, self.fb).sum().div(batch_size)
+            # lg_kl = self.lg_cvae.kl_divergence(analytic=True)
+            # lg_kl = torch.clamp(lg_kl, self.fb).sum().div(batch_size)
 
             # lg_recon_loss = self.recon_loss_with_logit(input=recon_lg_heat, target=lg_heat_map).sum().div(np.prod([*lg_heat_map.size()[:3]]))
-            lg_elbo = focal_loss - lg_kl_weight * lg_kl
+            lg_elbo = focal_loss
 
 
             loss = - lg_elbo
@@ -341,18 +341,18 @@ class Solver(object):
 
             # (visdom) insert current line stats
             if self.viz_on and (iteration % self.viz_ll_iter == 0):
-                lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon, test_lg_kl = self.evaluate_dist(self.val_loader, loss=True)
-                test_total_loss = test_lg_recon - lg_kl_weight * test_lg_kl
+                lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon = self.evaluate_dist(self.val_loader, loss=True)
+                test_total_loss = test_lg_recon
                 self.line_gather.insert(iter=iteration,
                                         lg_fde_min=lg_fde_min,
                                         lg_fde_avg=lg_fde_avg,
                                         lg_fde_std=lg_fde_std,
                                         total_loss=-loss.item(),
                                         lg_recon=-focal_loss.item(),
-                                        lg_kl=lg_kl.item(),
+                                        lg_kl=0,
                                         test_total_loss=test_total_loss.item(),
                                         test_lg_recon=-test_lg_recon.item(),
-                                        test_lg_kl=test_lg_kl.item(),
+                                        test_lg_kl=0,
                                         )
 
                 prn_str = ('[iter_%d (epoch_%d)] VAE Loss: %.3f '
@@ -388,7 +388,7 @@ class Solver(object):
         self.set_mode(train=False)
         total_traj = 0
 
-        lg_recon = lg_kl = 0
+        lg_recon = 0
         lg_fde=[]
         with torch.no_grad():
             b=0
@@ -431,8 +431,6 @@ class Solver(object):
 
                 if loss:
                     self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
-
-                    lg_kl += self.lg_cvae.kl_divergence(analytic=True).sum().div(batch_size)
                     lg_recon += (self.alpha * lg_heat_map * torch.log(pred_lg_heat + self.eps) * ((1 - pred_lg_heat) ** self.gamma) \
                          + (1 - self.alpha) * (1 - lg_heat_map) * torch.log(1 - pred_lg_heat + self.eps) * (pred_lg_heat ** self.gamma)).sum().div(batch_size)
 
@@ -456,7 +454,7 @@ class Solver(object):
 
         self.set_mode(train=True)
         if loss:
-            return lg_fde_min, lg_fde_avg, lg_fde_std, lg_recon/b, lg_kl/b,
+            return lg_fde_min, lg_fde_avg, lg_fde_std, lg_recon/b
         else:
             return lg_fde_min, lg_fde_avg, lg_fde_std
 
