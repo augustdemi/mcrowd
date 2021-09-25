@@ -183,7 +183,8 @@ class TrajectoryDataset(Dataset):
             else:
                 frames = np.unique(data[:, 0]).tolist()
 
-            frames = frames[:(len(frames)//3)*2]
+            if 'test' in all_files:
+                frames = frames[:(len(frames)//3)*2]
 
             # print('uniq frames: ', len(frames))
             frame_data = [] # all data per frame
