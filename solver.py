@@ -166,20 +166,36 @@ class Solver(object):
             #
             # # input = env + 8 past / output = env + lg
 
-            if args.load_e > 0:
-                lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_0.5_anneal_e_0_load_e_1_run_24'
-                lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_57100_lg_cvae.pt')
+            num_filters = [32, 32, 64, 64, 64]
+            self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters,
+                                             latent_dim=self.w_dim,
+                                             no_convs_fcomb=self.no_convs_fcomb,
+                                             no_convs_per_block=self.no_convs_per_block, beta=self.lg_kl_weight).to(
+                self.device)
 
-                # lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_a_0.25_r_2.0_run_24'
-                # lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_3400_lg_cvae.pt')
+            if args.load_e > 0:
+                path_finding_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_0.5_anneal_e_0_load_e_1_run_24'
+                path_finding_path = os.path.join('ckpts', path_finding_path, 'iter_57100_lg_cvae.pt')
+
+                # path_finding_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_a_0.25_r_2.0_run_24'
+                # path_finding_path = os.path.join('ckpts', path_finding_path, 'iter_3400_lg_cvae.pt')
 
 
                 if self.device == 'cuda':
-                    self.lg_cvae = torch.load(lg_cvae_path)
+                    temp_model = torch.load(path_finding_path)
                 else:
-                    self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
+                    temp_model = torch.load(path_finding_path, map_location='cpu')
 
-                print(">>>>>>>>> Init: ", lg_cvae_path)
+                print(">>>>>>>>> Init: ", path_finding_path)
+
+
+                self.lg_cvae.load_state_dict(temp_model.state_dict())
+
+                del temp_model
+                # self.lg_cvae.unet.upsampling_path[0]._modules['conv_block']._modules['layers'][0].weight.sum()
+                # tensor(-1.4253, grad_fn= < SumBackward0 >)
+
+
 
                 # ## random init after latent space
                 # for m in self.lg_cvae.unet.upsampling_path:
@@ -188,10 +204,6 @@ class Solver(object):
                 # # kl weight
                 # self.lg_cvae.beta = args.lg_kl_weight
 
-            else:
-                num_filters = [32,32,64,64,64]
-                self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
-                                        no_convs_fcomb=self.no_convs_fcomb, no_convs_per_block=self.no_convs_per_block, beta=self.lg_kl_weight).to(self.device)
 
 
         else:  # load a previously saved model
