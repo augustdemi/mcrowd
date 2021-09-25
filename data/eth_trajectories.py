@@ -148,8 +148,8 @@ class TrajectoryDataset(Dataset):
         for path in all_files:
             print('data path:', path)
             # if 'zara' in path or 'eth' in path or 'hotel' in path:
-            if 'zara' in path or 'hotel' in path or '003' in path:
-                continue
+            # if 'zara' in path or 'hotel' in path or '003' in path:
+            #     continue
             # if 'students003' in path:
             #     continue
             if 'zara01' in path.split(deli)[-1]:
