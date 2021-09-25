@@ -167,7 +167,7 @@ class Solver(object):
             # # input = env + 8 past / output = env + lg
 
             if args.load_e > 0:
-                lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_a_0.25_r_2.0_run_24_lines'
+                lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_a_0.25_r_2.0_run_24'
                 lg_cvae_path = os.path.join('../ckpts', lg_cvae_path, 'iter_3400_lg_cvae.pt')
 
                 if self.device == 'cuda':
