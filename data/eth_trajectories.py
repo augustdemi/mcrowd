@@ -267,7 +267,7 @@ class TrajectoryDataset(Dataset):
                 for obs_traj in np.concatenate(this_seq_obs):
                     obs_traj = obs_traj.transpose(1, 0)
                     per_step_dist.append(np.sqrt(((obs_traj[1:] - obs_traj[:-1]) ** 2).sum(1)).mean())
-                # mean_pixel_dist = 0.7
+                mean_pixel_dist = 0.7
                 # argmax = np.concatenate(this_seq_obs)[np.array(per_step_dist).argmax()].transpose(1,0)
                 # plt.scatter(argmax[:, 1], argmax[:, 0], s=1)
 
@@ -286,11 +286,11 @@ class TrajectoryDataset(Dataset):
                 for all_pixel in all_pixels:
                     per_step_dist.append(np.sqrt(((all_pixel[1:] - all_pixel[:-1]) ** 2).sum(1)).mean())
 
-                # two_wc_pts = np.array([[0,0], [0,0.7]])
-                # two_ic_pts = np.matmul(np.concatenate([two_wc_pts, np.ones((len(two_wc_pts), 1))], axis=1),
-                #                       inv_h_t)
-                # two_ic_pts /= np.expand_dims(two_ic_pts[:, 2], 1)
-                # mean_pixel_dist = np.linalg.norm(two_ic_pts[1,:2] - two_ic_pts[0,:2])
+                two_wc_pts = np.array([[0,0], [0,0.7]])
+                two_ic_pts = np.matmul(np.concatenate([two_wc_pts, np.ones((len(two_wc_pts), 1))], axis=1),
+                                      inv_h_t)
+                two_ic_pts /= np.expand_dims(two_ic_pts[:, 2], 1)
+                mean_pixel_dist = np.linalg.norm(two_ic_pts[1,:2] - two_ic_pts[0,:2])
 
 
                 # map_path = os.path.join(self.map_dir, map_file_name + '_map.png')
@@ -301,9 +301,9 @@ class TrajectoryDataset(Dataset):
 
             per_step_dist = np.array(per_step_dist)
             # max_per_step_dist_of_seq = per_step_dist[np.where(per_step_dist>0.1)[0]].max()
-            max_per_step_dist_of_seq = per_step_dist.max()
-            local_map_size.extend([int(max_per_step_dist_of_seq * 13)] * len(this_seq_obs))
-            # local_map_size.extend(list((np.clip(per_step_dist, mean_pixel_dist, None) * 16).astype(int)))
+            # max_per_step_dist_of_seq = per_step_dist.max()
+            # local_map_size.extend([int(max_per_step_dist_of_seq * 13)] * len(this_seq_obs))
+            local_map_size.extend(list((np.clip(per_step_dist, mean_pixel_dist, None) * 18).astype(int)))
 
 
 
