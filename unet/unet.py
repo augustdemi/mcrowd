@@ -72,6 +72,7 @@ class Unet(nn.Module):
     def up_forward(self, x):
         for i, up in enumerate(self.upsampling_path):
             x = up(x, self.blocks[-i-1])
+        del self.blocks
         return self.last_layer(x)
 
 
