@@ -183,6 +183,8 @@ class TrajectoryDataset(Dataset):
             else:
                 frames = np.unique(data[:, 0]).tolist()
 
+            # frames = frames[:len(frames)//2]
+
             # print('uniq frames: ', len(frames))
             frame_data = [] # all data per frame
             for frame in frames:
@@ -338,6 +340,7 @@ class TrajectoryDataset(Dataset):
         self.map_file_name = map_file_names
         self.local_map_size = local_map_size
 
+        print(self.seq_start_end[-1])
 
 
     def __len__(self):
