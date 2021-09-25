@@ -167,11 +167,11 @@ class Solver(object):
             # # input = env + 8 past / output = env + lg
 
             if args.load_e > 0:
-                # lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_0.5_anneal_e_0_load_e_1_run_24'
-                # lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_57100_lg_cvae.pt')
+                lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_0.5_anneal_e_0_load_e_1_run_24'
+                lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_57100_lg_cvae.pt')
 
-                lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_a_0.25_r_2.0_run_24'
-                lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_3400_lg_cvae.pt')
+                # lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_a_0.25_r_2.0_run_24'
+                # lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_3400_lg_cvae.pt')
 
 
                 if self.device == 'cuda':
@@ -1364,12 +1364,20 @@ class Solver(object):
             self.ckpt_dir,
             'iter_%s_lg_cvae.pt' % iteration
         )
+
+        lg_cvae_state_path = os.path.join(
+            self.ckpt_dir,
+            'iter_%s_lg_cvae_state.pt' % iteration
+        )
         sg_unet_path = os.path.join(
             self.ckpt_dir,
             'iter_%s_sg_unet.pt' % iteration
         )
         mkdirs(self.ckpt_dir)
+
+        del self.lg_cvae.unet.blocks
         torch.save(self.lg_cvae, lg_cvae_path)
+        torch.save(self.lg_cvae.state_dict(), lg_cvae_state_path)
 
     ####
     def load_checkpoint(self):
@@ -1402,4 +1410,16 @@ class Solver(object):
 
         else:
             self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
+            # a = torch.load(lg_cvae_path, map_location='cpu')
+            # b = a.state_dict()
+            # cc = []
+            # for e in b:
+            #     cc.append(np.prod(np.array(b[e].shape)))
+            #
+            #
+            # a2 = torch.load(lg_cvae_path, map_location='cpu')
+            # b2 = a2.state_dict()
+            # cc2 = []
+            # for e in b2:
+            #     cc2.append(np.prod(np.array(b2[e].shape)))
 
