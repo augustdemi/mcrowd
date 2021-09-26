@@ -167,7 +167,7 @@ class Solver(object):
 
             # input = env + 8 past / output = env + lg
             num_filters = [32,32,64,64,64]
-            self.lg_cvae = ProbabilisticUnet(input_channels=9, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
+            self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
                                     no_convs_fcomb=self.no_convs_fcomb, no_convs_per_block=self.no_convs_per_block, beta=self.lg_kl_weight).to(self.device)
 
 
@@ -232,13 +232,12 @@ class Solver(object):
         for i in range(len(local_ic)):
             env_map = local_map[i, 0].detach().cpu().numpy()
             ohm = [env_map]
-            for t in range(self.obs_len):
-                heat_map_traj = np.zeros((local_map_size[i], local_map_size[i]))
-                heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 100
-                heat_map_traj = resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), (160, 160))
-                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-                # plt.imshow(ndimage.filters.gaussian_filter(heat_map_traj, sigma=1.5))
-                ohm.append(heat_map_traj / heat_map_traj.sum())
+            heat_map_traj = np.zeros((local_map_size[i], local_map_size[i]))
+            heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 50
+            heat_map_traj = resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), (160, 160))
+            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+            # plt.imshow(ndimage.filters.gaussian_filter(heat_map_traj, sigma=1.5))
+            ohm.append(heat_map_traj / heat_map_traj.sum())
             obs_heat_map.append(np.stack(ohm))
 
             heat_map_traj = np.zeros((local_map_size[i], local_map_size[i]))
@@ -284,11 +283,6 @@ class Solver(object):
             if iteration % iter_per_epoch == 0:
                 print('==== epoch %d done ====' % epoch)
                 epoch +=1
-                if epoch ==1:
-                    print(avg_batch_size)
-                print('AVG BS: ', np.array(avg_batch_size).mean())
-                avg_batch_size = []
-
                 iterator = iter(data_loader)
 
             # ============================================
@@ -299,7 +293,6 @@ class Solver(object):
              obs_frames, pred_frames, map_path, inv_h_t,
              local_map, local_ic, local_homo, local_map_size) = next(iterator)
             batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
-            avg_batch_size.append(batch_size)
 
             obs_heat_map, lg_heat_map =  self.make_heatmap(local_ic, local_map, local_map_size)
 
