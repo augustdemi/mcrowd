@@ -104,7 +104,7 @@ class TrajectoryDataset(Dataset):
 
         self.local_map = all_data['local_map']
         self.local_homo = all_data['local_homo']
-        self.local_ic = torch.from_numpy(all_data['local_ic']).to(self.device)
+        self.local_ic = all_data['local_ic']
         self.local_map_size = all_data['local_map_size']
 
         self.num_seq = len(self.seq_start_end) # = slide (seq. of 16 frames) 수 = 2692
