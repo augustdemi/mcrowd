@@ -6,6 +6,9 @@ import cv2
 import numpy as np
 import torch
 from torch.utils.data import Dataset
+
+import sys
+sys.path.append('../')
 from utils import derivative_of
 
 import matplotlib.pyplot as plt
