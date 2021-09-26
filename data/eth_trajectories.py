@@ -104,7 +104,7 @@ class TrajectoryDataset(Dataset):
 
         self.local_map = all_data['local_map']
         self.local_homo = all_data['local_homo']
-        self.local_ic = torch.from_numpy(all_data['local_ic']).float().to(self.device)
+        self.local_ic = torch.from_numpy(all_data['local_ic']).to(self.device)
         self.local_map_size = all_data['local_map_size']
 
         self.num_seq = len(self.seq_start_end) # = slide (seq. of 16 frames) 수 = 2692
@@ -122,8 +122,8 @@ class TrajectoryDataset(Dataset):
             self.obs_frame_num[start:end], self.fut_frame_num[start:end],
             np.array([self.map_file_name[index]] * (end - start)), np.array([self.inv_h_t[index]] * (end - start)),
             torch.tensor(self.local_map[start:end]).float().to(self.device),
-            torch.tensor(self.local_homo[start:end]).float().to(self.device),
             self.local_ic[start:end],
+            torch.tensor(self.local_homo[start:end]).float().to(self.device),
             self.local_map_size[start:end]
         ]
         return out
