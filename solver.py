@@ -158,17 +158,15 @@ class Solver(object):
         self.decoder_h_dim = args.decoder_h_dim
 
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
-            # self.encoderLG = LGEncoder(
-            #     args.zS_dim,
-            #     mlp_dim=args.mlp_dim,
-            #     drop_out_conv=args.dropout_rnn,
-            #     drop_out_mlp=args.dropout_mlp,
-            #     device=self.device).to(self.device)
+            lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_a_0.25_r_2.0_run_24'
+            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_3400_lg_cvae.pt')
 
-            # input = env + 8 past / output = env + lg
-            num_filters = [32,32,64,64,64]
-            self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
-                                    no_convs_fcomb=self.no_convs_fcomb, no_convs_per_block=self.no_convs_per_block, beta=self.lg_kl_weight).to(self.device)
+            if self.device == 'cuda':
+                self.lg_cvae = torch.load(lg_cvae_path)
+            else:
+                self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
+
+            print(">>>>>>>>> Init: ", lg_cvae_path)
 
 
         else:  # load a previously saved model
