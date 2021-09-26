@@ -43,14 +43,14 @@ def create_parser():
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--run_id', default=1, type=int,
+    parser.add_argument('--run_id', default=3, type=int,
                         help='run id (default=-1 to create a new id)')
 
     parser.add_argument('--device', default='cpu', type=str,
                         help='cpu/cuda')
 
     # training hyperparameters
-    parser.add_argument('--batch_size', default=16, type=int,
+    parser.add_argument('--batch_size', default=1, type=int,
                         help='batch size')
     parser.add_argument('--lr_VAE', default=1e-3, type=float,
                         help='learning rate of the VAE')
@@ -63,7 +63,7 @@ def create_parser():
     parser.add_argument('--ckpt_load_iter', default=0, type=int,
                         help='iter# to load the previously saved model ' +
                              '(default=0 to start from the scratch)')
-    parser.add_argument('--max_iter', default=18000, type=float,
+    parser.add_argument('--max_iter', default=0, type=float,
                         help='maximum number of batch iterations')
     parser.add_argument('--ckpt_save_iter', default=100, type=int,
                         help='checkpoint saved every # iters')
@@ -94,13 +94,13 @@ def create_parser():
     parser.add_argument('--loader_num_workers', default=0, type=int)
     parser.add_argument('--obs_len', default=8, type=int)
     parser.add_argument('--pred_len', default=12, type=int)
-    parser.add_argument('--skip', default=1, type=int)
+    parser.add_argument('--skip', default=0, type=int)
     # dataset
     parser.add_argument('--dataset_dir', default='../datasets', type=str,
                         help='dataset directory')
-    parser.add_argument('--dataset_name', default='eth', type=str,
+    parser.add_argument('--dataset_name', default='hotel', type=str,
                         help='dataset name')
-    parser.add_argument('--model_name', default='sg', type=str,
+    parser.add_argument('--model_name', default='lgcvae', type=str,
                         help='dataset name')
     parser.add_argument('--num_workers', default=0, type=int,
                         help='dataloader num_workers')
@@ -126,14 +126,14 @@ def create_parser():
                         help='kl weight')
     parser.add_argument('--lg_kl_weight', default=1, type=int)
 
-    parser.add_argument('--w_dim', default=10, type=int)
+    parser.add_argument('--w_dim', default=20, type=int)
     parser.add_argument('--ll_prior_w', default=1.0, type=float)
     parser.add_argument('--no_convs_fcomb', default=2, type=int)
     parser.add_argument('--no_convs_per_block', default=1, type=int)
     parser.add_argument('--alpha', default=0.25, type=float)
     parser.add_argument('--gamma', default=2., type=float)
-    parser.add_argument('--fb', default=2., type=float)
-    parser.add_argument('--anneal_epoch', default=10, type=int)
+    parser.add_argument('--fb', default=0.5, type=float)
+    parser.add_argument('--anneal_epoch', default=0, type=int)
     parser.add_argument('--load_e', default=1, type=int)
 
     parser.add_argument('--desc', default='data', type=str,
@@ -150,9 +150,13 @@ def main(args):
         solver = Solver(args)
 
         print('--------------------', args.dataset_name, '----------------------')
-        test_path = os.path.join(args.dataset_dir, args.dataset_name, 'Test.txt')
-        args.batch_size = 5
-        _, test_loader = data_loader(args, test_path, shuffle=True)
+        args.batch_size = 1
+
+        # test_path = os.path.join(args.dataset_dir, args.dataset_name, 'Test.txt')
+        # _, test_loader = data_loader(args, test_path, shuffle=True)
+
+        _, test_loader = data_loader(args, args.dataset_dir, args.dataset_name, 'test', shuffle=True)
+
 
         # solver.evaluate_dist(test_loader, loss=False)
         solver.check_feat(test_loader)
