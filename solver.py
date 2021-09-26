@@ -256,7 +256,7 @@ class Solver(object):
             plt.imshow(heat_map_traj)
             '''
         obs_heat_map = torch.tensor(np.stack(obs_heat_map)).float().to(self.device)
-        lg_heat_map = torch.tensor(np.stack(lg_heat_map)).float().to(self.device)
+        lg_heat_map = torch.tensor(np.stack(lg_heat_map)).float().to(self.device).unsqueeze(1)
         # obs_heat_map[:,0] *= obs_heat_map[:,1].max() * 0.5
         return obs_heat_map, lg_heat_map
 
