@@ -162,8 +162,8 @@ class Solver(object):
             # # input = env + 8 past / output = env + lg
 
             if args.load_e > 0:
-                lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_0.5_anneal_e_0_load_e_1_run_24'
-                lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_57100_lg_cvae.pt')
+                lg_cvae_path = 'lgcvae.univ_enc_block_1_fcomb_block_2_wD_20_lr_0.001_a_0.25_r_2.0_skip_0_run_5'
+                lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_4600_lg_cvae.pt')
 
                 # lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_a_0.25_r_2.0_run_24'
                 # lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_3400_lg_cvae.pt')
@@ -177,11 +177,11 @@ class Solver(object):
                 print(">>>>>>>>> Init: ", lg_cvae_path)
 
                 # ## random init after latent space
-                # for m in self.lg_cvae.unet.upsampling_path:
-                #     m.apply(init_weights)
-                # self.lg_cvae.fcomb.apply(init_weights)
-                # # kl weight
-                # self.lg_cvae.beta = args.lg_kl_weight
+                for m in self.lg_cvae.unet.upsampling_path:
+                    m.apply(init_weights)
+                self.lg_cvae.fcomb.apply(init_weights)
+                # kl weight
+                self.lg_cvae.beta = args.lg_kl_weight
 
             else:
                 num_filters = [32,32,64,64,64]
