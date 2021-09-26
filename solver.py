@@ -167,7 +167,7 @@ class Solver(object):
 
             # input = env + 8 past / output = env + lg
             num_filters = [32,32,64,64,64]
-            self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
+            self.lg_cvae = ProbabilisticUnet(input_channels=9, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
                                     no_convs_fcomb=self.no_convs_fcomb, no_convs_per_block=self.no_convs_per_block, beta=self.lg_kl_weight).to(self.device)
 
 
@@ -232,12 +232,13 @@ class Solver(object):
         for i in range(len(local_ic)):
             env_map = local_map[i, 0].detach().cpu().numpy()
             ohm = [env_map]
-            heat_map_traj = np.zeros((local_map_size[i], local_map_size[i]))
-            heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 50
-            heat_map_traj = resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), (160, 160))
-            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-            # plt.imshow(ndimage.filters.gaussian_filter(heat_map_traj, sigma=1.5))
-            ohm.append(heat_map_traj / heat_map_traj.sum())
+            for t in range(self.obs_len):
+                heat_map_traj = np.zeros((local_map_size[i], local_map_size[i]))
+                heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 100
+                heat_map_traj = resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), (160, 160))
+                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+                # plt.imshow(ndimage.filters.gaussian_filter(heat_map_traj, sigma=1.5))
+                ohm.append(heat_map_traj / heat_map_traj.sum())
             obs_heat_map.append(np.stack(ohm))
 
             heat_map_traj = np.zeros((local_map_size[i], local_map_size[i]))
@@ -276,7 +277,6 @@ class Solver(object):
         lg_kl_weight = 0
         print('kl_w: ', lg_kl_weight)
 
-        avg_batch_size = []
         for iteration in range(start_iter, self.max_iter + 1):
 
             # reset data iterators for each epoch
