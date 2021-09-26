@@ -234,30 +234,30 @@ class Solver(object):
             ohm = [env_map]
             heat_map_traj = np.zeros((local_map_size[i], local_map_size[i]))
             heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 10
-            heat_map_traj = resize(heat_map_traj, (350, 350))
-            heat_map_traj /= min(heat_map_traj.sum(), 1)
-            heat_map_traj = resize(heat_map_traj, (160, 160))
-            heat_map_traj /= heat_map_traj.sum()
+            heat_map_traj = resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), (160, 160))
+            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
             # plt.imshow(ndimage.filters.gaussian_filter(heat_map_traj, sigma=1.5))
-            ohm.append(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2))
+            ohm.append(heat_map_traj / heat_map_traj.sum())
 
 
             fhm = []
             for t in range(self.obs_len, self.obs_len+self.pred_len):
                 heat_map_traj = np.zeros((local_map_size[i], local_map_size[i]))
-                heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 10
-                heat_map_traj = resize(heat_map_traj, (350, 350))
-                heat_map_traj /= min(heat_map_traj.sum(), 1)
-                heat_map_traj = resize(heat_map_traj, (160, 160))
-                heat_map_traj /= heat_map_traj.sum()
-                # as Y-net used variance 4 for the GT heatmap representation.
+                heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 100
+                heat_map_traj = resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), (160, 160))
                 heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
                 # plt.imshow(heat_map_traj)
-                fhm.append(heat_map_traj)
+                fhm.append(heat_map_traj / heat_map_traj.sum())
             obs_heat_map.append(np.stack(ohm))
             fut_heat_map.append(np.stack(fhm))
 
-            heat_map_traj.max()
+            # heat_map_traj = np.zeros((880, 880))
+            # heat_map_traj[445, 421] = 10
+            # heat_map_traj = resize(heat_map_traj, (350, 350))
+            # print(heat_map_traj.max())
+            # heat_map_traj /= heat_map_traj.sum()
+            # heat_map_traj = resize(heat_map_traj, (160, 160))
+            # print(heat_map_traj.max())
 
             '''
             heat_map_traj = np.zeros((160, 160))
