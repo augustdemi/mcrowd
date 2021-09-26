@@ -126,11 +126,6 @@ class Solver(object):
 
             self.viz_init()
 
-        # create dirs: "records", "ckpts", "outputs" (if not exist)
-        mkdirs("records");
-        mkdirs("ckpts");
-        mkdirs("outputs")
-
         # set run id
         if args.run_id < 0:  # create a new id
             k = 0
@@ -214,18 +209,12 @@ class Solver(object):
 
         # prepare dataloader (iterable)
         print('Start loading data...')
-        # args.batch_size=4
-        # self.agrs = args
-        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'train')
-        val_path = os.path.join(self.dataset_dir, self.dataset_name, 'test')
-
-        # long_dtype, float_dtype = get_dtypes(args)
 
         if self.ckpt_load_iter != self.max_iter:
             print("Initializing train dataset")
-            _, self.train_loader = data_loader(self.args, train_path)
+            _, self.train_loader = data_loader(self.args, self.dataset_dir, self.dataset_name, 'train')
             print("Initializing val dataset")
-            _, self.val_loader = data_loader(self.args, val_path)
+            _, self.val_loader = data_loader(self.args, self.dataset_dir, self.dataset_name, 'test')
 
             print(
                 'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
