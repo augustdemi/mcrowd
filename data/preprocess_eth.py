@@ -85,8 +85,8 @@ class TrajectoryDataset(Dataset):
             # if 'zara' in path or 'eth' in path or 'hotel' in path:
             # if 'zara' in path or 'hotel' in path or '003' in path:
             #     continue
-            # if 'students003' in path:
-            #     continue
+            if 'students003' in path:
+                continue
             if 'zara01' in path.split(deli)[-1]:
                 map_file_name = 'zara01'
             elif 'zara02' in path.split(deli)[-1]:
@@ -101,7 +101,6 @@ class TrajectoryDataset(Dataset):
                 if skip > 0:
                     map_file_name = 'skip'
                     print('map path: ', map_file_name)
-
                     continue
                 else:
                     map_file_name = ''
@@ -361,7 +360,7 @@ def get_local_map_ic_no_map(all_traj, zoom=20, radius=8):
     local_map = transforms.Compose([
         transforms.Resize(160),
         transforms.ToTensor()
-    ])(Image.fromarray(1 - local_map / 255))
+    ])(Image.fromarray(local_map / 255))
 
     # return np.expand_dims(1 - local_map / 255, 0), torch.tensor(all_pixel_local), torch.tensor(h).float()
     return local_map, local_ic, torch.tensor(h).float()
