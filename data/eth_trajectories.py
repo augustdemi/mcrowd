@@ -141,6 +141,7 @@ class TrajectoryDataset(Dataset):
         obs_frame_num = []
         fut_frame_num = []
         map_file_names=[]
+        inv_h_ts=[]
         local_map_size = []
         deli = '/'
         # deli = '\\'
@@ -172,6 +173,14 @@ class TrajectoryDataset(Dataset):
                     map_file_name = ''
 
             print('map path: ', map_file_name)
+
+            if map_file_name != '':
+                h = np.loadtxt(os.path.join(self.map_dir, map_file_name + '_H.txt'))
+                inv_h_t = np.linalg.pinv(np.transpose(h))
+                map_file_name = os.path.join(self.map_dir, map_file_name + '_map.png')
+            else:
+                inv_h_t = np.zeros((3, 3))
+
 
 
             data = read_file(path, self.delim)
@@ -224,32 +233,6 @@ class TrajectoryDataset(Dataset):
                     curr_seq[_idx, :, pad_front:pad_end] = np.stack([x, y, vx, vy, ax, ay])
                     num_peds_considered += 1
 
-                    ### others
-                    per_frame_past_obst = []
-                    per_frame_fut_obst = []
-                    if map_file_name is '':
-                        per_frame_past_obst = [[]] * self.obs_len
-                        per_frame_fut_obst = [[]] * self.pred_len
-                    else:
-                        curr_obst_seq = curr_seq_data[curr_seq_data[:, 1] != ped_id, :] # frame#, agent id, pos_x, pos_y
-                        i=0
-                        for frame in np.unique(curr_ped_seq[:,0]): # curr_ped_seq는 continue를 지나왔으므로 반드시 20임
-                            neighbor_ped = curr_obst_seq[curr_obst_seq[:, 0] == frame][:, 2:]
-                            if i < self.obs_len:
-                                # print('neighbor_ped:', len(neighbor_ped))
-                                if len(neighbor_ped) ==0:
-                                    per_frame_past_obst.append([])
-                                else:
-                                    per_frame_past_obst.append(np.around(neighbor_ped, decimals=4))
-                            else:
-                                if len(neighbor_ped) ==0:
-                                    per_frame_fut_obst.append([])
-                                else:
-                                    per_frame_fut_obst.append(np.around(neighbor_ped, decimals=4))
-                            i += 1
-                    seq_past_obst_list.append(per_frame_past_obst)
-                    seq_fut_obst_list.append(per_frame_fut_obst)
-
 
 
                 if num_peds_considered > min_ped: # 주어진 하나의 sliding(16초)동안 등장한 agent수가 min_ped보다 큼을 만족하는 경우에만 이 slide데이터를 채택
@@ -261,7 +244,10 @@ class TrajectoryDataset(Dataset):
                     fut_frame_num.append(np.ones((num_peds_considered, self.pred_len)) * frames[idx + self.obs_len:idx + self.seq_len])
                     # map_file_names.append(num_peds_considered*[map_file_name])
                     map_file_names.append(map_file_name)
+                    inv_h_ts.append(inv_h_t)
 
+
+            ### for map
             if map_file_name == '':
                 per_step_dist = []
                 for obs_traj in np.concatenate(this_seq_obs):
@@ -272,8 +258,6 @@ class TrajectoryDataset(Dataset):
                 # plt.scatter(argmax[:, 1], argmax[:, 0], s=1)
 
             else:
-                h = np.loadtxt(os.path.join(self.map_dir, map_file_name + '_H.txt'))
-                inv_h_t = np.linalg.pinv(np.transpose(h))
                 all_pixels = []
                 for obs_traj in np.concatenate(this_seq_obs):
                     obs_traj = obs_traj.transpose(1, 0)
@@ -341,6 +325,7 @@ class TrajectoryDataset(Dataset):
         ] # [(0, 2),  (2, 4),  (4, 7),  (7, 10), ... (32682, 32684),  (32684, 32686)]
         self.map_file_name = map_file_names
         self.local_map_size = local_map_size
+        self.inv_h_t = inv_h_ts
 
         print(self.seq_start_end[-1])
 
@@ -365,10 +350,8 @@ class TrajectoryDataset(Dataset):
                 local_homos.append(local_h)
             local_map_size = np.array(self.local_map_size[start:end]) * 2 * zoom
         else:
-            map_path = os.path.join(self.map_dir, self.map_file_name[index] + '_map.png')
-            global_map = 255 - imageio.imread(map_path)
-            h = np.loadtxt(os.path.join(self.map_dir, self.map_file_name[index] + '_H.txt'))
-            inv_h_t = np.linalg.pinv(np.transpose(h))
+            global_map = 255 - imageio.imread(self.map_file_name[index])
+            inv_h_t = self.inv_h_t[index]
 
             for idx in range(start, end):
                 all_traj = torch.cat([self.obs_traj[idx, :2], self.pred_traj[idx, :2]], dim=1).\
