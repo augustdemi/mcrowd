@@ -445,7 +445,6 @@ class Solver(object):
             lg_fde_std = np.std(lg_fde, axis=0).mean()
 
             del obs_heat_map
-            del fut_heat_map
             del lg_heat_map
             del pred_lg_heat
             del local_map
