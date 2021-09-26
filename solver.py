@@ -284,10 +284,6 @@ class Solver(object):
             if iteration % iter_per_epoch == 0:
                 print('==== epoch %d done ====' % epoch)
                 epoch +=1
-                if epoch ==1:
-                    print(avg_batch_size)
-                print('AVG BS: ', np.array(avg_batch_size).mean())
-                avg_batch_size = []
 
                 iterator = iter(data_loader)
 
