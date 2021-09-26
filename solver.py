@@ -227,37 +227,24 @@ class Solver(object):
 
     def make_heatmap(self, local_ic, local_map, local_map_size):
         obs_heat_map = []
-        fut_heat_map = []
+        lg_heat_map = []
 
         for i in range(len(local_ic)):
             env_map = local_map[i, 0].detach().cpu().numpy()
             ohm = [env_map]
             heat_map_traj = np.zeros((local_map_size[i], local_map_size[i]))
-            heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 10
+            heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 50
             heat_map_traj = resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), (160, 160))
             heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
             # plt.imshow(ndimage.filters.gaussian_filter(heat_map_traj, sigma=1.5))
             ohm.append(heat_map_traj / heat_map_traj.sum())
-
-
-            fhm = []
-            for t in range(self.obs_len, self.obs_len+self.pred_len):
-                heat_map_traj = np.zeros((local_map_size[i], local_map_size[i]))
-                heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 100
-                heat_map_traj = resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), (160, 160))
-                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-                # plt.imshow(heat_map_traj)
-                fhm.append(heat_map_traj / heat_map_traj.sum())
             obs_heat_map.append(np.stack(ohm))
-            fut_heat_map.append(np.stack(fhm))
 
-            # heat_map_traj = np.zeros((880, 880))
-            # heat_map_traj[445, 421] = 10
-            # heat_map_traj = resize(heat_map_traj, (350, 350))
-            # print(heat_map_traj.max())
-            # heat_map_traj /= heat_map_traj.sum()
-            # heat_map_traj = resize(heat_map_traj, (160, 160))
-            # print(heat_map_traj.max())
+            heat_map_traj = np.zeros((local_map_size[i], local_map_size[i]))
+            heat_map_traj[local_ic[i, -1, 0], local_ic[i, -1, 1]] = 100
+            heat_map_traj = resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), (160, 160))
+            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+            lg_heat_map.append(heat_map_traj / heat_map_traj.sum())
 
             '''
             heat_map_traj = np.zeros((160, 160))
@@ -269,9 +256,9 @@ class Solver(object):
             plt.imshow(heat_map_traj)
             '''
         obs_heat_map = torch.tensor(np.stack(obs_heat_map)).float().to(self.device)
-        fut_heat_map = np.stack(fut_heat_map)
+        lg_heat_map = torch.tensor(np.stack(lg_heat_map)).float().to(self.device)
         # obs_heat_map[:,0] *= obs_heat_map[:,1].max() * 0.5
-        return obs_heat_map, fut_heat_map
+        return obs_heat_map, lg_heat_map
 
 
     ####
@@ -317,8 +304,7 @@ class Solver(object):
             batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
             avg_batch_size.append(batch_size)
 
-            obs_heat_map, fut_heat_map =  self.make_heatmap(local_ic, local_map, local_map_size)
-            lg_heat_map = torch.tensor(fut_heat_map[:,11]).float().to(self.device).unsqueeze(1)
+            obs_heat_map, lg_heat_map =  self.make_heatmap(local_ic, local_map, local_map_size)
 
 
             #-------- long term goal --------
@@ -413,8 +399,7 @@ class Solver(object):
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
-                obs_heat_map, fut_heat_map = self.make_heatmap(local_ic, local_map, local_map_size)
-                lg_heat_map = torch.tensor(fut_heat_map[:, 11]).float().to(self.device).unsqueeze(1)
+                obs_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map, local_map_size)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 pred_lg_wc20 = []
@@ -425,7 +410,7 @@ class Solver(object):
                     pred_lg_wc = []
                     for i in range(batch_size):
                         pred_lg_ic = []
-                        for heat_map in lg_heat_map[i]:
+                        for heat_map in pred_lg_heat[i]:
                             # heat_map = nnf.interpolate(heat_map.unsqueeze(0), size=(local_map_size[i], local_map_size[i]), mode='nearest')
                             heat_map = nnf.interpolate(heat_map.unsqueeze(0).unsqueeze(0),
                                                        size=(local_map_size[i], local_map_size[i]), mode='bicubic', align_corners=False).squeeze(0).squeeze(0)
@@ -482,9 +467,7 @@ class Solver(object):
                  obs_frames, pred_frames, map_path, inv_h_t,
                  local_map, local_ic, local_homo, local_map_size) = batch
 
-                obs_heat_map, fut_heat_map = self.make_heatmap(local_ic, local_map, local_map_size)
-                lg_heat_map = torch.tensor(fut_heat_map[:, 11]).float().to(self.device).unsqueeze(1)
-                sg_heat_map = torch.tensor(fut_heat_map[:, self.sg_idx]).float().to(self.device)
+                obs_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map, local_map_size)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
 
