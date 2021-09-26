@@ -287,10 +287,6 @@ class Solver(object):
                     print(avg_batch_size)
                 print('AVG BS: ', np.array(avg_batch_size).mean())
                 avg_batch_size = []
-                if self.lg_kl_weight > 0:
-                    lg_kl_weight = min(self.lg_kl_weight * (epoch / self.anneal_epoch), self.lg_kl_weight)
-                    print('kl_w: ', lg_kl_weight)
-
 
                 iterator = iter(data_loader)
 
@@ -466,11 +462,6 @@ class Solver(object):
                  obs_frames, pred_frames, map_path, inv_h_t,
                  local_map, local_ic, local_homo, local_map_size) = batch
 
-                batch = data_loader.dataset.__getitem__(40)
-                (obs_traj, fut_traj, seq_start_end,
-                 obs_frames, pred_frames, map_path, inv_h_t,
-                 local_map, local_ic, local_homo, local_map_size) = batch
-
                 obs_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map, local_map_size)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
@@ -533,12 +524,10 @@ class Solver(object):
                 heat_map_traj = np.zeros((local_map_size[i], local_map_size[i]))
                 for t in [0, 1, 2, 3, 4, 5, 6, 7, 11, 15, 19]:
                     heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 20
-                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
                 heat_map_traj = resize(heat_map_traj, (160, 160))
+                heat_map_traj /= heat_map_traj.sum()
                 # as Y-net used variance 4 for the GT heatmap representation.
                 heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-                heat_map_traj /= heat_map_traj.max()
-                # plt.imshow(heat_map_traj)
 
 
                 fig = plt.figure(figsize=(15, 10))
@@ -549,7 +538,7 @@ class Solver(object):
                     if k < 5:
                         a = mm[k][i, 0].detach().cpu().numpy().copy()
                         # ax.imshow(np.stack([env * (1 - heat_map_traj), env * (1 - a * 5), env], axis=2))
-                        ax.imshow(np.stack([env * (1 - heat_map_traj*3), env * (1 - a * 20), env], axis=2))
+                        ax.imshow(np.stack([heat_map_traj, env * (1 - a * 5), env], axis=2))
                     else:
                         ax.imshow(mm[k % 5][i, 0])
 
