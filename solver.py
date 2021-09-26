@@ -233,7 +233,9 @@ class Solver(object):
             env_map = local_map[i, 0].detach().cpu().numpy()
             ohm = [env_map]
             heat_map_traj = np.zeros((local_map_size[i], local_map_size[i]))
-            heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 1
+            heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 10
+            heat_map_traj = resize(heat_map_traj, (350, 350))
+            heat_map_traj /= min(heat_map_traj.sum(), 1)
             heat_map_traj = resize(heat_map_traj, (160, 160))
             heat_map_traj /= heat_map_traj.sum()
             # plt.imshow(ndimage.filters.gaussian_filter(heat_map_traj, sigma=1.5))
@@ -243,7 +245,9 @@ class Solver(object):
             fhm = []
             for t in range(self.obs_len, self.obs_len+self.pred_len):
                 heat_map_traj = np.zeros((local_map_size[i], local_map_size[i]))
-                heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
+                heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 10
+                heat_map_traj = resize(heat_map_traj, (350, 350))
+                heat_map_traj /= min(heat_map_traj.sum(), 1)
                 heat_map_traj = resize(heat_map_traj, (160, 160))
                 heat_map_traj /= heat_map_traj.sum()
                 # as Y-net used variance 4 for the GT heatmap representation.
@@ -253,6 +257,7 @@ class Solver(object):
             obs_heat_map.append(np.stack(ohm))
             fut_heat_map.append(np.stack(fhm))
 
+            heat_map_traj.max()
 
             '''
             heat_map_traj = np.zeros((160, 160))
