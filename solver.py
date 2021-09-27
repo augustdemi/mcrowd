@@ -233,10 +233,10 @@ class Solver(object):
         obs_heat_map = []
         fut_heat_map = []
         for i in range(len(local_ic)):
+            env = local_map[i, 0].detach().cpu().numpy()
             if np.random.rand() < 0.5:
-                env = local_map[i, 0].detach().cpu().numpy()
-            else:
-                env = np.zeros_like(local_map[i, 0])
+                env *= 0
+
             ohm = [env]
             fhm = []
             for t in range(self.obs_len + self.pred_len):
