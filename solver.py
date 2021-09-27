@@ -246,7 +246,6 @@ class Solver(object):
         return l2_reg
 
 
-
     def make_heatmap(self, local_ic, local_map):
         obs_heat_map = []
         fut_heat_map = []
@@ -256,18 +255,19 @@ class Solver(object):
                 env *= 0
 
             ohm = [env]
+
+            heat_map_traj = np.zeros((160, 160))
+            heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 1
+            ohm.append(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2))
+
             fhm = []
-            for t in range(self.obs_len + self.pred_len):
+            for t in range(self.obs_len, self.obs_len+self.pred_len):
                 heat_map_traj = np.zeros((160,160))
                 heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
                 # as Y-net used variance 4 for the GT heatmap representation.
                 heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
                 # plt.imshow(heat_map_traj)
-
-                if t < self.obs_len:
-                    ohm.append(heat_map_traj)
-                else:
-                    fhm.append(heat_map_traj)
+                fhm.append(heat_map_traj)
             obs_heat_map.append(np.stack(ohm))
             fut_heat_map.append(np.stack(fhm))
             '''
