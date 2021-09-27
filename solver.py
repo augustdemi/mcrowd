@@ -3,6 +3,8 @@ import os
 import torch.optim as optim
 # -----------------------------------------------------------------------------#
 
+import sys
+sys.path.append('../')
 from utils import DataGather, mkdirs, grid2gif2, apply_poe, sample_gaussian, sample_gumbel_softmax
 from model import *
 from loss import kl_two_gaussian, displacement_error, final_displacement_error
@@ -160,8 +162,8 @@ class Solver(object):
             # # input = env + 8 past / output = env + lg
 
             if args.load_e > 0:
-                lg_cvae_path = 'lgcvae.' + args.dataset_name + '_enc_block_1_fcomb_block_2_wD_20_lr_0.001_a_0.25_r_2.0_skip_0_run_8'
-                lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_5000_lg_cvae.pt')
+                lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_0.5_anneal_e_0_load_e_1_run_24'
+                lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_57100_lg_cvae.pt')
 
                 # lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_a_0.25_r_2.0_run_24'
                 # lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_3400_lg_cvae.pt')
@@ -175,15 +177,15 @@ class Solver(object):
                 print(">>>>>>>>> Init: ", lg_cvae_path)
 
                 # ## random init after latent space
-                for m in self.lg_cvae.unet.upsampling_path:
-                    m.apply(init_weights)
-                self.lg_cvae.fcomb.apply(init_weights)
-                # kl weight
-                self.lg_cvae.beta = args.lg_kl_weight
+                # for m in self.lg_cvae.unet.upsampling_path:
+                #     m.apply(init_weights)
+                # self.lg_cvae.fcomb.apply(init_weights)
+                # # kl weight
+                # self.lg_cvae.beta = args.lg_kl_weight
 
             else:
                 num_filters = [32,32,64,64,64]
-                self.lg_cvae = ProbabilisticUnet(input_channels=9, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
+                self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
                                         no_convs_fcomb=self.no_convs_fcomb, no_convs_per_block=self.no_convs_per_block, beta=self.lg_kl_weight).to(self.device)
 
 
@@ -222,6 +224,16 @@ class Solver(object):
         self.recon_loss_with_logit = nn.BCEWithLogitsLoss(size_average = False, reduce=False, reduction=None)
 
 
+    def l2_regularisation(self, m):
+        l2_reg = None
+
+        for W in m.parameters():
+            if l2_reg is None:
+                l2_reg = W.norm(2)
+            else:
+                l2_reg = l2_reg + W.norm(2)
+        return l2_reg
+
 
     def make_heatmap(self, local_ic, local_map, local_map_size):
         obs_heat_map = []
@@ -230,13 +242,12 @@ class Solver(object):
         for i in range(len(local_ic)):
             env_map = local_map[i, 0].detach().cpu().numpy()
             ohm = [env_map]
-            for t in range(self.obs_len):
-                heat_map_traj = np.zeros((local_map_size[i], local_map_size[i]))
-                heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 100
-                heat_map_traj = resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), (160, 160))
-                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-                # plt.imshow(ndimage.filters.gaussian_filter(heat_map_traj, sigma=1.5))
-                ohm.append(heat_map_traj / heat_map_traj.sum())
+            heat_map_traj = np.zeros((local_map_size[i], local_map_size[i]))
+            heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 50
+            heat_map_traj = resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), (160, 160))
+            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+            # plt.imshow(ndimage.filters.gaussian_filter(heat_map_traj, sigma=1.5))
+            ohm.append(heat_map_traj / heat_map_traj.sum())
             obs_heat_map.append(np.stack(ohm))
 
             heat_map_traj = np.zeros((local_map_size[i], local_map_size[i]))
@@ -478,7 +489,6 @@ class Solver(object):
 
 
 
-
                 obs_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map, local_map_size)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
@@ -558,6 +568,7 @@ class Solver(object):
                     if k < 5:
                         a = mm[k][i, 0].detach().cpu().numpy().copy()
                         # ax.imshow(np.stack([env * (1 - heat_map_traj), env * (1 - a * 5), env], axis=2))
+                        # ax.imshow(np.stack([env * (1 - heat_map_traj * 3), env * (1 - a * 20), env], axis=2))
                         ax.imshow(np.stack([env * (1 - heat_map_traj * 3), env * (1 - a * 20), env], axis=2))
                     else:
                         ax.imshow(mm[k % 5][i, 0])
@@ -567,11 +578,10 @@ class Solver(object):
                     ax.set_title('prior' + str(k % 5 + 6))
                     if k < 5:
                         a = mmm[k][i, 0].detach().cpu().numpy().copy()
-                        ax.imshow(np.stack([env * (1 - heat_map_traj * 3), env * (1 - a * 20), env], axis=2))
+                        ax.imshow(np.stack([env * (1 - heat_map_traj), env * (1 - a * 5), env], axis=2))
                         # ax.imshow(np.stack([1-env, 1-heat_map_traj, 1 - mmm[k][i, 0] / (0.1*mmm[k][i, 0].max())],axis=2))
                     else:
                         ax.imshow(mmm[k % 5][i, 0])
-
 
 
 
@@ -1324,8 +1334,6 @@ class Solver(object):
             self.lg_cvae = torch.load(lg_cvae_path)
 
         else:
-            lg_cvae_path = 'lgcvae.' + self.dataset_name + '_enc_block_1_fcomb_block_2_wD_20_lr_0.001_a_0.25_r_2.0_skip_0_run_7'
-            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_9400_lg_cvae.pt')
             self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
             # a = torch.load(lg_cvae_path, map_location='cpu')
             # b = a.state_dict()
