@@ -249,6 +249,7 @@ class Solver(object):
     def make_heatmap(self, local_ic, local_map):
         obs_heat_map = []
         fut_heat_map = []
+        local_ic = local_ic.detach().cpu().numpy()
         for i in range(len(local_ic)):
             env = local_map[i, 0].detach().cpu().numpy()
             if np.random.rand() < 0.5:
