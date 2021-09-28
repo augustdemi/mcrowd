@@ -35,9 +35,6 @@ def integrate_samples(v, p_0, dt=1):
     abs_traj = torch.cumsum(v, dim=1) * dt + p_0.unsqueeze(1)
     return  abs_traj.permute((1, 0, 2))
 
-# def recon_loss_with_logit(input, target):
-#     nn.BCEWithLogitsLoss(size_average = False, reduce=False, reduction=None)
-
 
 
 class Solver(object):
@@ -162,12 +159,6 @@ class Solver(object):
         self.decoder_h_dim = args.decoder_h_dim
 
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
-            # self.encoderLG = LGEncoder(
-            #     args.zS_dim,
-            #     mlp_dim=args.mlp_dim,
-            #     drop_out_conv=args.dropout_rnn,
-            #     drop_out_mlp=args.dropout_mlp,
-            #     device=self.device).to(self.device)
 
             # input = env + 8 past / output = env + lg
             num_filters = [32,32,64,64,args.encoder_h_dim]
