@@ -36,7 +36,7 @@ def seq_collate(data):
     # local_map = np.array(np.concatenate(local_map, 0))
     local_map = np.concatenate(local_map, 0)
     local_ic = np.concatenate(local_ic, 0)
-    local_homo = np.concatenate(local_homo, 0)
+    local_homo = torch.cat(local_homo, 0)
 
 
     out = [
