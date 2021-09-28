@@ -190,7 +190,7 @@ class Solver(object):
 
             else:
                 num_filters = [32,32,64,64,64]
-                self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
+                self.lg_cvae = ProbabilisticUnet(input_channels=9, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
                                         no_convs_fcomb=self.no_convs_fcomb, no_convs_per_block=self.no_convs_per_block, beta=self.lg_kl_weight).to(self.device)
 
 
@@ -243,6 +243,7 @@ class Solver(object):
                 l2_reg = l2_reg + W.norm(2)
         return l2_reg
 
+
     def make_heatmap(self, local_ic, local_map, test=True):
         obs_heat_map = []
         fut_heat_map = []
@@ -252,10 +253,14 @@ class Solver(object):
                 env = local_map[i, 0]
 
             ohm = [env]
-            heat_map_traj = np.zeros((160, 160))
-            heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 1
-            ohm.append(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2))
-            obs_heat_map.append(ohm)
+            for t in range(self.obs_len):
+                heat_map_traj = np.zeros((160, 160))
+                heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
+                # as Y-net used variance 4 for the GT heatmap representation.
+                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+                # plt.imshow(heat_map_traj)
+                ohm.append(heat_map_traj)
+            obs_heat_map.append(np.stack(ohm))
 
             heat_map_traj = np.zeros((160, 160))
             heat_map_traj[local_ic[i, -1, 0], local_ic[i, -1, 1]] = 1
