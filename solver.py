@@ -195,18 +195,15 @@ class Solver(object):
 
         # prepare dataloader (iterable)
         print('Start loading data...')
-        # args.batch_size=4
-        # self.agrs = args
-        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'Train.txt')
-        val_path = os.path.join(self.dataset_dir, self.dataset_name, 'Val.txt')
 
         # long_dtype, float_dtype = get_dtypes(args)
 
         if self.ckpt_load_iter != self.max_iter:
             print("Initializing train dataset")
-            _, self.train_loader = data_loader(self.args, train_path)
+            _, self.train_loader = data_loader(self.args, self.dataset_dir, data_split='train')
             print("Initializing val dataset")
-            _, self.val_loader = data_loader(self.args, val_path)
+            _, self.val_loader = data_loader(self.args, self.dataset_dir, data_split='val')
+
 
             print(
                 'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
