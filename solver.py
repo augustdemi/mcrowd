@@ -168,10 +168,10 @@ class Solver(object):
             # # input = env + 8 past / output = env + lg
 
             if args.load_e > 0:
-                lg_cvae_path = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_a_%s_r_%s_run_%s' % \
+                lg_cvae_path = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_a_%s_r_2.0_run_%s' % \
                                (
                                args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE,
-                               args.alpha, args.gamma, args.run_id)
+                               args.alpha, args.run_id)
                 lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_3400_lg_cvae.pt')
 
                 if self.device == 'cuda':
@@ -248,18 +248,19 @@ class Solver(object):
         fut_heat_map = []
         for i in range(len(local_ic)):
             env = np.zeros((160, 160))
-            if not test and (np.random.rand() < self.ll_prior_w):
+            if not test and (np.random.rand() < 0.5):
                 env = local_map[i, 0]
 
             ohm = [env]
             heat_map_traj = np.zeros((160, 160))
             heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 1
-            ohm.append(ndimage.filters.gaussian_filter(heat_map_traj, sigma=self.decoder_h_dim))
+            ohm.append(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2))
+            obs_heat_map.append(ohm)
 
             heat_map_traj = np.zeros((160, 160))
             heat_map_traj[local_ic[i, -1, 0], local_ic[i, -1, 1]] = 1
             # as Y-net used variance 4 for the GT heatmap representation.
-            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=self.decoder_h_dim)
+            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
             fut_heat_map.append(heat_map_traj)
 
             '''
