@@ -168,9 +168,9 @@ class Solver(object):
             # # input = env + 8 past / output = env + lg
 
             if args.load_e > 0:
-                lg_cvae_path = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_a_%s_r_%s_encD_%s_var_%s_no_map_%s' % \
+                lg_cvae_path = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_a_%s_r_%s_encD_%s_var_%s_no_map_%s_run_%s' % \
                     (args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE,
-                     args.alpha, args.gamma, args.encoder_h_dim, args.decoder_h_dim, args.ll_prior_w)
+                     args.alpha, args.gamma, args.encoder_h_dim, args.decoder_h_dim, args.ll_prior_w, args.run_id)
 
 
                 lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_4800_lg_cvae.pt')
