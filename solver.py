@@ -1,4 +1,5 @@
 import os
+from matplotlib.animation import FuncAnimation
 
 import torch.optim as optim
 # -----------------------------------------------------------------------------#
@@ -20,7 +21,7 @@ from unet.probabilistic_unet import ProbabilisticUnet
 from unet.unet import Unet
 import numpy as np
 import visdom
-
+import torch.nn.functional as F
 from unet.utils import init_weights
 
 
@@ -513,6 +514,11 @@ class Solver(object):
                  obs_frames, pred_frames, map_path, inv_h_t,
                  local_map, local_ic, local_homo) = batch
 
+                batch = data_loader.dataset.__getitem__(143)
+                (obs_traj, fut_traj,
+                 obs_frames, pred_frames, map_path, inv_h_t,
+                 local_map, local_ic, local_homo) = batch
+
                 obs_heat_map, fut_heat_map = self.make_heatmap(local_ic, local_map)
                 lg_heat_map = torch.tensor(fut_heat_map[:, 11]).float().to(self.device).unsqueeze(1)
                 sg_heat_map = torch.tensor(fut_heat_map[:, self.sg_idx]).float().to(self.device)
@@ -617,10 +623,10 @@ class Solver(object):
                 heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=1)
 
 
-                fig = plt.figure(figsize=(15, 10))
+                fig = plt.figure(figsize=(12, 10))
                 fig.tight_layout()
                 for k in range(10):
-                    ax = fig.add_subplot(4, 5, k + 1)
+                    ax = fig.add_subplot(2, 5, k + 1)
                     ax.set_title('prior' + str(k % 5 + 1))
                     if k < 5:
                         a = mm[k][i, 0].detach().cpu().numpy().copy()
@@ -637,68 +643,6 @@ class Solver(object):
                         # ax.imshow(np.stack([1-env, 1-heat_map_traj, 1 - mmm[k][i, 0] / (0.1*mmm[k][i, 0].max())],axis=2))
                     else:
                         ax.imshow(mmm[k % 5][i, 0])
-
-
-                # ======================== min /max of LG ===============================
-
-
-                axis_max = []
-                axis_min = []
-                b = np.stack(zs)
-                for k in range(self.w_dim):
-                    axis_max.append(b[:,:,k].max())
-                    axis_min.append(b[:,:,k].min())
-
-                # zs = []
-                # for i in range(self.w_dim):
-
-
-                sample_dim=0
-                mm2 = []
-                zs2 = []
-                for latent_d_idx in range(10):
-                    a = zs[sample_dim].clone()
-                    a[:,latent_d_idx] = torch.tensor(axis_max[latent_d_idx])
-                    zs2.append(a)
-                    mm2.append(F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, zs2[-1])))
-
-
-                env = local_map[i,0].detach().cpu().numpy()
-                heat_map_traj = np.zeros_like(env)
-                for t in [0, 1, 2, 3, 4, 5, 6, 7, 11, 15, 19]:
-                    heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 20
-                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-
-                fig = plt.figure(figsize=(8, 8))
-                for k in range(10):
-                    ax = fig.add_subplot(2, 5, k + 1)
-                    ax.set_title('w dim ' + str(k+1) + ': max ' + str(np.round(axis_max[k],2)))
-                    ax.imshow(np.stack([mm2[k - 1][i, 0] / mm2[k - 1][i, 0].max(), env, heat_map_traj], axis=2))
-
-
-
-                sample_dim=0
-                mm3 = []
-                zs3 = []
-                for latent_d_idx in range(10):
-                    a = zs[sample_dim].clone()
-                    a[:,latent_d_idx] = torch.tensor(axis_min[latent_d_idx])
-                    zs3.append(a)
-                    mm3.append(F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, zs3[-1])))
-
-
-                env = local_map[i,0].detach().cpu().numpy()
-                heat_map_traj = np.zeros_like(env)
-                for t in [0, 1, 2, 3, 4, 5, 6, 7, 11, 15, 19]:
-                    heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 20
-                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-
-                fig = plt.figure(figsize=(8, 8))
-                for k in range(10):
-                    ax = fig.add_subplot(2, 5, k + 1)
-                    ax.set_title('w dim ' + str(k+1) + ': min ' + str(np.round(axis_min[k],2)))
-                    ax.imshow(np.stack([mm3[k - 1][i, 0] / mm3[k - 1][i, 0].max(), env, heat_map_traj], axis=2))
-
 
 
                 ####################### SG ############################
@@ -725,8 +669,6 @@ class Solver(object):
                     self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1)))
 
 
-
-
                 env = 1-local_map[i,0].detach().cpu().numpy()
 
                 heat_map_traj = torch.zeros((160,160))
@@ -745,18 +687,161 @@ class Solver(object):
                         ax.imshow(np.stack([env * (1 - heat_map_traj), env * (1 - m * 5), env], axis=2))
                     else:
                         ax.imshow(m)
-                    # m = m.detach().cpu().numpy().copy()
-                    # m = m / m.max()
-                    # ax.imshow(np.stack([env * (1 - heat_map_traj), env * (1 - m *10 ), env], axis=2))
-
-                    # ax.imshow(np.stack([m / m.max(), env, heat_map_traj],axis=2))
 
 
-                ################################################################
+                #################### GIF #################### GIF
+
+                pred_lg_wcs = []
+                pred_sg_wcs = []
+                traj_num=1
+                lg_num=20
+                for _ in range(19):
+                    # -------- long term goal --------
+                    pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True))
+
+                    pred_lg_wc = []
+                    pred_lg_ics = []
+                    for i in range(len(obs_heat_map)):
+                        pred_lg_ic = []
+                        for heat_map in pred_lg_heat[i]:
+                            pred_lg_ic.append((heat_map == torch.max(heat_map)).nonzero()[0])
+                        pred_lg_ic = torch.stack(pred_lg_ic).float()
+                        pred_lg_ics.append(pred_lg_ic)
+
+                        # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
+                        back_wc = torch.matmul(
+                            torch.cat([pred_lg_ic, torch.ones((len(pred_lg_ic), 1)).to(self.device)], dim=1),
+                            torch.transpose(local_homo[i], 1, 0))
+                        pred_lg_wc.append(back_wc[0, :2] / back_wc[0, 2])
+                        # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
+                    pred_lg_wc = torch.stack(pred_lg_wc)
+                    pred_lg_wcs.append(pred_lg_wc)
+
+                    # -------- short term goal --------
+                    pred_lg_heat_from_ic = []
+                    for coord in pred_lg_ics:
+                        heat_map_traj = np.zeros((160, 160))
+                        heat_map_traj[int(coord[0, 0]), int(coord[0, 1])] = 1
+                        heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+                        pred_lg_heat_from_ic.append(heat_map_traj)
+                    pred_lg_heat_from_ic = torch.tensor(np.stack(pred_lg_heat_from_ic)).unsqueeze(1).float().to(
+                        self.device)
+
+                    pred_sg_heat = F.sigmoid(
+                        self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1)))
+                    # pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat], dim=1)))
+
+                    pred_sg_wc = []
+                    for i in range(len(obs_heat_map)):
+                        pred_sg_ic = []
+                        for heat_map in pred_sg_heat[i]:
+                            pred_sg_ic.append((heat_map == torch.max(heat_map)).nonzero()[0])
+                        pred_sg_ic = torch.stack(pred_sg_ic).float()
+
+                        # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
+                        back_wc = torch.matmul(
+                            torch.cat([pred_sg_ic, torch.ones((len(pred_sg_ic), 1)).to(self.device)], dim=1),
+                            torch.transpose(local_homo[i], 1, 0))
+                        back_wc /= back_wc[:, 2].unsqueeze(1)
+                        pred_sg_wc.append(back_wc[:, :2])
+                        # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
+                    pred_sg_wc = torch.stack(pred_sg_wc)
+                    pred_sg_wcs.append(pred_sg_wc)
+
+                ##### trajectories per long&short goal ####
+                # -------- trajectories --------
+                multi_sample_pred = []
+
+                (hx, mux, log_varx) \
+                    = self.encoderMx(obs_traj, seq_start_end, self.lg_cvae.unet_enc_feat, local_homo)
+
+                p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
+                z_priors = []
+                for _ in range(traj_num):
+                    z_priors.append(p_dist.sample())
+
+                for pred_sg_wc in pred_sg_wcs:
+                    for z_prior in z_priors:
+                        # -------- trajectories --------
+                        # NO TF, pred_goals, z~prior
+                        fut_rel_pos_dist_prior = self.decoderMy(
+                            obs_traj[-1],
+                            hx,
+                            z_prior,
+                            pred_sg_wc,  # goal
+                            self.sg_idx-3
+                        )
+                        multi_sample_pred.append(fut_rel_pos_dist_prior.rsample())
+
+                ## pixel data
+                pred_data = []
+                for pred in multi_sample_pred:
+                    pred_fut_traj = integrate_samples(pred, obs_traj[-1, :, :2],
+                                                      dt=self.dt)
+
+                    one_ped = i
+                    # obs_real = obs_traj[:, one_ped, :2]
+                    # obs_real = np.concatenate([obs_real, np.ones((self.obs_len, 1))], axis=1)
+                    # obs_pixel = np.matmul(obs_real, inv_h_t[one_ped])
+                    # obs_pixel /= np.expand_dims(obs_pixel[:, 2], 1)
+                    # obs_pixel[:, [1, 0]] = obs_pixel[:, [0, 1]]
+
+                    # gt_real = fut_traj[:, one_ped, :2]
+                    # gt_real = np.concatenate([gt_real, np.ones((self.pred_len, 1))], axis=1)
+                    # gt_pixel = np.matmul(gt_real, inv_h_t[one_ped])
+                    # gt_pixel /= np.expand_dims(gt_pixel[:, 2], 1)
+                    # gt_pixel[:, [1, 0]] = gt_pixel[:, [0, 1]]
+                    # gt_data.append(np.concatenate([obs_pixel, gt_pixel], 0))  # (20, 3)
+
+                    pred_real = pred_fut_traj[:, one_ped].numpy()
+                    pred_pixel = np.concatenate([pred_real, np.ones((self.pred_len, 1))],
+                                                axis=1)
+
+                    pred_pixel = np.matmul(pred_pixel, np.linalg.inv(np.transpose(local_homo[one_ped])))
+                    pred_pixel /= np.expand_dims(pred_pixel[:, 2], 1)
+                    pred_data.append(np.concatenate([local_ic[i,:8], pred_pixel[:,:2]], 0))
+
+                pred_data = np.expand_dims(np.stack(pred_data),1)
+
+
+                #---------- plot gif
+
+                env = 1-local_map[i,0].detach().cpu().numpy()
+                env = np.stack([env, env, env], axis=2)
+
+                def init():
+                    ax.imshow(env)
+
+                def update_dot(num_t):
+                    print(num_t)
+                    ax.imshow(env)
+                    for j in range(len(pred_data)):
+                        ln_pred[j].set_data(pred_data[j, i, :num_t, 1],
+                                                   pred_data[j, i, :num_t, 0])
+                    ln_gt.set_data(local_ic[i, :num_t, 1], local_ic[i, :num_t, 0])
+
+                fig, ax = plt.subplots()
+                ax.set_title(str(i), fontsize=9)
+                fig.tight_layout()
+                colors = ['r', 'g', 'b', 'm', 'c', 'k', 'w', 'k']
+
+                # ln_gt.append(ax.plot([], [], colors[i % len(colors)] + '--', linewidth=1)[0])
+                # ln_gt.append(ax.scatter([], [], c=colors[i % len(colors)], s=2))
+
+                ln_pred = []
+                for _ in range(len(pred_data)):
+                    ln_pred.append(
+                        ax.plot([], [], 'r', alpha=0.5, linewidth=1)[0])
+
+                ln_gt = ax.plot([], [], 'b--', linewidth=1)[0]
 
 
 
+                ani = FuncAnimation(fig, update_dot, frames=20, interval=1, init_func=init())
 
+                # writer = PillowWriter(fps=3000)
+                gif_path = 'D:\crowd\datasets\Trajectories'
+                ani.save(gif_path + "/" "path_find_agent" + str(i) + ".gif", fps=4)
 
 
 
