@@ -43,7 +43,7 @@ def create_parser():
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--run_id', default=3, type=int,
+    parser.add_argument('--run_id', default=12, type=int,
                         help='run id (default=-1 to create a new id)')
 
     parser.add_argument('--device', default='cpu', type=str,
@@ -60,10 +60,10 @@ def create_parser():
                         help='beta2 parameter of the Adam optimizer for the VAE')
 
     # saving directories and checkpoint/sample iterations
-    parser.add_argument('--ckpt_load_iter', default=0, type=int,
+    parser.add_argument('--ckpt_load_iter', default=36200, type=int,
                         help='iter# to load the previously saved model ' +
                              '(default=0 to start from the scratch)')
-    parser.add_argument('--max_iter', default=0, type=float,
+    parser.add_argument('--max_iter', default=36200, type=float,
                         help='maximum number of batch iterations')
     parser.add_argument('--ckpt_save_iter', default=100, type=int,
                         help='checkpoint saved every # iters')
@@ -94,13 +94,13 @@ def create_parser():
     parser.add_argument('--loader_num_workers', default=0, type=int)
     parser.add_argument('--obs_len', default=8, type=int)
     parser.add_argument('--pred_len', default=12, type=int)
-    parser.add_argument('--skip', default=0, type=int)
+    parser.add_argument('--skip', default=1, type=int)
     # dataset
-    parser.add_argument('--dataset_dir', default='../datasets', type=str,
+    parser.add_argument('--dataset_dir', default='../datasets/Trajectories', type=str,
                         help='dataset directory')
-    parser.add_argument('--dataset_name', default='hotel', type=str,
+    parser.add_argument('--dataset_name', default='', type=str,
                         help='dataset name')
-    parser.add_argument('--model_name', default='lgcvae', type=str,
+    parser.add_argument('--model_name', default='sg', type=str,
                         help='dataset name')
     parser.add_argument('--num_workers', default=0, type=int,
                         help='dataloader num_workers')
@@ -150,12 +150,14 @@ def main(args):
         solver = Solver(args)
 
         print('--------------------', args.dataset_name, '----------------------')
-        args.batch_size = 1
+        args.batch_size = 10
 
-        # test_path = os.path.join(args.dataset_dir, args.dataset_name, 'Test.txt')
-        # _, test_loader = data_loader(args, test_path, shuffle=True)
+        test_path = os.path.join(args.dataset_dir, args.dataset_name, 'Test.txt')
+        # test_path = os.path.join(args.dataset_dir, 'eth', 'val')
+        _, test_loader = data_loader(args, test_path, shuffle=True)
 
-        _, test_loader = data_loader(args, args.dataset_dir, args.dataset_name, 'test', shuffle=True)
+        # _, test_loader = data_loader(args, args.dataset_dir, args.dataset_name, 'test', shuffle=False)
+        # _, test_loader = data_loader(args, args.dataset_dir, 'univ', 'test', shuffle=False)
 
 
         # solver.evaluate_dist(test_loader, loss=False)
@@ -166,14 +168,14 @@ def main(args):
 
         traj_path = 'traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_0.07_run_4'
 
-        traj_iter = '13000'
+        traj_iter = '10000'
         traj_ckpt = {'ckpt_dir': os.path.join('ckpts', traj_path), 'iter': traj_iter}
         print('===== TRAJECTORY:', traj_ckpt)
 
-        lg_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_2.0_anneal_e_0_load_e_1_run_21'
-        lg_iter = '26000'
+        lg_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_0.5_anneal_e_0_load_e_1_run_24'
+        lg_iter = '57100'
         lg_ckpt = {'ckpt_dir': os.path.join('ckpts', lg_path), 'iter': lg_iter}
-        print('===== LG CVAE:', lg_iter)
+        print('===== LG CVAE:', lg_ckpt)
 
         solver.pretrain_load_checkpoint(traj_ckpt, lg_ckpt)
 
@@ -181,8 +183,8 @@ def main(args):
         # solver.evaluate_dist_gt_goal(test_loader)
         # solver.check_feat(test_loader)
 
-        lg_num=5
-        traj_num=4
+        lg_num=20
+        traj_num=1
 
         ade_min, fde_min, \
         ade_avg, fde_avg, \
@@ -205,8 +207,8 @@ def main(args):
         print('lg_fde_std: ', lg_fde_std)
         print('------------------------------------------')
 
-        lg_num = 20
-        traj_num = 1
+        lg_num = 10
+        traj_num = 2
 
         ade_min, fde_min, \
         ade_avg, fde_avg, \
