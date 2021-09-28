@@ -121,6 +121,6 @@ class TrajectoryDataset(Dataset):
             np.array([self.map_file_name[index]] * (end - start)), np.array([self.inv_h_t[index]] * (end - start)),
             self.local_map[start:end],
             self.local_ic[start:end],
-            self.local_homo[start:end]
+            torch.from_numpy(self.local_homo[start:end]).float().to(self.device)
         ]
         return out
