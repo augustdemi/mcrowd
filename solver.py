@@ -49,11 +49,11 @@ class Solver(object):
 
         self.args = args
 
-        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_lg_klw_%s_a_%s_r_%s_fb_%s_anneal_e_%s_load_e_%s' \
-                    '_encD_%s_var_%s_no_map_%s' % \
+        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_lg_klw_%s_a_%s_r_%s_fb_%s_anneal_e_%s_load_e_%s' % \
                     (args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE,
-                     args.lg_kl_weight, args.alpha, args.gamma, args.fb, args.anneal_epoch, args.load_e,
-                     args.encoder_h_dim, args.decoder_h_dim, args.ll_prior_w)
+                     args.lg_kl_weight, args.alpha, args.gamma, args.fb, args.anneal_epoch, args.load_e)
+
+        # to be appended by run_id
 
         # self.use_cuda = args.cuda and torch.cuda.is_available()
         self.fb = args.fb
@@ -168,11 +168,10 @@ class Solver(object):
             # # input = env + 8 past / output = env + lg
 
             if args.load_e > 0:
-                lg_cvae_path = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_a_%s_r_%s_encD_%s_var_%s_no_map_%s_run_%s' % \
-                    (args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE,
-                     args.alpha, args.gamma, args.encoder_h_dim, args.decoder_h_dim, args.ll_prior_w, args.run_id)
-
-
+                lg_cvae_path = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_a_%s_r_2.0_run_%s' % \
+                               (
+                               args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE,
+                               args.alpha, args.run_id)
                 lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_4800_lg_cvae.pt')
 
                 if self.device == 'cuda':
@@ -190,8 +189,8 @@ class Solver(object):
                 self.lg_cvae.beta = args.lg_kl_weight
 
             else:
-                num_filters = [32,32,64,64, args.encoder_h_dim]
-                self.lg_cvae = ProbabilisticUnet(input_channels=9, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
+                num_filters = [32,32,64,64,64]
+                self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
                                         no_convs_fcomb=self.no_convs_fcomb, no_convs_per_block=self.no_convs_per_block, beta=self.lg_kl_weight).to(self.device)
 
 
@@ -244,29 +243,22 @@ class Solver(object):
                 l2_reg = l2_reg + W.norm(2)
         return l2_reg
 
-
     def make_heatmap(self, local_ic, local_map, test=True):
         obs_heat_map = []
         fut_heat_map = []
         for i in range(len(local_ic)):
             env = np.zeros((160, 160))
-            if not test and (np.random.rand() < self.ll_prior_w):
-                env = local_map[i, 0]
 
             ohm = [env]
-            for t in range(self.obs_len):
-                heat_map_traj = np.zeros((160, 160))
-                heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
-                # as Y-net used variance 4 for the GT heatmap representation.
-                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=self.decoder_h_dim)
-                # plt.imshow(heat_map_traj)
-                ohm.append(heat_map_traj)
-            obs_heat_map.append(np.stack(ohm))
+            heat_map_traj = np.zeros((160, 160))
+            heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 1
+            ohm.append(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2))
+            obs_heat_map.append(ohm)
 
             heat_map_traj = np.zeros((160, 160))
             heat_map_traj[local_ic[i, -1, 0], local_ic[i, -1, 1]] = 1
             # as Y-net used variance 4 for the GT heatmap representation.
-            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=self.decoder_h_dim)
+            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
             fut_heat_map.append(heat_map_traj)
 
             '''
