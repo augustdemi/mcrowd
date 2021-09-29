@@ -172,7 +172,7 @@ class Solver(object):
                                (
                                args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE,
                                args.alpha, args.run_id)
-                lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_4800_lg_cvae.pt')
+                lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_3400_lg_cvae.pt')
 
                 if self.device == 'cuda':
                     self.lg_cvae = torch.load(lg_cvae_path)
@@ -248,6 +248,8 @@ class Solver(object):
         fut_heat_map = []
         for i in range(len(local_ic)):
             env = np.zeros((160, 160))
+            if not test and (np.random.rand() < 0.5):
+                env = local_map[i, 0]
 
             ohm = [env]
             heat_map_traj = np.zeros((160, 160))
@@ -415,6 +417,16 @@ class Solver(object):
                 total_traj += fut_traj.size(1)
 
                 obs_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map, test=True)
+                '''
+                gara = np.zeros((160, 160))
+                w=3
+                gara[:w, :] = 1
+                gara[:, -w:] = 1
+                gara[:, :w] = 1
+                gara[-w:, :] = 1
+                gara = torch.tensor(gara).float()
+                obs_heat_map[:,0] = gara.repeat((len(obs_heat_map), 1, 1))
+                '''
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 pred_lg_wc20 = []
