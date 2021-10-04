@@ -141,6 +141,7 @@ class TrajectoryDataset(Dataset):
         obs_frame_num = []
         fut_frame_num = []
         scene_names = []
+        local_map_size=[]
 
         self.maps={}
         for file in os.listdir(self.map_dir):
@@ -163,7 +164,7 @@ class TrajectoryDataset(Dataset):
             scene_data = np.array(scene_data)
             map_size = self.maps[s + '_mask'].shape
             scene_data[:,2] = np.clip(scene_data[:,2], a_min=None, a_max=map_size[1]-1)
-            scene_data[:,3] =  np.clip(scene_data[:,2], a_min=None, a_max=map_size[0]-1)
+            scene_data[:,3] =  np.clip(scene_data[:,3], a_min=None, a_max=map_size[0]-1)
             '''
             scene_data = data[data['sceneId'] == s]
             all_traj = np.array(scene_data)[:,2:4]
@@ -227,7 +228,29 @@ class TrajectoryDataset(Dataset):
                     # inv_h_ts.append(inv_h_t)
                 if data_split == 'test' and np.concatenate(this_scene_seq).shape[0] > 10:
                     break
+            '''
 
+            this_scene_seq = np.concatenate(this_scene_seq)
+            # print(s, len(scene_data), this_scene_seq.shape[0])
+
+            # plt.imshow(self.maps[s + '_mask'])
+            # plt.scatter(curr_seq[0][:2][0, :8], curr_seq[0][:2][1, :8], s=1, c='b')
+            # plt.scatter(curr_seq[0][:2][0, 8:], curr_seq[0][:2][1, 8:], s=1, c='r')
+            # scene_data[np.where(scene_data[:, 1] == ped_ids[0])[0]]
+
+            ### for map
+            per_step_dist = []
+            for traj in this_scene_seq:
+                traj = traj.transpose(1, 0)
+                per_step_dist.append(np.sqrt(((traj[1:] - traj[:-1]) ** 2).sum(1)).max())
+            per_step_dist = np.array(per_step_dist)
+            # print(per_step_dist.max())
+            # print(per_step_dist.mean())
+            # local_map_size.extend(np.round(per_step_dist).astype(int) * 13)
+            max_per_step_dist_of_seq = per_step_dist.max()
+            local_map_size.extend([int(max_per_step_dist_of_seq * 13)] * len(this_scene_seq))
+            print(self.maps[s + "_mask"].shape, int(max_per_step_dist_of_seq * 13) * 2)
+        '''
         seq_list = np.concatenate(seq_list, axis=0) # (32686, 2, 16)
         self.obs_frame_num = np.concatenate(obs_frame_num, axis=0)
         self.fut_frame_num = np.concatenate(fut_frame_num, axis=0)
