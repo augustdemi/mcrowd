@@ -253,7 +253,8 @@ class TrajectoryDataset(Dataset):
             # local_map_size.extend(np.round(per_step_dist).astype(int) * 13)
             # max_per_step_dist_of_seq = per_step_dist.max()
             # local_map_size.extend([int(max_per_step_dist_of_seq * 13)] * len(this_scene_seq))
-            local_map_size.extend(per_step_dist * 18)
+            local_map_size.extend(per_step_dist * 20)
+            print( self.maps[s + '_mask'].shape, ': ' ,(per_step_dist * 20).max())
             # print(self.maps[s + "_mask"].shape, int(max_per_step_dist_of_seq * 13) * 2)
 
         seq_list = np.concatenate(seq_list, axis=0) # (32686, 2, 16)
