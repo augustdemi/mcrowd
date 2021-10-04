@@ -36,10 +36,10 @@ def seq_collate(data):
 
     obs_frames = np.stack(obs_frames)
     fut_frames = np.stack(fut_frames)
-    map_path = np.concatenate(map_path, 0)
+    # map_path = np.concatenate(map_path, 0)
     inv_h_t = np.concatenate(inv_h_t, 0)
     # local_map = np.array(np.concatenate(local_map, 0))
-    local_map = np.concatenate(local_map, 0)
+    # local_map = np.concatenate(local_map, 0)
     local_ic = np.concatenate(local_ic, 0)
     local_homo = np.stack(local_homo, 0)
 
@@ -125,7 +125,7 @@ class TrajectoryDataset(Dataset):
         self.delim = ' '
         self.device = device
         self.map_dir = os.path.join(data_dir, 'SDD_semantic_maps', data_split + '_masks')
-        self.data_path = os.path.join(data_dir, data_split + '_trajnet.pkl')
+        self.data_path = os.path.join(data_dir, 'sdd_' + data_split + '.pkl')
         dt=0.4
         min_ped=0
 
@@ -141,8 +141,6 @@ class TrajectoryDataset(Dataset):
         obs_frame_num = []
         fut_frame_num = []
         scene_names = []
-        local_map_size = []
-        total_n= 0
 
         self.maps={}
         for file in os.listdir(self.map_dir):
@@ -151,13 +149,9 @@ class TrajectoryDataset(Dataset):
         with open(self.data_path, 'rb') as f:
             data = pickle5.load(f)
 
-        # with open('D:\crowd\datasets\SDD/sdd_test.pickle', 'rb') as f:
-        #     data = pickle5.load(f)
-
         data = pd.DataFrame(data)
         scenes = data['sceneId'].unique()
         for s in scenes:
-            # if 'little_2' not in s:
             # if (data_split=='train') and ('hyang_7' not in s):
             #     continue
             print(s)
@@ -167,6 +161,9 @@ class TrajectoryDataset(Dataset):
             # print(scene_data.shape[0])
             frames = scene_data['frame'].unique().tolist()
             scene_data = np.array(scene_data)
+            map_size = self.maps[s + '_mask'].shape
+            scene_data[:,2] = np.clip(scene_data[:,2], a_min=None, a_max=map_size[1]-1)
+            scene_data[:,3] =  np.clip(scene_data[:,2], a_min=None, a_max=map_size[0]-1)
             '''
             scene_data = data[data['sceneId'] == s]
             all_traj = np.array(scene_data)[:,2:4]
@@ -228,6 +225,8 @@ class TrajectoryDataset(Dataset):
                         np.ones((num_peds_considered, self.pred_len)) * frames[idx + self.obs_len:idx + self.seq_len])
                     scene_names.append([s] * num_peds_considered)
                     # inv_h_ts.append(inv_h_t)
+                if data_split == 'test' and np.concatenate(this_scene_seq).shape[0] > 10:
+                    break
 
         seq_list = np.concatenate(seq_list, axis=0) # (32686, 2, 16)
         self.obs_frame_num = np.concatenate(obs_frame_num, axis=0)
@@ -267,6 +266,6 @@ class TrajectoryDataset(Dataset):
             self.obs_traj[index].to(self.device).unsqueeze(0), self.pred_traj[index].to(self.device).unsqueeze(0),
             self.obs_frame_num[index], self.fut_frame_num[index],
             global_map, inv_h_t,
-            np.expand_dims(global_map, axis=0), np.expand_dims(local_ics, axis=0), inv_h_t
+            global_map, np.expand_dims(local_ics, axis=0), inv_h_t
         ]
         return out
