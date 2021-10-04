@@ -154,7 +154,8 @@ class TrajectoryDataset(Dataset):
         scenes = data['sceneId'].unique()
         for s in scenes:
             # if (data_split=='train') and ('hyang_7' not in s):
-            #     continue
+            if ('nexus_2' in s) :
+                continue
             print(s)
             scene_data = data[data['sceneId'] == s]
             scene_data = scene_data.sort_values(by=['frame', 'trackId'], inplace=False)
@@ -228,7 +229,7 @@ class TrajectoryDataset(Dataset):
                     # inv_h_ts.append(inv_h_t)
                 if data_split == 'test' and np.concatenate(this_scene_seq).shape[0] > 10:
                     break
-            '''
+
 
             this_scene_seq = np.concatenate(this_scene_seq)
             # print(s, len(scene_data), this_scene_seq.shape[0])
@@ -242,15 +243,18 @@ class TrajectoryDataset(Dataset):
             per_step_dist = []
             for traj in this_scene_seq:
                 traj = traj.transpose(1, 0)
-                per_step_dist.append(np.sqrt(((traj[1:] - traj[:-1]) ** 2).sum(1)).max())
+                per_step_dist.append(np.sqrt(((traj[1:] - traj[:-1]) ** 2).sum(1)).mean())
             per_step_dist = np.array(per_step_dist)
+            mean_dist = per_step_dist.mean()
+            per_step_dist = np.clip(per_step_dist, a_min=mean_dist, a_max=None)
             # print(per_step_dist.max())
             # print(per_step_dist.mean())
             # local_map_size.extend(np.round(per_step_dist).astype(int) * 13)
-            max_per_step_dist_of_seq = per_step_dist.max()
-            local_map_size.extend([int(max_per_step_dist_of_seq * 13)] * len(this_scene_seq))
-            print(self.maps[s + "_mask"].shape, int(max_per_step_dist_of_seq * 13) * 2)
-        '''
+            # max_per_step_dist_of_seq = per_step_dist.max()
+            # local_map_size.extend([int(max_per_step_dist_of_seq * 13)] * len(this_scene_seq))
+            local_map_size.extend(per_step_dist * 18)
+            # print(self.maps[s + "_mask"].shape, int(max_per_step_dist_of_seq * 13) * 2)
+
         seq_list = np.concatenate(seq_list, axis=0) # (32686, 2, 16)
         self.obs_frame_num = np.concatenate(obs_frame_num, axis=0)
         self.fut_frame_num = np.concatenate(fut_frame_num, axis=0)
@@ -271,6 +275,7 @@ class TrajectoryDataset(Dataset):
 
         self.map_file_name = np.concatenate(scene_names)
         self.num_seq = len(self.obs_traj) # = slide (seq. of 16 frames) 수 = 2692
+        self.local_map_size = np.round(np.stack(local_map_size)).astype(int)
 
         print(self.seq_start_end[-1])
 
@@ -279,16 +284,109 @@ class TrajectoryDataset(Dataset):
         return self.num_seq
 
     def __getitem__(self, index):
-        global_map = np.expand_dims(self.maps[self.map_file_name[index] + '_mask'], axis=0)
+        global_map = self.maps[self.map_file_name[index] + '_mask']
         inv_h_t = np.expand_dims(np.eye(3), axis=0)
-        local_ics = torch.cat([self.obs_traj[index, :2, :],  self.pred_traj[index, :2, :]], dim=1)[[1,0],:].detach().cpu().numpy()
-        local_ics = np.round(local_ics).astype(int).transpose((1,0))
+        all_traj = torch.cat([self.obs_traj[index, :2, :],  self.pred_traj[index, :2, :]], dim=1).detach().cpu().numpy().transpose((1,0))
+        local_map, local_ic, local_homo = get_local_map_ic(global_map, all_traj, zoom=1, radius=self.local_map_size[index])
 
         #########
         out = [
             self.obs_traj[index].to(self.device).unsqueeze(0), self.pred_traj[index].to(self.device).unsqueeze(0),
             self.obs_frame_num[index], self.fut_frame_num[index],
-            global_map, inv_h_t,
-            global_map, np.expand_dims(local_ics, axis=0), inv_h_t
+            np.expand_dims(global_map, axis = 0), inv_h_t,
+            np.expand_dims(local_map, axis=0), np.expand_dims(local_ic, axis=0), local_homo
         ]
         return out
+
+
+
+
+
+
+def get_local_map_ic(global_map, all_traj, zoom=10, radius=8):
+    radius = radius * zoom
+    context_size = radius * 2
+
+    # global_map = np.kron(map, np.ones((zoom, zoom)))
+    expanded_obs_img = np.full((global_map.shape[0] + context_size, global_map.shape[1] + context_size),
+                               False, dtype=np.float32) + 3
+    expanded_obs_img[radius:-radius, radius:-radius] = global_map.astype(np.float32)  # 99~-99
+
+    # all_pixel = np.matmul(np.concatenate([all_traj, np.ones((len(all_traj), 1))], axis=1), inv_h_t)
+    # all_pixel /= np.expand_dims(all_pixel[:, 2], 1)
+    # all_pixel = radius + np.round(all_pixel[:, :2]).astype(int)
+    all_pixel = all_traj[:,[1,0]]
+    all_pixel = radius + np.round(all_pixel).astype(int)
+
+    '''
+    plt.imshow(expanded_obs_img)
+    plt.scatter(all_pixel[:8, 1], all_pixel[:8, 0], s=1, c='b')
+    plt.scatter(all_pixel[8:, 1], all_pixel[8:, 0], s=1, c='r')
+    plt.show()
+    '''
+
+    local_map = expanded_obs_img[all_pixel[7, 0] - radius: all_pixel[7, 0] + radius,
+                all_pixel[7, 1] - radius: all_pixel[7, 1] + radius]
+
+
+    fake_pt = [all_traj[7]]
+    per_pixel_dist = radius // 14
+    # for i in range(10, radius-210, (radius-2)//5):
+    for i in range(per_pixel_dist, radius // 2, per_pixel_dist):
+        # print(i)
+        fake_pt.append(all_traj[7] + [i, i] + np.random.rand(2) * per_pixel_dist)
+        fake_pt.append(all_traj[7] + [-i, -i] + np.random.rand(2) * per_pixel_dist)
+        fake_pt.append(all_traj[7] + [i, -i] + np.random.rand(2) * per_pixel_dist)
+        fake_pt.append(all_traj[7] + [-i, i] + np.random.rand(2) * per_pixel_dist)
+    fake_pt = np.array(fake_pt)
+
+    # fake_pixel = np.matmul(np.concatenate([fake_pt, np.ones((len(fake_pt), 1))], axis=1), inv_h_t)
+    # fake_pixel /= np.expand_dims(fake_pixel[:, 2], 1)
+    # fake_pixel = radius + np.round(fake_pixel).astype(int)
+    fake_pixel = fake_pt[:,[1,0]]
+    fake_pixel = radius + np.round(fake_pixel).astype(int)
+    '''
+    plt.imshow(expanded_obs_img)
+    plt.scatter(fake_pixel[:, 1], fake_pixel[:, 0], s=1, c='r')
+    '''
+
+    temp_map_val = []
+    for i in range(len(fake_pixel)):
+        temp_map_val.append(expanded_obs_img[fake_pixel[i, 0], fake_pixel[i, 1]])
+        expanded_obs_img[fake_pixel[i, 0], fake_pixel[i, 1]] = i + 10
+
+    fake_local_pixel = []
+    for i in range(len(fake_pixel)):
+        fake_local_pixel.append([np.where(local_map == i + 10)[0][0], np.where(local_map == i + 10)[1][0]])
+        expanded_obs_img[fake_pixel[i, 0], fake_pixel[i, 1]] = temp_map_val[i]
+
+    h, _ = cv2.findHomography(np.array([fake_local_pixel]), np.array(fake_pt))
+
+    # plt.scatter(np.array(fake_local_pixel)[:, 1], np.array(fake_local_pixel)[:, 0], s=1, c='g')
+
+    all_pixel_local = np.matmul(np.concatenate([all_traj, np.ones((len(all_traj), 1))], axis=1),
+                                np.linalg.pinv(np.transpose(h)))
+    all_pixel_local /= np.expand_dims(all_pixel_local[:, 2], 1)
+    all_pixel_local = np.round(all_pixel_local).astype(int)[:, :2]
+
+    '''
+    ##  back to wc validate
+    back_wc = np.matmul(np.concatenate([all_pixel_local, np.ones((len(all_pixel_local), 1))], axis=1), np.transpose(h))
+    back_wc /= np.expand_dims(back_wc[:, 2], 1)
+    back_wc = back_wc[:,:2]
+    print((back_wc - all_traj).max())
+    print(np.sqrt(((back_wc - all_traj)**2).sum(1)).max())
+
+
+    plt.imshow(local_map)
+    plt.scatter(all_pixel_local[:8, 1], all_pixel_local[:8, 0], s=1, c='b')
+    plt.scatter(all_pixel_local[8:, 1], all_pixel_local[8:, 0], s=1, c='r')
+    plt.show()
+    # per_step_pixel = np.sqrt(((all_pixel_local[1:] - all_pixel_local[:-1]) ** 2).sum(1)).mean()
+    # per_step_wc = np.sqrt(((all_traj[1:] - all_traj[:-1]) ** 2).sum(1)).mean()
+    '''
+    #
+    # local_map = resize(local_map, (160, 160))
+
+    # return np.expand_dims(1 - local_map / 255, 0), torch.tensor(all_pixel_local), torch.tensor(h).float()
+    return local_map, all_pixel_local, h
