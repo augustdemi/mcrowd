@@ -229,9 +229,9 @@ class Solver(object):
         obs_heat_map = []
         fut_heat_map = []
         for i in range(len(local_ic)):
-            env = cv2.resize(local_map[i, 0], dsize=(480, 480))
+            env = cv2.resize(local_map[i][0], dsize=(480, 480))
             ohm = [env]
-            heat_map_traj = np.zeros_like(local_map[i, 0])
+            heat_map_traj = np.zeros_like(local_map[i][0])
             heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 100
             # heat_map_traj[local_ic[i, -1, 0], local_ic[i, -1, 1]] = 100
             # heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=((map_size[0]+480)//2, (map_size[1]+480)//2))
@@ -244,13 +244,13 @@ class Solver(object):
 
             '''
             heat_map = nnf.interpolate(torch.tensor(heat_map_traj).unsqueeze(0).unsqueeze(0),
-                                       size=local_map[i, 0].shape, mode='nearest').squeeze(0).squeeze(0)
+                                       size=local_map[i][0].shape, mode='nearest').squeeze(0).squeeze(0)
             heat_map = nnf.interpolate(torch.tensor(heat_map_traj).unsqueeze(0).unsqueeze(0),
-                                       size=local_map[i, 0].shape,  mode='bicubic',
+                                       size=local_map[i][0].shape,  mode='bicubic',
                                               align_corners = False).squeeze(0).squeeze(0)
             '''
 
-            heat_map_traj = np.zeros_like(local_map[i, 0])
+            heat_map_traj = np.zeros_like(local_map[i][0])
             heat_map_traj[local_ic[i, -1, 0], local_ic[i, -1, 1]] = 1000
             # heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2),
             #                            dsize=((map_size[0] + 480) // 2, (map_size[1] + 480) // 2))
@@ -416,7 +416,7 @@ class Solver(object):
 
                     pred_lg_wc = []
                     for i in range(batch_size):
-                        map_size = local_map[i, 0].shape
+                        map_size = local_map[i][0].shape
                         pred_lg_ic = []
                         for heat_map in pred_lg_heat[i]:
                             # heat_map = nnf.interpolate(heat_map.unsqueeze(0), size=map_size, mode='nearest')
@@ -479,11 +479,11 @@ class Solver(object):
 
                 ###################################################
                 i = 0
-                plt.imshow(local_map[i, 0])
+                plt.imshow(local_map[i][0])
 
                 # ----------- 12 traj
                 # heat_map_traj = np.zeros((160, 160))
-                heat_map_traj = local_map[i, 0].detach().cpu().numpy().copy()
+                heat_map_traj = local_map[i][0].detach().cpu().numpy().copy()
                 # for t in range(self.obs_len):
                 for t in [0, 1, 2, 3, 4, 5, 6, 7, 11, 15, 19]:
                     heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 100
