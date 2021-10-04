@@ -34,14 +34,14 @@ def seq_collate(data):
     fut_traj = torch.cat(pred_seq_list, dim=0).permute(2, 0, 1)
     seq_start_end = torch.LongTensor(seq_start_end)
 
-    obs_frames = np.concatenate(obs_frames, 0)
-    fut_frames = np.concatenate(fut_frames, 0)
+    obs_frames = np.stack(obs_frames)
+    fut_frames = np.stack(fut_frames)
     map_path = np.concatenate(map_path, 0)
     inv_h_t = np.concatenate(inv_h_t, 0)
     # local_map = np.array(np.concatenate(local_map, 0))
     local_map = np.concatenate(local_map, 0)
     local_ic = np.concatenate(local_ic, 0)
-    local_homo = np.concatenate(local_homo, 0)
+    local_homo = np.stack(local_homo, 0)
 
 
     out = [
@@ -158,8 +158,8 @@ class TrajectoryDataset(Dataset):
         scenes = data['sceneId'].unique()
         for s in scenes:
             # if 'little_2' not in s:
-            # if (data_split=='train') and ('hyang_7' not in s):
-            #     continue
+            if (data_split=='train') and ('hyang_7' not in s):
+                continue
             print(s)
             scene_data = data[data['sceneId'] == s]
             scene_data = scene_data.sort_values(by=['frame', 'trackId'], inplace=False)
@@ -226,10 +226,9 @@ class TrajectoryDataset(Dataset):
                     obs_frame_num.append(np.ones((num_peds_considered, self.obs_len)) * frames[idx:idx + self.obs_len])
                     fut_frame_num.append(
                         np.ones((num_peds_considered, self.pred_len)) * frames[idx + self.obs_len:idx + self.seq_len])
-                    scene_names.append(s)
+                    scene_names.append([s] * num_peds_considered)
                     # inv_h_ts.append(inv_h_t)
 
-        self.num_seq = len(seq_list) # = slide (seq. of 16 frames) 수 = 2692
         seq_list = np.concatenate(seq_list, axis=0) # (32686, 2, 16)
         self.obs_frame_num = np.concatenate(obs_frame_num, axis=0)
         self.fut_frame_num = np.concatenate(fut_frame_num, axis=0)
@@ -248,7 +247,8 @@ class TrajectoryDataset(Dataset):
             for start, end in zip(cum_start_idx, cum_start_idx[1:])
         ] # [(0, 2),  (2, 4),  (4, 7),  (7, 10), ... (32682, 32684),  (32684, 32686)]
 
-        self.map_file_name = scene_names
+        self.map_file_name = np.concatenate(scene_names)
+        self.num_seq = len(self.obs_traj) # = slide (seq. of 16 frames) 수 = 2692
 
         print(self.seq_start_end[-1])
 
@@ -257,18 +257,16 @@ class TrajectoryDataset(Dataset):
         return self.num_seq
 
     def __getitem__(self, index):
-        start, end = self.seq_start_end[index]
-        global_map = self.maps[self.map_file_name[index] + '_mask']
-        global_map = np.expand_dims(global_map, 0).repeat((end-start), axis=0)
-        inv_h_t = np.expand_dims(np.eye(3), 0).repeat((end-start), axis=0)
-        local_ics = torch.cat([self.obs_traj[start:end, :2, :],  self.pred_traj[start:end, :2, :]], dim=2)[:,[1,0]].detach().cpu().numpy()
-        local_ics = np.round(local_ics).astype(int).transpose((0,2,1))
+        global_map = np.expand_dims(self.maps[self.map_file_name[index] + '_mask'], axis=0)
+        inv_h_t = np.expand_dims(np.eye(3), axis=0)
+        local_ics = torch.cat([self.obs_traj[index, :2, :],  self.pred_traj[index, :2, :]], dim=1)[[1,0],:].detach().cpu().numpy()
+        local_ics = np.round(local_ics).astype(int).transpose((1,0))
 
         #########
         out = [
-            self.obs_traj[start:end].to(self.device), self.pred_traj[start:end].to(self.device),
-            self.obs_frame_num[start:end], self.fut_frame_num[start:end],
+            self.obs_traj[index].to(self.device).unsqueeze(0), self.pred_traj[index].to(self.device).unsqueeze(0),
+            self.obs_frame_num[index], self.fut_frame_num[index],
             global_map, inv_h_t,
-            np.expand_dims(global_map, axis=1), local_ics, inv_h_t
+            np.expand_dims(global_map, axis=0), np.expand_dims(local_ics, axis=0), inv_h_t
         ]
         return out
