@@ -429,12 +429,8 @@ class Solver(object):
                         # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
                         pred_lg_wc.append(pred_lg_ic[:,[1,0]])
                         # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
-                    pred_lg_wc = torch.stack(pred_lg_wc)
+                    pred_lg_wc = torch.stack(pred_lg_wc).squeeze(1)
                     pred_lg_wc20.append(pred_lg_wc)
-
-
-
-
 
                 if loss:
                     self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
