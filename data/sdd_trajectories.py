@@ -334,11 +334,11 @@ def get_local_map_ic(global_map, all_traj, zoom=10, radius=8):
     per_pixel_dist = radius // 10
     # for i in range(10, radius-210, (radius-2)//5):
     for i in range(per_pixel_dist, radius // 2 - per_pixel_dist, per_pixel_dist):
-        print(i)
-        fake_pt.append(all_traj[7] + [i, i] + np.random.rand(2) * per_pixel_dist)
-        fake_pt.append(all_traj[7] + [-i, -i] + np.random.rand(2) * per_pixel_dist)
-        fake_pt.append(all_traj[7] + [i, -i] + np.random.rand(2) * per_pixel_dist)
-        fake_pt.append(all_traj[7] + [-i, i] + np.random.rand(2) * per_pixel_dist)
+        # print(i)
+        fake_pt.append(all_traj[7] + [i, i] + np.random.rand(2) * (per_pixel_dist//2))
+        fake_pt.append(all_traj[7] + [-i, -i] + np.random.rand(2) * (per_pixel_dist//2))
+        fake_pt.append(all_traj[7] + [i, -i] + np.random.rand(2) * (per_pixel_dist//2))
+        fake_pt.append(all_traj[7] + [-i, i] + np.random.rand(2) * (per_pixel_dist//2))
     fake_pt = np.array(fake_pt)
 
     # fake_pixel = np.matmul(np.concatenate([fake_pt, np.ones((len(fake_pt), 1))], axis=1), inv_h_t)
