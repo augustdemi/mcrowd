@@ -13,7 +13,7 @@ from torchvision import transforms
 from PIL import Image
 import imageio
 from skimage.transform import resize
-import pickle
+import pickle5
 
 logger = logging.getLogger(__name__)
 
@@ -125,49 +125,145 @@ class TrajectoryDataset(Dataset):
         self.delim = ' '
         self.device = device
         self.map_dir = os.path.join(data_dir, 'SDD_semantic_maps', data_split + '_masks')
-        self.data_path = os.path.join(data_dir, data_split + '_processed.pkl')
+        self.data_path = os.path.join(data_dir, 'sdd_' + data_split + '.pkl')
+        dt=0.4
+        min_ped=0
 
         self.seq_len = self.obs_len + self.pred_len
+
+
+        n_state = 6
+
+        # all_files = [os.path.join(self.data_dir, _path) for _path in all_files]
+        num_peds_in_seq = []
+        seq_list = []
+
+        obs_frame_num = []
+        fut_frame_num = []
+        scene_names = []
 
         self.maps={}
         for file in os.listdir(self.map_dir):
             self.maps.update({file.split('.')[0]:imageio.imread(os.path.join(self.map_dir, file))})
 
-        with open(self.data_path, 'rb') as handle:
-            all_data = pickle.load(handle)
+        with open(self.data_path, 'rb') as f:
+            data = pickle5.load(f)
 
+        data = pd.DataFrame(data)
+        scenes = data['sceneId'].unique()
+        for s in scenes:
+            # if (data_split=='train') and ('hyang_7' not in s):
+            #     continue
+            print(s)
+            scene_data = data[data['sceneId'] == s]
+            scene_data = scene_data.sort_values(by=['frame', 'trackId'], inplace=False)
 
+            # print(scene_data.shape[0])
+            frames = scene_data['frame'].unique().tolist()
+            scene_data = np.array(scene_data)
+            map_size = self.maps[s + '_mask'].shape
+            scene_data[:,2] = np.clip(scene_data[:,2], a_min=None, a_max=map_size[1]-1)
+            scene_data[:,3] =  np.clip(scene_data[:,2], a_min=None, a_max=map_size[0]-1)
+            '''
+            scene_data = data[data['sceneId'] == s]
+            all_traj = np.array(scene_data)[:,2:4]
+            # all_traj = np.array(scene_data[scene_data['trackId']==128])[:,2:4]
+            plt.imshow(self.maps[s + '_mask'])
+            plt.scatter(all_traj[:, 0], all_traj[:, 1], s=1, c='r')
+            '''
 
-        self.obs_frame_num = all_data['obs_frame_num']
-        self.fut_frame_num = all_data['fut_frame_num']
+            # print('uniq frames: ', len(frames))
+            frame_data = []  # all data per frame
+            for frame in frames:
+                frame_data.append(scene_data[scene_data[:, 0]==frame])
+                # frame_data.append(scene_data[scene_data['frame'] == frame])
+
+            num_sequences = int(math.ceil((len(
+                frames) - self.seq_len + 1) / self.skip))  # seq_len=obs+pred길이씩 잘라서 (input=obs, output=pred)주면서 train시킬것. 그래서 seq_len씩 slide시키면서 총 num_seq만큼의 iteration하게됨
+
+            this_scene_seq = []
+
+            # all frames를 seq_len(kernel size)만큼씩 sliding해가며 볼것. 이때 skip = stride.
+            for idx in range(0, num_sequences * self.skip + 1, self.skip):
+                curr_seq_data = np.concatenate(
+                    frame_data[idx:idx + self.seq_len],
+                    axis=0)  # frame을 seq_len만큼씩 잘라서 볼것 = curr_seq_data. 각 frame이 가진 데이터(agent)수는 다를수 잇음. 하지만 각 데이터의 길이는 4(frame #, agent id, pos_x, pos_y)
+                peds_in_curr_seq = np.unique(curr_seq_data[:, 1])  # unique agent id
+
+                curr_seq = np.zeros((len(peds_in_curr_seq), n_state, self.seq_len))
+                num_peds_considered = 0
+                ped_ids = []
+                for _, ped_id in enumerate(peds_in_curr_seq):  # current frame sliding에 들어온 각 agent에 대해
+                    curr_ped_seq = curr_seq_data[curr_seq_data[:, 1] == ped_id, :]  # frame#, agent id, pos_x, pos_y
+                    # curr_ped_seq = np.around(curr_ped_seq, decimals=4)
+                    pad_front = frames.index(curr_ped_seq[0, 0]) - idx  # sliding idx를 빼주는 이유?. sliding이 움직여온 step인 idx를 빼줘야 pad_front=0 이됨. 0보다 큰 pad_front라는 것은 현ped_id가 처음 나타난 frame이 desired first frame보다 더 늦은 경우.
+                    pad_end = frames.index(curr_ped_seq[-1, 0]) - idx + 1  # pad_end까지선택하는 index로 쓰일거라 1더함
+                    if (pad_end - pad_front != self.seq_len) or (curr_ped_seq.shape[0] != self.seq_len):  # seq_len만큼의 sliding동안 매 프레임마다 agent가 존재하지 않은 데이터였던것.
+                        # print(curr_ped_seq.shape[0])
+                        continue
+                    ped_ids.append(ped_id)
+                    # x,y,x',y',x'',y''
+                    x = curr_ped_seq[:, 2].astype(float)
+                    y = curr_ped_seq[:, 3].astype(float)
+                    vx = derivative_of(x, dt)
+                    vy = derivative_of(y, dt)
+                    ax = derivative_of(vx, dt)
+                    ay = derivative_of(vy, dt)
+
+                    # Make coordinates relative
+                    _idx = num_peds_considered
+                    curr_seq[_idx, :, pad_front:pad_end] = np.stack([x, y, vx, vy, ax, ay])
+                    num_peds_considered += 1
+
+                if num_peds_considered > min_ped:  # 주어진 하나의 sliding(16초)동안 등장한 agent수가 min_ped보다 큼을 만족하는 경우에만 이 slide데이터를 채택
+                    num_peds_in_seq.append(num_peds_considered)
+                    # 다음 list의 initialize는 peds_in_curr_seq만큼 해뒀었지만, 조건을 만족하는 slide의 agent만 차례로 append 되었기 때문에 num_peds_considered만큼만 잘라서 씀
+                    seq_list.append(curr_seq[:num_peds_considered])
+                    this_scene_seq.append(curr_seq[:num_peds_considered, :2])
+                    obs_frame_num.append(np.ones((num_peds_considered, self.obs_len)) * frames[idx:idx + self.obs_len])
+                    fut_frame_num.append(
+                        np.ones((num_peds_considered, self.pred_len)) * frames[idx + self.obs_len:idx + self.seq_len])
+                    scene_names.append([s] * num_peds_considered)
+                    # inv_h_ts.append(inv_h_t)
+                if data_split == 'test' and np.concatenate(this_scene_seq).shape[0] > 10:
+                    break
+
+        seq_list = np.concatenate(seq_list, axis=0) # (32686, 2, 16)
+        self.obs_frame_num = np.concatenate(obs_frame_num, axis=0)
+        self.fut_frame_num = np.concatenate(fut_frame_num, axis=0)
 
         # Convert numpy -> Torch Tensor
-        self.obs_traj = torch.from_numpy(all_data['obs_traj']).float().to(self.device)
-        self.fut_traj = torch.from_numpy(all_data['fut_traj']).float().to(self.device)
+        self.obs_traj = torch.from_numpy(
+            seq_list[:, :, :self.obs_len]).type(torch.float)
+        self.pred_traj = torch.from_numpy(
+            seq_list[:, :, self.obs_len:]).type(torch.float)
 
-        self.seq_start_end = all_data['seq_start_end']
-        self.map_file_name = all_data['map_file_name']
-        self.inv_h_t = all_data['inv_h_t']
 
-        self.local_ic = all_data['local_ic']
-        self.obs_heatmap = np.expand_dims(all_data['obs_heatmap'],1)
-        self.fut_heatmap = np.expand_dims(all_data['fut_heatmap'],1)
+        # frame seq순, 그리고 agent id순으로 쌓아온 데이터에 대한 index를 부여하기 위해 cumsum으로 index생성 ==> 한 슬라이드(16 seq. of frames)에서 고려된 agent의 data를 start, end로 끊어내서 index로 골래내기 위해
+        cum_start_idx = [0] + np.cumsum(num_peds_in_seq).tolist() # num_peds_in_seq = 각 slide(16개 frames)별로 고려된 agent수.따라서 len(num_peds_in_seq) = slide 수 = 2692 = self.num_seq
+        self.seq_start_end = [
+            (start, end)
+            for start, end in zip(cum_start_idx, cum_start_idx[1:])
+        ] # [(0, 2),  (2, 4),  (4, 7),  (7, 10), ... (32682, 32684),  (32684, 32686)]
+
+        self.map_file_name = np.concatenate(scene_names)
+        self.num_seq = len(self.obs_traj) # = slide (seq. of 16 frames) 수 = 2692
 
         print(self.seq_start_end[-1])
 
 
     def __len__(self):
-        return len(self.obs_traj)
+        return self.num_seq
 
     def __getitem__(self, index):
         global_map = np.expand_dims(self.maps[self.map_file_name[index] + '_mask'], axis=0)
         inv_h_t = np.expand_dims(np.eye(3), axis=0)
-        local_ics = torch.cat([self.obs_traj[index, :2, :],  self.fut_traj[index, :2, :]], dim=1)[[1,0],:].detach().cpu().numpy()
+        local_ics = torch.cat([self.obs_traj[index, :2, :],  self.pred_traj[index, :2, :]], dim=1)[[1,0],:].detach().cpu().numpy()
         local_ics = np.round(local_ics).astype(int).transpose((1,0))
 
         #########
         out = [
-            self.obs_traj[index].to(self.device).unsqueeze(0), self.fut_traj[index].to(self.device).unsqueeze(0),
+            self.obs_traj[index].to(self.device).unsqueeze(0), self.pred_traj[index].to(self.device).unsqueeze(0),
             self.obs_frame_num[index], self.fut_frame_num[index],
             global_map, inv_h_t,
             global_map, np.expand_dims(local_ics, axis=0), inv_h_t
