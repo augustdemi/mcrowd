@@ -156,6 +156,8 @@ class TrajectoryDataset(Dataset):
             # if (data_split=='train') and ('hyang_7' not in s):
             if ('nexus_2' in s) or ('hyang_4' in s):
                 continue
+            # if ('quad_3' not in s):
+            #     continue
             print(s)
             scene_data = data[data['sceneId'] == s]
             scene_data = scene_data.sort_values(by=['frame', 'trackId'], inplace=False)
@@ -234,11 +236,19 @@ class TrajectoryDataset(Dataset):
             this_scene_seq = np.concatenate(this_scene_seq)
             # print(s, len(scene_data), this_scene_seq.shape[0])
 
-            # plt.imshow(self.maps[s + '_mask'])
-            # plt.scatter(curr_seq[0][:2][0, :8], curr_seq[0][:2][1, :8], s=1, c='b')
-            # plt.scatter(curr_seq[0][:2][0, 8:], curr_seq[0][:2][1, 8:], s=1, c='r')
-            # scene_data[np.where(scene_data[:, 1] == ped_ids[0])[0]]
-
+            '''
+            argmax_idx = (per_step_dist * 20).argmax()
+            # plt.scatter(this_scene_seq[argmax_idx, 0, :8], this_scene_seq[argmax_idx, 1, :8], s=1, c='b')
+            # plt.scatter(this_scene_seq[argmax_idx, 0, 8:], this_scene_seq[argmax_idx, 1, 8:], s=1, c='r')
+            plt.imshow(self.maps[s + '_mask'])
+            for i in range(8):
+                plt.scatter(this_scene_seq[argmax_idx, 0, i], this_scene_seq[argmax_idx, 1, i], s=4, c='b', alpha=(1-((i+1)/10)))
+            for i in range(8,20):
+                plt.scatter(this_scene_seq[argmax_idx, 0, i], this_scene_seq[argmax_idx, 1, i], s=4, c='r', alpha=(1-((i)/20)))
+            traj = this_scene_seq[argmax_idx].transpose(1, 0)
+            np.sqrt(((traj[1:] - traj[:-1]) ** 2).sum(1))
+            
+            '''
             ### for map
             per_step_dist = []
             for traj in this_scene_seq:
@@ -247,13 +257,13 @@ class TrajectoryDataset(Dataset):
             per_step_dist = np.array(per_step_dist)
             # mean_dist = per_step_dist.mean()
             # print(mean_dist)
-            per_step_dist = np.clip(per_step_dist, a_min=10, a_max=None)
+            per_step_dist = np.clip(per_step_dist, a_min=5, a_max=None)
             # print(per_step_dist.max())
             # print(per_step_dist.mean())
             # local_map_size.extend(np.round(per_step_dist).astype(int) * 13)
             # max_per_step_dist_of_seq = per_step_dist.max()
             # local_map_size.extend([int(max_per_step_dist_of_seq * 13)] * len(this_scene_seq))
-            local_map_size.extend(per_step_dist * 20)
+            local_map_size.extend(np.round(per_step_dist).astype(int) * 20)
             print( self.maps[s + '_mask'].shape, ': ' ,(per_step_dist * 20).max())
             # print(self.maps[s + "_mask"].shape, int(max_per_step_dist_of_seq * 13) * 2)
 
@@ -277,7 +287,7 @@ class TrajectoryDataset(Dataset):
 
         self.map_file_name = np.concatenate(scene_names)
         self.num_seq = len(self.obs_traj) # = slide (seq. of 16 frames) 수 = 2692
-        self.local_map_size = np.round(np.stack(local_map_size)).astype(int)
+        self.local_map_size = np.stack(local_map_size)
 
         print(self.seq_start_end[-1])
 
@@ -311,7 +321,7 @@ def get_local_map_ic(global_map, all_traj, zoom=10, radius=8):
 
     # global_map = np.kron(map, np.ones((zoom, zoom)))
     expanded_obs_img = np.full((global_map.shape[0] + context_size, global_map.shape[1] + context_size),
-                               False, dtype=np.float32) + 3
+                               3, dtype=np.float32)
     expanded_obs_img[radius:-radius, radius:-radius] = global_map.astype(np.float32)  # 99~-99
 
     # all_pixel = np.matmul(np.concatenate([all_traj, np.ones((len(all_traj), 1))], axis=1), inv_h_t)

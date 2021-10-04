@@ -228,38 +228,61 @@ class Solver(object):
     def make_heatmap(self, local_ic, local_map,):
         obs_heat_map = []
         fut_heat_map = []
+        down_size=480
+        half = down_size//2
         for i in range(len(local_ic)):
-            env = cv2.resize(local_map[i][0], dsize=(160, 160))
             map_size = local_map[i][0].shape
-            ohm = [env]
-            heat_map_traj = np.zeros_like(local_map[i][0])
-            heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 100
-            # heat_map_traj[local_ic[i, -1, 0], local_ic[i, -1, 1]] = 100
-            heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=((map_size[0]+160)//2, (map_size[1]+160)//2))
-            heat_map_traj = heat_map_traj / heat_map_traj.sum()
-            heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=(160, 160))
-            heat_map_traj = heat_map_traj / heat_map_traj.sum()
-            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=1)
-            ohm.append(heat_map_traj)
+            if map_size[0] < down_size:
+                env = np.full((down_size,down_size),3)
+                env[half-map_size[0]//2:half+map_size[0]//2, half-map_size[1]//2:half+map_size[1]//2] = local_map[i][0]
+
+                ohm = [env]
+                heat_map_traj = np.zeros_like(local_map[i][0])
+                heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 1
+                heat_map_traj= ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+                heat_map_traj = heat_map_traj/heat_map_traj.sum()
+                extended_map = np.zeros((down_size, down_size))
+                extended_map[half-map_size[0]//2:half+map_size[0]//2, half-map_size[1]//2:half+map_size[1]//2] = heat_map_traj
+                ohm.append(extended_map)
+                # future
+                heat_map_traj = np.zeros_like(local_map[i][0])
+                heat_map_traj[local_ic[i, -1, 0], local_ic[i, -1, 1]] = 1
+                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+                extended_map = np.zeros((down_size, down_size))
+                extended_map[half-map_size[0]//2:half+map_size[0]//2, half-map_size[1]//2:half+map_size[1]//2]= heat_map_traj
+                fut_heat_map.append(extended_map)
+            else:
+                env = cv2.resize(local_map[i][0], dsize=(down_size, down_size))
+                ohm = [env]
+                heat_map_traj = np.zeros_like(local_map[i][0])
+                heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 100
+
+                if any([elt > 1000 for elt in map_size]):
+                    heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=((map_size[0]+down_size)//2, (map_size[1]+down_size)//2))
+                    heat_map_traj = heat_map_traj / heat_map_traj.sum()
+                heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=(down_size, down_size))
+                heat_map_traj = heat_map_traj / heat_map_traj.sum()
+                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+                ohm.append(heat_map_traj)
+
+                '''
+                heat_map = nnf.interpolate(torch.tensor(heat_map_traj).unsqueeze(0).unsqueeze(0),
+                                           size=local_map[i][0].shape, mode='nearest').squeeze(0).squeeze(0)
+                heat_map = nnf.interpolate(torch.tensor(heat_map_traj).unsqueeze(0).unsqueeze(0),
+                                           size=local_map[i][0].shape,  mode='bicubic',
+                                                  align_corners = False).squeeze(0).squeeze(0)
+                '''
+                heat_map_traj = np.zeros_like(local_map[i][0])
+                heat_map_traj[local_ic[i, -1, 0], local_ic[i, -1, 1]] = 1000
+                if any([elt > 1000 for elt in map_size]):
+                    heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=((map_size[0]+down_size)//2, (map_size[1]+down_size)//2))
+                    heat_map_traj = heat_map_traj / heat_map_traj.sum()
+                heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=(down_size, down_size))
+                heat_map_traj = heat_map_traj / heat_map_traj.sum()
+                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+                fut_heat_map.append(heat_map_traj)
             obs_heat_map.append(np.stack(ohm))
 
-            '''
-            heat_map = nnf.interpolate(torch.tensor(heat_map_traj).unsqueeze(0).unsqueeze(0),
-                                       size=local_map[i][0].shape, mode='nearest').squeeze(0).squeeze(0)
-            heat_map = nnf.interpolate(torch.tensor(heat_map_traj).unsqueeze(0).unsqueeze(0),
-                                       size=local_map[i][0].shape,  mode='bicubic',
-                                              align_corners = False).squeeze(0).squeeze(0)
-            '''
-
-            heat_map_traj = np.zeros_like(local_map[i][0])
-            heat_map_traj[local_ic[i, -1, 0], local_ic[i, -1, 1]] = 1000
-            heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=((map_size[0]+160)//2, (map_size[1]+160)//2))
-            heat_map_traj = heat_map_traj / heat_map_traj.sum()
-            heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=(160, 160))
-            heat_map_traj = heat_map_traj / heat_map_traj.sum()
-            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-
-            fut_heat_map.append(heat_map_traj)
             '''
             heat_map_traj = np.zeros((160, 160))
             # for t in range(self.obs_len + self.pred_len):
