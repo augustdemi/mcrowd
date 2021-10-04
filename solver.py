@@ -230,8 +230,6 @@ class Solver(object):
         fut_heat_map = []
         for i in range(len(local_ic)):
             env = cv2.resize(local_map[i, 0], dsize=(480, 480))
-            map_size = local_map[i, 0].shape
-
             ohm = [env]
             heat_map_traj = np.zeros_like(local_map[i, 0])
             heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 100
@@ -241,7 +239,8 @@ class Solver(object):
             heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=(480, 480))
             heat_map_traj = heat_map_traj / heat_map_traj.sum()
             heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=1)
-            ohm.append(heat_map_traj / heat_map_traj.sum())
+            ohm.append(heat_map_traj)
+            obs_heat_map.append(np.stack(ohm))
 
             '''
             heat_map = nnf.interpolate(torch.tensor(heat_map_traj).unsqueeze(0).unsqueeze(0),
@@ -260,7 +259,6 @@ class Solver(object):
             heat_map_traj = heat_map_traj / heat_map_traj.sum()
             heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
 
-            obs_heat_map.append(np.stack(ohm))
             fut_heat_map.append(heat_map_traj)
             '''
             heat_map_traj = np.zeros((160, 160))
@@ -280,7 +278,6 @@ class Solver(object):
     ####
     def train(self):
         self.set_mode(train=True)
-        torch.autograd.set_detect_anomaly(True)
         data_loader = self.train_loader
         self.N = len(data_loader.dataset)
         iterator = iter(data_loader)
@@ -1259,7 +1256,6 @@ class Solver(object):
 
 
     def set_mode(self, train=True):
-
         if train:
             self.lg_cvae.train()
         else:
@@ -1267,54 +1263,21 @@ class Solver(object):
 
     ####
     def save_checkpoint(self, iteration):
-
-        encoderMx_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_encoderMx.pt' % iteration
-        )
-        encoderMy_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_encoderMy.pt' % iteration
-        )
-        decoderMy_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_decoderMy.pt' % iteration
-        )
         lg_cvae_path = os.path.join(
             self.ckpt_dir,
             'iter_%s_lg_cvae.pt' % iteration
         )
-        sg_unet_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_sg_unet.pt' % iteration
-        )
         mkdirs(self.ckpt_dir)
+        del self.lg_cvae.unet.blocks
         torch.save(self.lg_cvae, lg_cvae_path)
 
     ####
     def load_checkpoint(self):
 
-        encoderMx_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_encoderMx.pt' % self.ckpt_load_iter
-        )
-        encoderMy_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_encoderMy.pt' % self.ckpt_load_iter
-        )
-        decoderMy_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_decoderMy.pt' % self.ckpt_load_iter
-        )
         lg_cvae_path = os.path.join(
             self.ckpt_dir,
             'iter_%s_lg_cvae.pt' % self.ckpt_load_iter
         )
-        sg_unet_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_sg_unet.pt' % self.ckpt_load_iter
-        )
-
 
 
         if self.device == 'cuda':
