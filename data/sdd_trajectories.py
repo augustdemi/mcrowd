@@ -154,7 +154,7 @@ class TrajectoryDataset(Dataset):
         scenes = data['sceneId'].unique()
         for s in scenes:
             # if (data_split=='train') and ('hyang_7' not in s):
-            if ('nexus_2' in s) :
+            if ('nexus_2' in s) or ('hyang_4' in s):
                 continue
             print(s)
             scene_data = data[data['sceneId'] == s]
