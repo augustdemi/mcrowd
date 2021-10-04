@@ -230,12 +230,13 @@ class Solver(object):
         fut_heat_map = []
         for i in range(len(local_ic)):
             env = cv2.resize(local_map[i][0], dsize=(160, 160))
+            map_size = local_map[i][0].shape
             ohm = [env]
             heat_map_traj = np.zeros_like(local_map[i][0])
             heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 100
             # heat_map_traj[local_ic[i, -1, 0], local_ic[i, -1, 1]] = 100
-            # heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=((map_size[0]+480)//2, (map_size[1]+480)//2))
-            # heat_map_traj = heat_map_traj / heat_map_traj.sum()
+            heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=((map_size[0]+160)//2, (map_size[1]+160)//2))
+            heat_map_traj = heat_map_traj / heat_map_traj.sum()
             heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=(160, 160))
             heat_map_traj = heat_map_traj / heat_map_traj.sum()
             heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=1)
@@ -252,9 +253,8 @@ class Solver(object):
 
             heat_map_traj = np.zeros_like(local_map[i][0])
             heat_map_traj[local_ic[i, -1, 0], local_ic[i, -1, 1]] = 1000
-            # heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2),
-            #                            dsize=((map_size[0] + 480) // 2, (map_size[1] + 480) // 2))
-            # heat_map_traj = heat_map_traj / heat_map_traj.sum()
+            heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=((map_size[0]+160)//2, (map_size[1]+160)//2))
+            heat_map_traj = heat_map_traj / heat_map_traj.sum()
             heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=(160, 160))
             heat_map_traj = heat_map_traj / heat_map_traj.sum()
             heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
