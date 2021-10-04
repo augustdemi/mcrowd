@@ -229,14 +229,14 @@ class Solver(object):
         obs_heat_map = []
         fut_heat_map = []
         for i in range(len(local_ic)):
-            env = cv2.resize(local_map[i][0], dsize=(480, 480))
+            env = cv2.resize(local_map[i][0], dsize=(160, 160))
             ohm = [env]
             heat_map_traj = np.zeros_like(local_map[i][0])
             heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 100
             # heat_map_traj[local_ic[i, -1, 0], local_ic[i, -1, 1]] = 100
             # heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=((map_size[0]+480)//2, (map_size[1]+480)//2))
             # heat_map_traj = heat_map_traj / heat_map_traj.sum()
-            heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=(480, 480))
+            heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=(160, 160))
             heat_map_traj = heat_map_traj / heat_map_traj.sum()
             heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=1)
             ohm.append(heat_map_traj)
@@ -255,7 +255,7 @@ class Solver(object):
             # heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2),
             #                            dsize=((map_size[0] + 480) // 2, (map_size[1] + 480) // 2))
             # heat_map_traj = heat_map_traj / heat_map_traj.sum()
-            heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=(480, 480))
+            heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=(160, 160))
             heat_map_traj = heat_map_traj / heat_map_traj.sum()
             heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
 
@@ -417,6 +417,7 @@ class Solver(object):
                     pred_lg_wc = []
                     for i in range(batch_size):
                         map_size = local_map[i][0].shape
+                        h = torch.tensor(local_homo[i]).float().to(self.device)
                         pred_lg_ic = []
                         for heat_map in pred_lg_heat[i]:
                             # heat_map = nnf.interpolate(heat_map.unsqueeze(0), size=map_size, mode='nearest')
@@ -424,11 +425,13 @@ class Solver(object):
                                                        size=map_size, mode='bicubic',
                                                        align_corners=False).squeeze(0).squeeze(0)
                             pred_lg_ic.append((heat_map == torch.max(heat_map)).nonzero()[0])
-                        pred_lg_ic = torch.stack(pred_lg_ic).float()
+                        pred_lg_ic = torch.stack(pred_lg_ic).float().to(self.device)
 
-                        # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
-                        pred_lg_wc.append(pred_lg_ic[:,[1,0]])
-                        # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
+                        back_wc = torch.matmul(
+                            torch.cat([pred_lg_ic, torch.ones((len(pred_lg_ic), 1)).to(self.device)], dim=1),
+                            torch.transpose(h, 1, 0))
+                        pred_lg_wc.append(back_wc[0,:2] / back_wc[0,2])
+
                     pred_lg_wc = torch.stack(pred_lg_wc).squeeze(1)
                     pred_lg_wc20.append(pred_lg_wc)
 
