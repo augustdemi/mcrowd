@@ -245,8 +245,9 @@ class TrajectoryDataset(Dataset):
                 traj = traj.transpose(1, 0)
                 per_step_dist.append(np.sqrt(((traj[1:] - traj[:-1]) ** 2).sum(1)).mean())
             per_step_dist = np.array(per_step_dist)
-            mean_dist = per_step_dist.mean()
-            per_step_dist = np.clip(per_step_dist, a_min=mean_dist, a_max=None)
+            # mean_dist = per_step_dist.mean()
+            # print(mean_dist)
+            per_step_dist = np.clip(per_step_dist, a_min=10, a_max=None)
             # print(per_step_dist.max())
             # print(per_step_dist.mean())
             # local_map_size.extend(np.round(per_step_dist).astype(int) * 13)
@@ -330,10 +331,10 @@ def get_local_map_ic(global_map, all_traj, zoom=10, radius=8):
 
 
     fake_pt = [all_traj[7]]
-    per_pixel_dist = radius // 14
+    per_pixel_dist = radius // 10
     # for i in range(10, radius-210, (radius-2)//5):
-    for i in range(per_pixel_dist, radius // 2, per_pixel_dist):
-        # print(i)
+    for i in range(per_pixel_dist, radius // 2 - per_pixel_dist, per_pixel_dist):
+        print(i)
         fake_pt.append(all_traj[7] + [i, i] + np.random.rand(2) * per_pixel_dist)
         fake_pt.append(all_traj[7] + [-i, -i] + np.random.rand(2) * per_pixel_dist)
         fake_pt.append(all_traj[7] + [i, -i] + np.random.rand(2) * per_pixel_dist)
