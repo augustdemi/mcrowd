@@ -145,7 +145,14 @@ class TrajectoryDataset(Dataset):
 
         self.maps={}
         for file in os.listdir(self.map_dir):
-            self.maps.update({file.split('.')[0]:imageio.imread(os.path.join(self.map_dir, file))})
+            m = imageio.imread(os.path.join(self.map_dir, file)).astype(float)
+            m[np.argwhere(m == 1)[:, 0], np.argwhere(m == 1)[:, 1]] = 0
+            m[np.argwhere(m == 2)[:, 0], np.argwhere(m == 2)[:, 1]] = 0
+            m[np.argwhere(m == 3)[:, 0], np.argwhere(m == 3)[:, 1]] = 1
+            m[np.argwhere(m == 4)[:, 0], np.argwhere(m == 4)[:, 1]] = 1
+            m[np.argwhere(m == 5)[:, 0], np.argwhere(m == 5)[:, 1]] = 1
+            self.maps.update({file.split('.')[0]:m})
+
 
         with open(self.data_path, 'rb') as f:
             data = pickle5.load(f)
@@ -156,7 +163,7 @@ class TrajectoryDataset(Dataset):
             # if (data_split=='train') and ('hyang_7' not in s):
             if ('nexus_2' in s) or ('hyang_4' in s):
                 continue
-            # if ('hyang_5' not in s):
+            # if ('deathCircle_3' not in s):
             #     continue
             print(s)
             scene_data = data[data['sceneId'] == s]
@@ -238,7 +245,7 @@ class TrajectoryDataset(Dataset):
 
             '''
             argmax_idx = (per_step_dist * 20).argmax()
-            argmax_idx = 3
+            # argmax_idx = 3
             # plt.scatter(this_scene_seq[argmax_idx, 0, :8], this_scene_seq[argmax_idx, 1, :8], s=1, c='b')
             # plt.scatter(this_scene_seq[argmax_idx, 0, 8:], this_scene_seq[argmax_idx, 1, 8:], s=1, c='r')
             # plt.imshow(self.maps[s + '_mask'])
@@ -258,14 +265,14 @@ class TrajectoryDataset(Dataset):
             per_step_dist = np.array(per_step_dist)
             # mean_dist = per_step_dist.mean()
             # print(mean_dist)
-            per_step_dist = np.clip(per_step_dist, a_min=6, a_max=None)
+            per_step_dist = np.clip(per_step_dist, a_min=7, a_max=None)
             # print(per_step_dist.max())
             # print(per_step_dist.mean())
             # local_map_size.extend(np.round(per_step_dist).astype(int) * 13)
             # max_per_step_dist_of_seq = per_step_dist.max()
             # local_map_size.extend([int(max_per_step_dist_of_seq * 13)] * len(this_scene_seq))
-            local_map_size.extend(np.round(per_step_dist).astype(int) * 20)
-            print( self.maps[s + '_mask'].shape, ': ' ,(per_step_dist * 20).max())
+            local_map_size.extend(np.round(per_step_dist).astype(int) * 16)
+            print( self.maps[s + '_mask'].shape, ': ' ,(per_step_dist * 16).max())
             # print(self.maps[s + "_mask"].shape, int(max_per_step_dist_of_seq * 13) * 2)
 
         seq_list = np.concatenate(seq_list, axis=0) # (32686, 2, 16)
@@ -329,7 +336,7 @@ class TrajectoryDataset(Dataset):
 
         # global_map = np.kron(map, np.ones((zoom, zoom)))
         expanded_obs_img = np.full((global_map.shape[0] + context_size, global_map.shape[1] + context_size),
-                                   3, dtype=np.float32)
+                                   0, dtype=np.float32)
         expanded_obs_img[radius:-radius, radius:-radius] = global_map.astype(np.float32)  # 99~-99
 
         # all_pixel = np.matmul(np.concatenate([all_traj, np.ones((len(all_traj), 1))], axis=1), inv_h_t)
