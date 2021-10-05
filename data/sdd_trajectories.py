@@ -156,8 +156,6 @@ class TrajectoryDataset(Dataset):
             # if (data_split=='train') and ('hyang_7' not in s):
             if ('nexus_2' in s) or ('hyang_4' in s):
                 continue
-            # if ('quad_3' not in s):
-            #     continue
             print(s)
             scene_data = data[data['sceneId'] == s]
             scene_data = scene_data.sort_values(by=['frame', 'trackId'], inplace=False)
@@ -238,9 +236,10 @@ class TrajectoryDataset(Dataset):
 
             '''
             argmax_idx = (per_step_dist * 20).argmax()
+            argmax_idx = 3
             # plt.scatter(this_scene_seq[argmax_idx, 0, :8], this_scene_seq[argmax_idx, 1, :8], s=1, c='b')
             # plt.scatter(this_scene_seq[argmax_idx, 0, 8:], this_scene_seq[argmax_idx, 1, 8:], s=1, c='r')
-            plt.imshow(self.maps[s + '_mask'])
+            # plt.imshow(self.maps[s + '_mask'])
             for i in range(8):
                 plt.scatter(this_scene_seq[argmax_idx, 0, i], this_scene_seq[argmax_idx, 1, i], s=4, c='b', alpha=(1-((i+1)/10)))
             for i in range(8,20):
@@ -288,6 +287,8 @@ class TrajectoryDataset(Dataset):
         self.map_file_name = np.concatenate(scene_names)
         self.num_seq = len(self.obs_traj) # = slide (seq. of 16 frames) 수 = 2692
         self.local_map_size = np.stack(local_map_size)
+        self.local_ic = [[]] * self.num_seq
+        self.local_homo = [[]] * self.num_seq
 
         print(self.seq_start_end[-1])
 
@@ -299,7 +300,14 @@ class TrajectoryDataset(Dataset):
         global_map = self.maps[self.map_file_name[index] + '_mask']
         inv_h_t = np.expand_dims(np.eye(3), axis=0)
         all_traj = torch.cat([self.obs_traj[index, :2, :],  self.pred_traj[index, :2, :]], dim=1).detach().cpu().numpy().transpose((1,0))
-        local_map, local_ic, local_homo = get_local_map_ic(global_map, all_traj, zoom=1, radius=self.local_map_size[index])
+        if len(self.local_ic[index]) == 0:
+            local_map, local_ic, local_homo = self.get_local_map_ic(global_map, all_traj, zoom=1, radius=self.local_map_size[index], compute_local_homo=True)
+            self.local_ic[index] = local_ic
+            self.local_homo[index] = local_homo
+        else:
+            local_map, _, _ = self.get_local_map_ic(global_map, all_traj, zoom=1, radius=self.local_map_size[index])
+            local_ic = self.local_ic[index]
+            local_homo = self.local_homo[index]
 
         #########
         out = [
@@ -313,92 +321,92 @@ class TrajectoryDataset(Dataset):
 
 
 
+    def get_local_map_ic(self, global_map, all_traj, zoom=10, radius=8, compute_local_homo=False):
+        radius = radius * zoom
+        context_size = radius * 2
 
+        # global_map = np.kron(map, np.ones((zoom, zoom)))
+        expanded_obs_img = np.full((global_map.shape[0] + context_size, global_map.shape[1] + context_size),
+                                   3, dtype=np.float32)
+        expanded_obs_img[radius:-radius, radius:-radius] = global_map.astype(np.float32)  # 99~-99
 
-def get_local_map_ic(global_map, all_traj, zoom=10, radius=8):
-    radius = radius * zoom
-    context_size = radius * 2
+        # all_pixel = np.matmul(np.concatenate([all_traj, np.ones((len(all_traj), 1))], axis=1), inv_h_t)
+        # all_pixel /= np.expand_dims(all_pixel[:, 2], 1)
+        # all_pixel = radius + np.round(all_pixel[:, :2]).astype(int)
+        all_pixel = all_traj[:,[1,0]]
+        all_pixel = radius + np.round(all_pixel).astype(int)
 
-    # global_map = np.kron(map, np.ones((zoom, zoom)))
-    expanded_obs_img = np.full((global_map.shape[0] + context_size, global_map.shape[1] + context_size),
-                               3, dtype=np.float32)
-    expanded_obs_img[radius:-radius, radius:-radius] = global_map.astype(np.float32)  # 99~-99
+        '''
+        plt.imshow(expanded_obs_img)
+        plt.scatter(all_pixel[:8, 1], all_pixel[:8, 0], s=1, c='b')
+        plt.scatter(all_pixel[8:, 1], all_pixel[8:, 0], s=1, c='r')
+        plt.show()
+        '''
 
-    # all_pixel = np.matmul(np.concatenate([all_traj, np.ones((len(all_traj), 1))], axis=1), inv_h_t)
-    # all_pixel /= np.expand_dims(all_pixel[:, 2], 1)
-    # all_pixel = radius + np.round(all_pixel[:, :2]).astype(int)
-    all_pixel = all_traj[:,[1,0]]
-    all_pixel = radius + np.round(all_pixel).astype(int)
+        local_map = expanded_obs_img[all_pixel[7, 0] - radius: all_pixel[7, 0] + radius,
+                    all_pixel[7, 1] - radius: all_pixel[7, 1] + radius]
 
-    '''
-    plt.imshow(expanded_obs_img)
-    plt.scatter(all_pixel[:8, 1], all_pixel[:8, 0], s=1, c='b')
-    plt.scatter(all_pixel[8:, 1], all_pixel[8:, 0], s=1, c='r')
-    plt.show()
-    '''
+        all_pixel_local = None
+        h = None
+        if compute_local_homo:
+            fake_pt = [all_traj[7]]
+            per_pixel_dist = radius // 10
+            # for i in range(10, radius-210, (radius-2)//5):
+            for i in range(per_pixel_dist, radius // 2 - per_pixel_dist, per_pixel_dist):
+                # print(i)
+                fake_pt.append(all_traj[7] + [i, i] + np.random.rand(2) * (per_pixel_dist//2))
+                fake_pt.append(all_traj[7] + [-i, -i] + np.random.rand(2) * (per_pixel_dist//2))
+                fake_pt.append(all_traj[7] + [i, -i] + np.random.rand(2) * (per_pixel_dist//2))
+                fake_pt.append(all_traj[7] + [-i, i] + np.random.rand(2) * (per_pixel_dist//2))
+            fake_pt = np.array(fake_pt)
 
-    local_map = expanded_obs_img[all_pixel[7, 0] - radius: all_pixel[7, 0] + radius,
-                all_pixel[7, 1] - radius: all_pixel[7, 1] + radius]
+            # fake_pixel = np.matmul(np.concatenate([fake_pt, np.ones((len(fake_pt), 1))], axis=1), inv_h_t)
+            # fake_pixel /= np.expand_dims(fake_pixel[:, 2], 1)
+            # fake_pixel = radius + np.round(fake_pixel).astype(int)
+            fake_pixel = fake_pt[:,[1,0]]
+            fake_pixel = radius + np.round(fake_pixel).astype(int)
+            '''
+            plt.imshow(expanded_obs_img)
+            plt.scatter(fake_pixel[:, 1], fake_pixel[:, 0], s=1, c='r')
+            '''
 
+            temp_map_val = []
+            for i in range(len(fake_pixel)):
+                temp_map_val.append(expanded_obs_img[fake_pixel[i, 0], fake_pixel[i, 1]])
+                expanded_obs_img[fake_pixel[i, 0], fake_pixel[i, 1]] = i + 10
 
-    fake_pt = [all_traj[7]]
-    per_pixel_dist = radius // 10
-    # for i in range(10, radius-210, (radius-2)//5):
-    for i in range(per_pixel_dist, radius // 2 - per_pixel_dist, per_pixel_dist):
-        # print(i)
-        fake_pt.append(all_traj[7] + [i, i] + np.random.rand(2) * (per_pixel_dist//2))
-        fake_pt.append(all_traj[7] + [-i, -i] + np.random.rand(2) * (per_pixel_dist//2))
-        fake_pt.append(all_traj[7] + [i, -i] + np.random.rand(2) * (per_pixel_dist//2))
-        fake_pt.append(all_traj[7] + [-i, i] + np.random.rand(2) * (per_pixel_dist//2))
-    fake_pt = np.array(fake_pt)
+            fake_local_pixel = []
+            for i in range(len(fake_pixel)):
+                fake_local_pixel.append([np.where(local_map == i + 10)[0][0], np.where(local_map == i + 10)[1][0]])
+                expanded_obs_img[fake_pixel[i, 0], fake_pixel[i, 1]] = temp_map_val[i]
 
-    # fake_pixel = np.matmul(np.concatenate([fake_pt, np.ones((len(fake_pt), 1))], axis=1), inv_h_t)
-    # fake_pixel /= np.expand_dims(fake_pixel[:, 2], 1)
-    # fake_pixel = radius + np.round(fake_pixel).astype(int)
-    fake_pixel = fake_pt[:,[1,0]]
-    fake_pixel = radius + np.round(fake_pixel).astype(int)
-    '''
-    plt.imshow(expanded_obs_img)
-    plt.scatter(fake_pixel[:, 1], fake_pixel[:, 0], s=1, c='r')
-    '''
+            h, _ = cv2.findHomography(np.array([fake_local_pixel]), np.array(fake_pt))
 
-    temp_map_val = []
-    for i in range(len(fake_pixel)):
-        temp_map_val.append(expanded_obs_img[fake_pixel[i, 0], fake_pixel[i, 1]])
-        expanded_obs_img[fake_pixel[i, 0], fake_pixel[i, 1]] = i + 10
+            # plt.scatter(np.array(fake_local_pixel)[:, 1], np.array(fake_local_pixel)[:, 0], s=1, c='g')
 
-    fake_local_pixel = []
-    for i in range(len(fake_pixel)):
-        fake_local_pixel.append([np.where(local_map == i + 10)[0][0], np.where(local_map == i + 10)[1][0]])
-        expanded_obs_img[fake_pixel[i, 0], fake_pixel[i, 1]] = temp_map_val[i]
+            all_pixel_local = np.matmul(np.concatenate([all_traj, np.ones((len(all_traj), 1))], axis=1),
+                                        np.linalg.pinv(np.transpose(h)))
+            all_pixel_local /= np.expand_dims(all_pixel_local[:, 2], 1)
+            all_pixel_local = np.round(all_pixel_local).astype(int)[:, :2]
 
-    h, _ = cv2.findHomography(np.array([fake_local_pixel]), np.array(fake_pt))
+            '''
+            ##  back to wc validate
+            back_wc = np.matmul(np.concatenate([all_pixel_local, np.ones((len(all_pixel_local), 1))], axis=1), np.transpose(h))
+            back_wc /= np.expand_dims(back_wc[:, 2], 1)
+            back_wc = back_wc[:,:2]
+            print((back_wc - all_traj).max())
+            print(np.sqrt(((back_wc - all_traj)**2).sum(1)).max())
+        
+        
+            plt.imshow(local_map)
+            plt.scatter(all_pixel_local[:8, 1], all_pixel_local[:8, 0], s=1, c='b')
+            plt.scatter(all_pixel_local[8:, 1], all_pixel_local[8:, 0], s=1, c='r')
+            plt.show()
+            # per_step_pixel = np.sqrt(((all_pixel_local[1:] - all_pixel_local[:-1]) ** 2).sum(1)).mean()
+            # per_step_wc = np.sqrt(((all_traj[1:] - all_traj[:-1]) ** 2).sum(1)).mean()
+            '''
+            #
+            # local_map = resize(local_map, (160, 160))
 
-    # plt.scatter(np.array(fake_local_pixel)[:, 1], np.array(fake_local_pixel)[:, 0], s=1, c='g')
-
-    all_pixel_local = np.matmul(np.concatenate([all_traj, np.ones((len(all_traj), 1))], axis=1),
-                                np.linalg.pinv(np.transpose(h)))
-    all_pixel_local /= np.expand_dims(all_pixel_local[:, 2], 1)
-    all_pixel_local = np.round(all_pixel_local).astype(int)[:, :2]
-
-    '''
-    ##  back to wc validate
-    back_wc = np.matmul(np.concatenate([all_pixel_local, np.ones((len(all_pixel_local), 1))], axis=1), np.transpose(h))
-    back_wc /= np.expand_dims(back_wc[:, 2], 1)
-    back_wc = back_wc[:,:2]
-    print((back_wc - all_traj).max())
-    print(np.sqrt(((back_wc - all_traj)**2).sum(1)).max())
-
-
-    plt.imshow(local_map)
-    plt.scatter(all_pixel_local[:8, 1], all_pixel_local[:8, 0], s=1, c='b')
-    plt.scatter(all_pixel_local[8:, 1], all_pixel_local[8:, 0], s=1, c='r')
-    plt.show()
-    # per_step_pixel = np.sqrt(((all_pixel_local[1:] - all_pixel_local[:-1]) ** 2).sum(1)).mean()
-    # per_step_wc = np.sqrt(((all_traj[1:] - all_traj[:-1]) ** 2).sum(1)).mean()
-    '''
-    #
-    # local_map = resize(local_map, (160, 160))
-
-    # return np.expand_dims(1 - local_map / 255, 0), torch.tensor(all_pixel_local), torch.tensor(h).float()
-    return local_map, all_pixel_local, h
+            # return np.expand_dims(1 - local_map / 255, 0), torch.tensor(all_pixel_local), torch.tensor(h).float()
+        return local_map, all_pixel_local, h
