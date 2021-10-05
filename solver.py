@@ -240,7 +240,7 @@ class Solver(object):
                 heat_map_traj = np.zeros_like(local_map[i][0])
                 heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 1
                 heat_map_traj= ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-                heat_map_traj = heat_map_traj/heat_map_traj.sum()
+                heat_map_traj = heat_map_traj / heat_map_traj.sum()
                 extended_map = np.zeros((down_size, down_size))
                 extended_map[half-map_size//2:half+map_size//2, half-map_size//2:half+map_size//2] = heat_map_traj
                 ohm.append(extended_map)
@@ -282,7 +282,7 @@ class Solver(object):
                     heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2),
                                                dsize=((map_size+down_size)//2, (map_size+down_size)//2))
                 heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=(down_size, down_size))
-                heat_map_traj / heat_map_traj.sum()
+                heat_map_traj = heat_map_traj / heat_map_traj.sum()
                 heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
                 fut_heat_map.append(heat_map_traj)
             obs_heat_map.append(np.stack(ohm))
