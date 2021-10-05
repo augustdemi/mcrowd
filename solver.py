@@ -228,13 +228,13 @@ class Solver(object):
     def make_heatmap(self, local_ic, local_map,):
         obs_heat_map = []
         fut_heat_map = []
-        down_size=480
+        down_size=256
         half = down_size//2
         for i in range(len(local_ic)):
-            map_size = local_map[i][0].shape
-            if map_size[0] < down_size:
+            map_size = local_map[i][0].shape[0]
+            if map_size < down_size:
                 env = np.full((down_size,down_size),3)
-                env[half-map_size[0]//2:half+map_size[0]//2, half-map_size[1]//2:half+map_size[1]//2] = local_map[i][0]
+                env[half-map_size//2:half+map_size//2, half-map_size//2:half+map_size//2] = local_map[i][0]
 
                 ohm = [env]
                 heat_map_traj = np.zeros_like(local_map[i][0])
@@ -242,14 +242,14 @@ class Solver(object):
                 heat_map_traj= ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
                 heat_map_traj = heat_map_traj/heat_map_traj.sum()
                 extended_map = np.zeros((down_size, down_size))
-                extended_map[half-map_size[0]//2:half+map_size[0]//2, half-map_size[1]//2:half+map_size[1]//2] = heat_map_traj
+                extended_map[half-map_size//2:half+map_size//2, half-map_size//2:half+map_size//2] = heat_map_traj
                 ohm.append(extended_map)
                 # future
                 heat_map_traj = np.zeros_like(local_map[i][0])
                 heat_map_traj[local_ic[i, -1, 0], local_ic[i, -1, 1]] = 1
                 heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
                 extended_map = np.zeros((down_size, down_size))
-                extended_map[half-map_size[0]//2:half+map_size[0]//2, half-map_size[1]//2:half+map_size[1]//2]= heat_map_traj
+                extended_map[half-map_size//2:half+map_size//2, half-map_size//2:half+map_size//2]= heat_map_traj
                 fut_heat_map.append(extended_map)
             else:
                 env = cv2.resize(local_map[i][0], dsize=(down_size, down_size))
@@ -257,13 +257,17 @@ class Solver(object):
                 heat_map_traj = np.zeros_like(local_map[i][0])
                 heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 100
 
-                if any([elt > 1000 for elt in map_size]):
-                    heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=((map_size[0]+down_size)//2, (map_size[1]+down_size)//2))
+                if map_size > 1000:
+                    heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2),
+                                               dsize=((map_size+down_size)//2, (map_size+down_size)//2))
                     heat_map_traj = heat_map_traj / heat_map_traj.sum()
                 heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=(down_size, down_size))
-                heat_map_traj = heat_map_traj / heat_map_traj.sum()
+                if map_size > 3500:
+                    heat_map_traj[np.where(heat_map_traj > 0)] = 1
+                else:
+                    heat_map_traj = heat_map_traj / heat_map_traj.sum()
                 heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-                ohm.append(heat_map_traj)
+                ohm.append(heat_map_traj / heat_map_traj.sum())
 
                 '''
                 heat_map = nnf.interpolate(torch.tensor(heat_map_traj).unsqueeze(0).unsqueeze(0),
@@ -274,11 +278,11 @@ class Solver(object):
                 '''
                 heat_map_traj = np.zeros_like(local_map[i][0])
                 heat_map_traj[local_ic[i, -1, 0], local_ic[i, -1, 1]] = 1000
-                if any([elt > 1000 for elt in map_size]):
-                    heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=((map_size[0]+down_size)//2, (map_size[1]+down_size)//2))
-                    heat_map_traj = heat_map_traj / heat_map_traj.sum()
+                if map_size > 1000:
+                    heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2),
+                                               dsize=((map_size+down_size)//2, (map_size+down_size)//2))
                 heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=(down_size, down_size))
-                heat_map_traj = heat_map_traj / heat_map_traj.sum()
+                heat_map_traj / heat_map_traj.sum()
                 heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
                 fut_heat_map.append(heat_map_traj)
             obs_heat_map.append(np.stack(ohm))
