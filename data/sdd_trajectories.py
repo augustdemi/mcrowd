@@ -156,6 +156,8 @@ class TrajectoryDataset(Dataset):
             # if (data_split=='train') and ('hyang_7' not in s):
             if ('nexus_2' in s) or ('hyang_4' in s):
                 continue
+            # if ('hyang_5' not in s):
+            #     continue
             print(s)
             scene_data = data[data['sceneId'] == s]
             scene_data = scene_data.sort_values(by=['frame', 'trackId'], inplace=False)
@@ -256,7 +258,7 @@ class TrajectoryDataset(Dataset):
             per_step_dist = np.array(per_step_dist)
             # mean_dist = per_step_dist.mean()
             # print(mean_dist)
-            per_step_dist = np.clip(per_step_dist, a_min=5, a_max=None)
+            per_step_dist = np.clip(per_step_dist, a_min=6, a_max=None)
             # print(per_step_dist.max())
             # print(per_step_dist.mean())
             # local_map_size.extend(np.round(per_step_dist).astype(int) * 13)
