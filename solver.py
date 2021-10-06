@@ -255,7 +255,7 @@ class Solver(object):
         for i in range(len(local_ic)):
             map_size = local_map[i][0].shape[0]
             if map_size < down_size:
-                env = np.full((down_size,down_size),3)
+                env = np.full((down_size,down_size),0)
                 env[half-map_size//2:half+map_size//2, half-map_size//2:half+map_size//2] = local_map[i][0]
 
                 ohm = [env]
@@ -325,6 +325,7 @@ class Solver(object):
         return obs_heat_map, lg_heat_map
 
 
+
     def make_obs_heatmap(self, local_ic, local_map):
         obs_heat_map = []
         down_size=256
@@ -332,7 +333,7 @@ class Solver(object):
         for i in range(len(local_ic)):
             map_size = local_map[i][0].shape[0]
             if map_size < down_size:
-                env = np.full((down_size,down_size),3)
+                env = np.full((down_size,down_size),0)
                 env[half-map_size//2:half+map_size//2, half-map_size//2:half+map_size//2] = local_map[i][0]
 
                 ohm = [env]
@@ -375,7 +376,6 @@ class Solver(object):
         obs_heat_map = torch.tensor(np.stack(obs_heat_map)).float().to(self.device)
         # obs_heat_map[:,0] *= obs_heat_map[:,1].max() * 0.5
         return obs_heat_map
-
 
 
     ####
@@ -522,8 +522,6 @@ class Solver(object):
                 else:
                     obs_heat_map = self.make_obs_heatmap(local_ic, local_map)
 
-
-
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 pred_lg_wc20 = []
                 for _ in range(20):
@@ -568,11 +566,6 @@ class Solver(object):
             lg_fde_min = np.min(lg_fde, axis=0).mean()
             lg_fde_avg = np.mean(lg_fde, axis=0).mean()
             lg_fde_std = np.std(lg_fde, axis=0).mean()
-            print('------------------')
-            print(lg_fde_min)
-            print(lg_fde_avg)
-            print(lg_fde_std)
-            print('------------------')
 
         self.set_mode(train=True)
         if loss:

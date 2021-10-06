@@ -164,6 +164,7 @@ class TrajectoryDataset(Dataset):
             if ('nexus_2' in s) or ('hyang_4' in s):
                 continue
             # if ('deathCircle_3' not in s):
+            # if ('little_0' not in s):
             #     continue
             print(s)
             scene_data = data[data['sceneId'] == s]
@@ -336,7 +337,7 @@ class TrajectoryDataset(Dataset):
 
         # global_map = np.kron(map, np.ones((zoom, zoom)))
         expanded_obs_img = np.full((global_map.shape[0] + context_size, global_map.shape[1] + context_size),
-                                   3, dtype=np.float32)
+                                   0, dtype=np.float32)
         expanded_obs_img[radius:-radius, radius:-radius] = global_map.astype(np.float32)  # 99~-99
 
         # all_pixel = np.matmul(np.concatenate([all_traj, np.ones((len(all_traj), 1))], axis=1), inv_h_t)
