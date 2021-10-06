@@ -336,7 +336,7 @@ class TrajectoryDataset(Dataset):
 
         # global_map = np.kron(map, np.ones((zoom, zoom)))
         expanded_obs_img = np.full((global_map.shape[0] + context_size, global_map.shape[1] + context_size),
-                                   0, dtype=np.float32)
+                                   1, dtype=np.float32)
         expanded_obs_img[radius:-radius, radius:-radius] = global_map.astype(np.float32)  # 99~-99
 
         # all_pixel = np.matmul(np.concatenate([all_traj, np.ones((len(all_traj), 1))], axis=1), inv_h_t)
