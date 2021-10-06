@@ -261,18 +261,18 @@ class TrajectoryDataset(Dataset):
             per_step_dist = []
             for traj in this_scene_seq:
                 traj = traj.transpose(1, 0)
-                per_step_dist.append(np.sqrt(((traj[1:] - traj[:-1]) ** 2).sum(1)).mean())
+                per_step_dist.append(np.sqrt(((traj[1:] - traj[:-1]) ** 2).sum(1)).sum())
             per_step_dist = np.array(per_step_dist)
             # mean_dist = per_step_dist.mean()
             # print(mean_dist)
-            per_step_dist = np.clip(per_step_dist, a_min=7, a_max=None)
+            per_step_dist = np.clip(per_step_dist, a_min=240, a_max=None)
             # print(per_step_dist.max())
             # print(per_step_dist.mean())
             # local_map_size.extend(np.round(per_step_dist).astype(int) * 13)
             # max_per_step_dist_of_seq = per_step_dist.max()
             # local_map_size.extend([int(max_per_step_dist_of_seq * 13)] * len(this_scene_seq))
-            local_map_size.extend(np.round(per_step_dist).astype(int) * 16)
-            print( self.maps[s + '_mask'].shape, ': ' ,(per_step_dist * 16).max())
+            local_map_size.extend(np.round(per_step_dist).astype(int))
+            print( self.maps[s + '_mask'].shape, ': ' ,(per_step_dist).max())
             # print(self.maps[s + "_mask"].shape, int(max_per_step_dist_of_seq * 13) * 2)
 
         seq_list = np.concatenate(seq_list, axis=0) # (32686, 2, 16)
