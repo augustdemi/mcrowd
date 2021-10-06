@@ -325,6 +325,59 @@ class Solver(object):
         return obs_heat_map, lg_heat_map
 
 
+    def make_obs_heatmap(self, local_ic, local_map):
+        obs_heat_map = []
+        down_size=256
+        half = down_size//2
+        for i in range(len(local_ic)):
+            map_size = local_map[i][0].shape[0]
+            if map_size < down_size:
+                env = np.full((down_size,down_size),3)
+                env[half-map_size//2:half+map_size//2, half-map_size//2:half+map_size//2] = local_map[i][0]
+
+                ohm = [env]
+                heat_map_traj = np.zeros_like(local_map[i][0])
+                heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 1
+                heat_map_traj= ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+                heat_map_traj = heat_map_traj / heat_map_traj.sum()
+                extended_map = np.zeros((down_size, down_size))
+                extended_map[half-map_size//2:half+map_size//2, half-map_size//2:half+map_size//2] = heat_map_traj
+                # extended_map = ndimage.filters.gaussian_filter(extended_map, sigma=2)
+                ohm.append(extended_map)
+
+            else:
+                env = cv2.resize(local_map[i][0], dsize=(down_size, down_size))
+                ohm = [env]
+                heat_map_traj = np.zeros_like(local_map[i][0])
+                heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 100
+
+                if map_size > 1000:
+                    heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2),
+                                               dsize=((map_size+down_size)//2, (map_size+down_size)//2))
+                    heat_map_traj = heat_map_traj / heat_map_traj.sum()
+                heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=(down_size, down_size))
+                if map_size > 3500:
+                    heat_map_traj[np.where(heat_map_traj > 0)] = 1
+                else:
+                    heat_map_traj = heat_map_traj / heat_map_traj.sum()
+                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+                ohm.append(heat_map_traj / heat_map_traj.sum())
+            obs_heat_map.append(np.stack(ohm))
+            '''
+            heat_map_traj = np.zeros((160, 160))
+            # for t in range(self.obs_len + self.pred_len):
+            for t in [0,1,2,3,4,5,6,7,11,14,17]:
+                heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
+                # as Y-net used variance 4 for the GT heatmap representation.
+            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+            plt.imshow(heat_map_traj)
+            '''
+        obs_heat_map = torch.tensor(np.stack(obs_heat_map)).float().to(self.device)
+        # obs_heat_map[:,0] *= obs_heat_map[:,1].max() * 0.5
+        return obs_heat_map
+
+
+
     ####
     def train(self):
         self.set_mode(train=True)
@@ -464,7 +517,12 @@ class Solver(object):
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
-                obs_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
+                if loss:
+                    obs_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
+                else:
+                    obs_heat_map = self.make_obs_heatmap(local_ic, local_map)
+
+
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 pred_lg_wc20 = []
@@ -510,6 +568,11 @@ class Solver(object):
             lg_fde_min = np.min(lg_fde, axis=0).mean()
             lg_fde_avg = np.mean(lg_fde, axis=0).mean()
             lg_fde_std = np.std(lg_fde, axis=0).mean()
+            print('------------------')
+            print(lg_fde_min)
+            print(lg_fde_avg)
+            print(lg_fde_std)
+            print('------------------')
 
         self.set_mode(train=True)
         if loss:
