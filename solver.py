@@ -255,7 +255,7 @@ class Solver(object):
         for i in range(len(local_ic)):
             map_size = local_map[i][0].shape[0]
             if map_size < down_size:
-                env = np.full((down_size,down_size),1)
+                env = np.full((down_size,down_size),3)
                 env[half-map_size//2:half+map_size//2, half-map_size//2:half+map_size//2] = local_map[i][0]
 
                 ohm = [env]
