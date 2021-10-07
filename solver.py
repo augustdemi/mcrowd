@@ -49,9 +49,9 @@ class Solver(object):
 
         self.args = args
 
-        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_a_%s_r_%s' % \
+        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_a_%s_r_%s_aug_%s' % \
                     (args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE,
-                     args.alpha, args.gamma)
+                     args.alpha, args.gamma, args.aug)
 
 
         # to be appended by run_id
@@ -61,6 +61,7 @@ class Solver(object):
         self.anneal_epoch = args.anneal_epoch
         self.alpha = args.alpha
         self.gamma = args.gamma
+        self.aug = args.aug
         self.device = args.device
         self.temp=1.99
         self.dt=0.4
@@ -225,9 +226,9 @@ class Solver(object):
         return l2_reg
 
 
+
     def make_heatmap(self, local_ic, local_map, aug=False):
-        obs_heat_map = []
-        fut_heat_map = []
+        heat_maps=[]
         down_size=256
         half = down_size//2
         for i in range(len(local_ic)):
@@ -235,7 +236,6 @@ class Solver(object):
             if map_size < down_size:
                 env = np.full((down_size,down_size),1)
                 env[half-map_size//2:half+map_size//2, half-map_size//2:half+map_size//2] = local_map[i][0]
-
                 ohm = [env]
                 heat_map_traj = np.zeros_like(local_map[i][0])
                 heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 1
@@ -250,7 +250,8 @@ class Solver(object):
                 heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
                 extended_map = np.zeros((down_size, down_size))
                 extended_map[half-map_size//2:half+map_size//2, half-map_size//2:half+map_size//2]= heat_map_traj
-                fut_heat_map.append(extended_map)
+                ohm.append(extended_map)
+                heat_maps.append(np.stack(ohm))
             else:
                 env = cv2.resize(local_map[i][0], dsize=(down_size, down_size))
                 ohm = [env]
@@ -284,37 +285,17 @@ class Solver(object):
                 heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=(down_size, down_size))
                 heat_map_traj = heat_map_traj / heat_map_traj.sum()
                 heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-                fut_heat_map.append(heat_map_traj)
-            obs_heat_map.append(np.stack(ohm))
+                ohm.append(heat_map_traj)
+                heat_maps.append(np.stack(ohm))
 
-            '''
-            heat_map_traj = np.zeros((160, 160))
-            # for t in range(self.obs_len + self.pred_len):
-            for t in [0,1,2,3,4,5,6,7,11,14,17]:
-                heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
-                # as Y-net used variance 4 for the GT heatmap representation.
-            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-            plt.imshow(heat_map_traj)
-            '''
-        # if aug:
-        #     obs_heat_map = transforms.Compose([
-        #         transforms.RandomRotation(),
-        #         transforms.RandomVerticalFlip(),
-        #         transforms.RandomHorizontalFlip(),
-        #         transforms.ToTensor()
-        #     ])(obs_heat_map)
-        #     lg_heat_map = transforms.Compose([
-        #         transforms.RandomRotation(),
-        #         transforms.RandomVerticalFlip(),
-        #         transforms.RandomHorizontalFlip(),
-        #         transforms.ToTensor()
-        #     ])(fut_heat_map)
-        # else:
-        #     obs_heat_map = torch.tensor(np.stack(obs_heat_map)).float()
-        #     lg_heat_map = torch.tensor(np.stack(fut_heat_map)).float()
-        obs_heat_map = torch.tensor(np.stack(obs_heat_map)).float().to(self.device)
-        lg_heat_map = torch.tensor(np.stack(fut_heat_map)).float().to(self.device).unsqueeze(1)
-        return obs_heat_map, lg_heat_map
+        heat_maps = torch.tensor(np.stack(heat_maps)).float().to(self.device)
+
+        if aug:
+            degree = np.random.choice([0,90,180, -90])
+            heat_maps = transforms.Compose([
+                transforms.RandomRotation(degrees=(degree, degree))
+            ])(heat_maps)
+        return heat_maps[:,:2], heat_maps[:,2:]
 
 
     ####
@@ -349,7 +330,7 @@ class Solver(object):
              local_map, local_ic, local_homo) = next(iterator)
             batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
-            obs_heat_map, lg_heat_map =  self.make_heatmap(local_ic, local_map)
+            obs_heat_map, lg_heat_map =  self.make_heatmap(local_ic, local_map, aug=self.aug)
 
 
             #-------- long term goal --------
