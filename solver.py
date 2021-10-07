@@ -161,6 +161,8 @@ class Solver(object):
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
 
             lg_cvae_path = 'sdd.lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_0.5_anneal_e_10_aug_1_run_12'
+            # lg_cvae_path = 'sdd.lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_0.5_anneal_e_20_aug_1_run_13'
+            # lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_9600_lg_cvae.pt')
             lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_23800_lg_cvae.pt')
 
             if self.device == 'cuda':
@@ -174,11 +176,13 @@ class Solver(object):
             # # input = env + 8 past + lg / output = env + sg(including lg)
             # self.sg_unet = Unet(input_channels=3, num_classes=3, num_filters=num_filters,
             #                  apply_last_layer=True, padding=True).to(self.device)
-            sg_path = 'ckpts/sg_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_2.0_anneal_e_10_load_e_1_run_1/iter_20000_lg_cvae.pt'
+            sg_path = 'ckpts/sg_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_2.0_anneal_e_10_load_e_1_run_1/iter_20000_sg_unet.pt'
             if self.device == 'cuda':
                 self.sg_unet = torch.load(sg_path)
             else:
                 self.sg_unet = torch.load(sg_path, map_location='cpu')
+            print(">>>>>>>>> Init: ", sg_path)
+
 
 
         else:  # load a previously saved model
