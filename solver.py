@@ -365,8 +365,8 @@ class Solver(object):
 
             #-------- long term goal --------
             recon_lg_heat = self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
-            recon_lg_heat = F.normalize(F.sigmoid(recon_lg_heat).view(self.batch_size,-1), p=1)
-            lg_heat_map= lg_heat_map.view(self.batch_size, -1)
+            recon_lg_heat = F.normalize(F.sigmoid(recon_lg_heat).view(recon_lg_heat.shape[0],-1), p=1)
+            lg_heat_map= lg_heat_map.view(lg_heat_map.shape[0], -1)
 
 
             # Focal loss:
@@ -470,6 +470,8 @@ class Solver(object):
                 for _ in range(20):
                     # -------- long term goal --------
                     pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True))
+                    pred_lg_heat = F.normalize(F.sigmoid(pred_lg_heat).view(pred_lg_heat.shape[0], -1), p=1)
+                    lg_heat_map = lg_heat_map.view(lg_heat_map.shape[0], -1)
 
                     pred_lg_wc = []
                     for i in range(batch_size):
