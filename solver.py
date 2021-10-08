@@ -160,8 +160,8 @@ class Solver(object):
 
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
 
-            lg_cvae_path = 'sdd.lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_8.0_anneal_e_10_aug_0_run_9'
-            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_15600_lg_cvae.pt')
+            lg_cvae_path = 'sdd.lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_0.5_anneal_e_10_aug_1_run_12'
+            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_23800_lg_cvae.pt')
 
             if self.device == 'cuda':
                 self.lg_cvae = torch.load(lg_cvae_path)
@@ -179,8 +179,8 @@ class Solver(object):
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
             self.load_checkpoint()
-            lg_cvae_path = 'sdd.lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_8.0_anneal_e_10_aug_0_run_9'
-            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_15600_lg_cvae.pt')
+            lg_cvae_path = 'sdd.lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_0.5_anneal_e_10_aug_1_run_12'
+            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_23800_lg_cvae.pt')
 
             if self.device == 'cuda':
                 self.lg_cvae = torch.load(lg_cvae_path)
@@ -231,7 +231,7 @@ class Solver(object):
         for i in range(len(local_ic)):
             map_size = local_map[i][0].shape[0]
             if map_size < down_size:
-                env = np.full((down_size,down_size),3)
+                env = np.full((down_size,down_size),1)
                 env[half-map_size//2:half+map_size//2, half-map_size//2:half+map_size//2] = local_map[i][0]
                 ohm = [env]
                 heat_map_traj = np.zeros_like(local_map[i][0])
@@ -484,11 +484,11 @@ class Solver(object):
                             argmax_idx = heat_map.argmax()
                             argmax_idx = [argmax_idx//map_size[0], argmax_idx%map_size[0]]
                             pred_sg_ic.append(argmax_idx)
-                        pred_sg_ic = torch.tensor(pred_sg_ic).float()
+                        pred_sg_ic = torch.tensor(pred_sg_ic).float().to(self.device)
                         # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
                         back_wc = torch.matmul(
                             torch.cat([pred_sg_ic, torch.ones((len(pred_sg_ic), 1)).to(self.device)], dim=1),
-                            torch.transpose(torch.tensor(local_homo[i]).float(), 1, 0))
+                            torch.transpose(torch.tensor(local_homo[i]).float().to(self.device), 1, 0))
                         back_wc /= back_wc[:, 2].unsqueeze(1)
                         pred_sg_wc.append(back_wc[:, :2])
                         # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
