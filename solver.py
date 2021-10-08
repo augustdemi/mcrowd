@@ -50,14 +50,15 @@ class Solver(object):
 
         self.args = args
 
-        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_lg_klw_%s_a_%s_r_%s_fb_%s_anneal_e_%s_aug_%s' % \
+        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_lg_klw_%s_a_%s_r_%s_fb_%s_anneal_e_%s_aug_%s_scale_%s' % \
                     (args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE,
-                     args.lg_kl_weight, args.alpha, args.gamma, args.fb, args.anneal_epoch, args.aug)
+                     args.lg_kl_weight, args.alpha, args.gamma, args.fb, args.anneal_epoch, args.aug, args.scale)
 
         # to be appended by run_id
 
         # self.use_cuda = args.cuda and torch.cuda.is_available()
         self.fb = args.fb
+        self.scale = args.scale
         self.anneal_epoch = args.anneal_epoch
         self.alpha = args.alpha
         self.gamma = args.gamma
@@ -315,9 +316,7 @@ class Solver(object):
         if aug:
             degree = np.random.choice([0,90,180, -90])
             heat_maps = transforms.Compose([
-                transforms.RandomRotation(degrees=(degree, degree)),
-                transforms.RandomVerticalFlip(),
-                transforms.RandomHorizontalFlip()
+                transforms.RandomRotation(degrees=(degree, degree))
             ])(heat_maps)
         return heat_maps[:,:2], heat_maps[:,2:]
 
@@ -386,7 +385,7 @@ class Solver(object):
             lg_elbo = focal_loss - lg_kl_weight * lg_kl
 
 
-            loss = - lg_elbo
+            loss = - lg_elbo * self.scale
 
             self.optim_vae.zero_grad()
             loss.backward()
@@ -401,7 +400,7 @@ class Solver(object):
             # (visdom) insert current line stats
             if self.viz_on and (iteration % self.viz_ll_iter == 0):
                 lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon, test_lg_kl = self.evaluate_dist(self.val_loader, loss=True)
-                test_total_loss = test_lg_recon - lg_kl_weight * test_lg_kl
+                test_total_loss = (test_lg_recon - lg_kl_weight * test_lg_kl) * self.scale
                 self.line_gather.insert(iter=iteration,
                                         lg_fde_min=lg_fde_min,
                                         lg_fde_avg=lg_fde_avg,
