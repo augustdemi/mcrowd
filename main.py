@@ -43,7 +43,7 @@ def create_parser():
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--run_id', default=4, type=int,
+    parser.add_argument('--run_id', default=14, type=int,
                         help='run id (default=-1 to create a new id)')
 
     parser.add_argument('--device', default='cpu', type=str,
@@ -60,10 +60,10 @@ def create_parser():
                         help='beta2 parameter of the Adam optimizer for the VAE')
 
     # saving directories and checkpoint/sample iterations
-    parser.add_argument('--ckpt_load_iter', default=0, type=int,
+    parser.add_argument('--ckpt_load_iter', default=7500, type=int,
                         help='iter# to load the previously saved model ' +
                              '(default=0 to start from the scratch)')
-    parser.add_argument('--max_iter', default=10, type=float,
+    parser.add_argument('--max_iter', default=7500, type=float,
                         help='maximum number of batch iterations')
     parser.add_argument('--ckpt_save_iter', default=100, type=int,
                         help='checkpoint saved every # iters')
@@ -124,7 +124,7 @@ def create_parser():
 
     parser.add_argument('--kl_weight', default=100.0, type=float,
                         help='kl weight')
-    parser.add_argument('--lg_kl_weight', default=1, type=int)
+    parser.add_argument('--lg_kl_weight', default=0.05, type=float)
 
     parser.add_argument('--w_dim', default=20, type=int)
     parser.add_argument('--ll_prior_w', default=1.0, type=float)
@@ -132,9 +132,11 @@ def create_parser():
     parser.add_argument('--no_convs_per_block', default=1, type=int)
     parser.add_argument('--alpha', default=0.25, type=float)
     parser.add_argument('--gamma', default=2., type=float)
-    parser.add_argument('--fb', default=4.0, type=float)
-    parser.add_argument('--anneal_epoch', default=10, type=int)
+    parser.add_argument('--fb', default=0.5, type=float)
+    parser.add_argument('--anneal_epoch', default=20, type=int)
     parser.add_argument('--aug', default=1, type=int)
+    parser.add_argument('--load_e', default=1, type=int)
+    parser.add_argument('--scale', default=1000.0, type=float)
 
     parser.add_argument('--desc', default='data', type=str,
                         help='run description')
@@ -150,7 +152,7 @@ def main(args):
         solver = Solver(args)
 
         print('--------------------', args.dataset_name, '----------------------')
-        # args.batch_size = 30
+        args.batch_size = 30
 
         _, test_loader = data_loader(args, args.dataset_dir, 'test', shuffle=True)
 
