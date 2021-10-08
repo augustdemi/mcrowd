@@ -50,15 +50,14 @@ class Solver(object):
 
         self.args = args
 
-        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_lg_klw_%s_a_%s_r_%s_fb_%s_anneal_e_%s_aug_%s_scale_%s' % \
+        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_lg_klw_%s_a_%s_r_%s_fb_%s_anneal_e_%s_aug_%s' % \
                     (args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE,
-                     args.lg_kl_weight, args.alpha, args.gamma, args.fb, args.anneal_epoch, args.aug, args.scale)
+                     args.lg_kl_weight, args.alpha, args.gamma, args.fb, args.anneal_epoch, args.aug)
 
         # to be appended by run_id
 
         # self.use_cuda = args.cuda and torch.cuda.is_available()
         self.fb = args.fb
-        self.scale = args.scale
         self.anneal_epoch = args.anneal_epoch
         self.alpha = args.alpha
         self.gamma = args.gamma
@@ -176,7 +175,7 @@ class Solver(object):
                 #                args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE,
                 #                args.alpha, args.run_id)
                 # lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_3000_lg_cvae.pt')
-                lg_cvae_path = 'ckpts/sdd.lgcvae.ae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_a_0.25_r_2.0_aug_1_scale_' + str(self.scale) +'_run_21/' \
+                lg_cvae_path = 'ckpts/sdd.lgcvae.ae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_a_0.25_r_2.0_aug_1_run_18/' \
                                'iter_2500_lg_cvae.pt'
 
                 if self.device == 'cuda':
@@ -186,7 +185,7 @@ class Solver(object):
 
                 print(">>>>>>>>> Init: ", lg_cvae_path)
 
-                ## random init after latent space
+                # random init after latent space
                 for m in self.lg_cvae.unet.upsampling_path:
                     m.apply(init_weights)
                 self.lg_cvae.fcomb.apply(init_weights)
@@ -385,7 +384,7 @@ class Solver(object):
             lg_elbo = focal_loss - lg_kl_weight * lg_kl
 
 
-            loss = - lg_elbo * self.scale
+            loss = - lg_elbo
 
             self.optim_vae.zero_grad()
             loss.backward()
@@ -400,7 +399,7 @@ class Solver(object):
             # (visdom) insert current line stats
             if self.viz_on and (iteration % self.viz_ll_iter == 0):
                 lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon, test_lg_kl = self.evaluate_dist(self.val_loader, loss=True)
-                test_total_loss = (test_lg_recon - lg_kl_weight * test_lg_kl) * self.scale
+                test_total_loss = test_lg_recon - lg_kl_weight * test_lg_kl
                 self.line_gather.insert(iter=iteration,
                                         lg_fde_min=lg_fde_min,
                                         lg_fde_avg=lg_fde_avg,
