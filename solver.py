@@ -159,8 +159,8 @@ class Solver(object):
         self.num_layers = args.num_layers
         self.decoder_h_dim = args.decoder_h_dim
 
-        lg_cvae_path = 'sdd.lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_lg_klw_1.0_a_0.25_r_2.0_fb_0.5_anneal_e_20_aug_1_run_18'
-        lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_20000_lg_cvae.pt')
+        lg_cvae_path = 'sdd.lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_8.0_anneal_e_10_aug_0_run_9'
+        lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_15600_lg_cvae.pt')
         if self.device == 'cuda':
             self.lg_cvae = torch.load(lg_cvae_path)
         else:
@@ -221,7 +221,7 @@ class Solver(object):
         for i in range(len(local_ic)):
             map_size = local_map[i][0].shape[0]
             if map_size < down_size:
-                env = np.full((down_size,down_size),1)
+                env = np.full((down_size,down_size),3)
                 env[half-map_size//2:half+map_size//2, half-map_size//2:half+map_size//2] = local_map[i][0]
                 ohm = [env]
                 heat_map_traj = np.zeros_like(local_map[i][0])
