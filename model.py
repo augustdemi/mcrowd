@@ -351,6 +351,7 @@ class Decoder(nn.Module):
         ### make six states
         dt = 0.4*4
         last_ob_sg = torch.cat([last_obs_state[:, :2].unsqueeze(1), sg], dim=1).detach().cpu().numpy()
+
         sg_state = []
         for pos in last_ob_sg:
             vx = np.gradient(pos[:,0], dt)
