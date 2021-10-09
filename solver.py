@@ -360,22 +360,22 @@ class Solver(object):
 
             # TF, goals, z~posterior
             fut_rel_pos_dist_tf_post = self.decoderMy(
+                seq_start_end,
                 obs_traj[-1],
                 hx,
                 q_dist.rsample(),
                 fut_traj[self.sg_idx, :, :2].permute(1,0,2), # goal
-                self.sg_idx - 3,
                 fut_traj # TF
             )
 
 
             # NO TF, predicted goals, z~prior
             fut_rel_pos_dist_prior = self.decoderMy(
+                seq_start_end,
                 obs_traj[-1],
                 hx,
                 p_dist.rsample(),
-                fut_traj[self.sg_idx, :, :2].permute(1, 0, 2),  # goal
-                self.sg_idx - 3
+                fut_traj[self.sg_idx, :, :2].permute(1, 0, 2)  # goal
             )
 
 
@@ -490,11 +490,11 @@ class Solver(object):
                 for _ in range(4):
                     # NO TF, pred_goals, z~prior
                     fut_rel_pos_dist_prior = self.decoderMy(
+                        seq_start_end,
                         obs_traj[-1],
                         hx,
                         p_dist.rsample(),
                         fut_traj[self.sg_idx, :, :2].permute(1, 0, 2),  # goal
-                        self.sg_idx-3
                     )
                     fut_rel_pos_dist20.append(fut_rel_pos_dist_prior)
 
