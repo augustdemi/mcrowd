@@ -64,17 +64,13 @@ def seq_collate(data):
 
     obs_traj_st = obs_traj.clone()
     # pos is stdized by mean = last obs step
-    std = obs_traj_st[:, :, :2].std(0)
-    std[std==0] = 1
-    fut_vel_st = fut_traj[:,:,2:4] / (std.unsqueeze(0).repeat((12,1,1)) + 1e-9)
-    std = std.unsqueeze(0).repeat((8,1,1)) + 1e-9
+    std = 100
     obs_traj_st[:, :, :2] = (obs_traj_st[:,:,:2] - obs_traj_st[-1, :, :2]) / std
-    obs_traj_st[:, :, 2:4] /= std
-    obs_traj_st[:, :, 4:6] /= std
+    obs_traj_st[:, :, 2:] /= std
     # print(obs_traj_st.max(), obs_traj_st.min())
 
     out = [
-        obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
+        obs_traj, fut_traj, obs_traj_st, fut_traj[:,:,2:4] / std, seq_start_end,
         obs_frames, fut_frames, map_path, inv_h_t,
         local_maps, local_ic, local_homo
     ]
