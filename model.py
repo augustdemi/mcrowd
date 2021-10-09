@@ -179,7 +179,7 @@ class EncoderX(nn.Module):
         self.fc2 = nn.Linear(mlp_dim + map_feat_dim, zS_dim*2)
 
         # self.local_map_feat_dim = np.prod([*a])
-        self.map_h_dim = 64*10*10
+        self.map_h_dim = 64*16*16
 
         self.map_fc1 = nn.Linear(self.map_h_dim + 9, map_mlp_dim)
         self.map_fc2 = nn.Linear(map_mlp_dim, map_feat_dim)
@@ -320,6 +320,15 @@ class Decoder(nn.Module):
             input_size=n_state, hidden_size=enc_h_dim, num_layers=1, bidirectional=True)
         self.sg_fc = nn.Linear(4*enc_h_dim, n_pred_state)
 
+        # normal_init(self.rnn_decoder)
+        # normal_init(self.dec_hidden)
+        # normal_init(self.to_vel)
+        # normal_init(self.fc_mu)
+        # normal_init(self.fc_std)
+        # normal_init(self.sg_rnn_enc)
+        # normal_init(self.sg_fc)
+
+
 
     def forward(self, last_obs_state, enc_h_feat, z, sg, sg_update_idx, fut_traj=None):
         """
@@ -377,6 +386,8 @@ class Decoder(nn.Module):
         for i in range(self.seq_len):
             decoder_h= self.rnn_decoder(torch.cat([zx, a, sg_heat], dim=1), decoder_h) #493, 128
             mu= self.fc_mu(decoder_h)
+            # logVar = torch.clamp(self.fc_std(decoder_h), min=-4e+1, max=4e+1)
+            # logVar = torch.clamp(self.fc_std(decoder_h), min=-1, max=1)
             logVar = self.fc_std(decoder_h)
             std = torch.sqrt(torch.exp(logVar))
             mus.append(mu)
