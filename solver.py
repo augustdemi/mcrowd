@@ -339,7 +339,7 @@ class Solver(object):
             (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
              obs_frames, pred_frames, map_path, inv_h_t,
              local_map, local_ic, local_homo) = next(iterator)
-            batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
+            batch_size = fut_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
             obs_heat_map =  self.make_heatmap(local_ic, local_map, aug=False, only_obs=True)
 
@@ -352,7 +352,7 @@ class Solver(object):
 
 
             (muy, log_vary) \
-                = self.encoderMy(obs_traj[-1], fut_vel_st, seq_start_end, hx, train=True)
+                = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, hx, train=True)
 
             p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
             q_dist = Normal(muy, torch.sqrt(torch.exp(log_vary)))
@@ -360,22 +360,22 @@ class Solver(object):
 
             # TF, goals, z~posterior
             fut_rel_pos_dist_tf_post = self.decoderMy(
-                obs_traj[-1],
+                obs_traj_st[-1],
+                obs_traj[-1, :, :2],
                 hx,
                 q_dist.rsample(),
                 fut_traj[self.sg_idx, :, :2].permute(1,0,2), # goal
-                self.sg_idx - 3,
                 fut_traj # TF
             )
 
 
             # NO TF, predicted goals, z~prior
             fut_rel_pos_dist_prior = self.decoderMy(
-                obs_traj[-1],
+                obs_traj_st[-1],
+                obs_traj[-1, :, :2],
                 hx,
                 p_dist.rsample(),
                 fut_traj[self.sg_idx, :, :2].permute(1, 0, 2),  # goal
-                self.sg_idx - 3
             )
 
 
@@ -473,7 +473,7 @@ class Solver(object):
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
                  obs_frames, pred_frames, map_path, inv_h_t,
                  local_map, local_ic, local_homo) = batch
-                batch_size = obs_traj.size(1)
+                batch_size = fut_traj.size(1)
                 total_traj += fut_traj.size(1)
 
                 obs_heat_map = self.make_heatmap(local_ic, local_map, aug=False, only_obs=True)
@@ -490,18 +490,18 @@ class Solver(object):
                 for _ in range(4):
                     # NO TF, pred_goals, z~prior
                     fut_rel_pos_dist_prior = self.decoderMy(
-                        obs_traj[-1],
+                        obs_traj_st[-1],
+                        obs_traj[-1,:,:2],
                         hx,
                         p_dist.rsample(),
                         fut_traj[self.sg_idx, :, :2].permute(1, 0, 2),  # goal
-                        self.sg_idx-3
                     )
                     fut_rel_pos_dist20.append(fut_rel_pos_dist_prior)
 
                 if loss:
 
                     (muy, log_vary) \
-                        = self.encoderMy(obs_traj[-1], fut_vel_st, seq_start_end, hx, train=False)
+                        = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, hx, train=False)
                     q_dist = Normal(muy, torch.sqrt(torch.exp(log_vary)))
 
                     loss_recon -= fut_rel_pos_dist_prior.log_prob(fut_traj[:, :, 2:4]).sum().div(batch_size)
@@ -719,7 +719,6 @@ class Solver(object):
                         hx,
                         p_dist.rsample(),
                         fut_traj[self.sg_idx, :, :2].permute(1, 0, 2),  # goal
-                        self.sg_idx - 3,
                     )
 
                     pred_fut_traj = integrate_samples(fut_rel_pos_dist_prior.rsample(), obs_traj[-1, :, :2], dt=self.dt)
