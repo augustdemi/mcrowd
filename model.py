@@ -136,16 +136,13 @@ class EncoderX(nn.Module):
 
 
         self.fc1 = nn.Linear(enc_h_dim + mlp_dim, mlp_dim)
-        self.fc2 = nn.Linear(mlp_dim + map_feat_dim, zS_dim*2)
+        self.fc2 = nn.Linear(mlp_dim, zS_dim*2)
 
         # self.local_map_feat_dim = np.prod([*a])
         self.map_h_dim = 64*16*16
 
-        self.map_fc1 = nn.Linear(self.map_h_dim + 9, map_mlp_dim)
-        self.map_fc2 = nn.Linear(map_mlp_dim, map_feat_dim)
 
-
-    def forward(self, obs_traj, seq_start_end, local_map_feat, local_homo, train=False):
+    def forward(self, obs_traj, seq_start_end, train=False):
         """
         Inputs:
         - obs_traj: Tensor of shape (obs_len, batch, 2)
@@ -171,17 +168,8 @@ class EncoderX(nn.Module):
                       p=self.dropout_mlp,
                       training=train)
 
-        # map enc
-        local_map_feat = local_map_feat.view(-1, self.map_h_dim)
-        local_homo = local_homo.view(-1, 9)
-        map_feat = self.map_fc1(torch.cat((local_map_feat, local_homo), dim=-1))
-        map_feat = F.dropout(F.relu(map_feat),
-                      p=self.dropout_mlp,
-                      training=train)
-        map_feat = self.map_fc2(map_feat)
-
         # map and traj
-        stats = self.fc2(torch.cat((hx, map_feat), dim=-1)) # 64(32 without attn) to z dim
+        stats = self.fc2(hx) # 64(32 without attn) to z dim
 
         return hx, stats[:,:self.zS_dim], stats[:,self.zS_dim:]
 
