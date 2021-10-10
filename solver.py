@@ -156,7 +156,8 @@ class Solver(object):
         self.decoder_h_dim = args.decoder_h_dim
 
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
-            lg_cvae_path = 'sdd.lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_lg_klw_1.0_a_0.25_r_2.0_fb_0.5_anneal_e_0_aug_1_run_181'
+            lg_cvae_path = 'sdd.lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_0.5_anneal_e_0_aug_1_run_181'
+
             lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_43000_lg_cvae.pt')
 
             if self.device == 'cuda':
