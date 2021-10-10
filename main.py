@@ -60,10 +60,10 @@ def create_parser():
                         help='beta2 parameter of the Adam optimizer for the VAE')
 
     # saving directories and checkpoint/sample iterations
-    parser.add_argument('--ckpt_load_iter', default=7500, type=int,
+    parser.add_argument('--ckpt_load_iter', default=10, type=int,
                         help='iter# to load the previously saved model ' +
                              '(default=0 to start from the scratch)')
-    parser.add_argument('--max_iter', default=7500, type=float,
+    parser.add_argument('--max_iter', default=10, type=float,
                         help='maximum number of batch iterations')
     parser.add_argument('--ckpt_save_iter', default=100, type=int,
                         help='checkpoint saved every # iters')
@@ -152,38 +152,40 @@ def main(args):
         solver = Solver(args)
 
         print('--------------------', args.dataset_name, '----------------------')
-        args.batch_size = 30
+        args.batch_size = 3
 
         _, test_loader = data_loader(args, args.dataset_dir, 'test', shuffle=True)
 
         # solver.check_feat(test_loader)
 
-        fde_min, fde_avg, fde_std = solver.evaluate_dist(test_loader, loss=False)
-        print(fde_min)
-        print(fde_avg)
-        print(fde_std)
+        # solver.evaluate_dist(test_loader, loss=False)
+        #
+        # fde_min, fde_avg, fde_std = solver.evaluate_dist(test_loader, loss=False)
+        # print(fde_min)
+        # print(fde_avg)
+        # print(fde_std)
 
 
         gh = True
         print("GEN HEAT MAP: ", gh)
 
-        traj_path = 'traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_0.07_run_4'
+        traj_path = 'sdd.traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_0.07_run_4'
 
-        traj_iter = '10000'
+        traj_iter = '25000'
         traj_ckpt = {'ckpt_dir': os.path.join('ckpts', traj_path), 'iter': traj_iter}
         print('===== TRAJECTORY:', traj_ckpt)
 
         # lg_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_0.5_anneal_e_0_load_e_1_run_24'
         # lg_iter = '57100'
 
-        lg_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_0.5_anneal_e_10_load_e_1_run_33'
-        lg_iter = '14400'
+        lg_path = 'sdd.lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_0.5_anneal_e_0_aug_1_run_181'
+        lg_iter = '43000'
         lg_ckpt = {'ckpt_dir': os.path.join('ckpts', lg_path), 'iter': lg_iter}
         print('===== LG CVAE:', lg_ckpt)
 
         solver.pretrain_load_checkpoint(traj_ckpt, lg_ckpt)
 
-        solver.check_feat(test_loader)
+        # solver.check_feat(test_loader)
 
         # solver.plot_traj_var(test_loader)
         # solver.evaluate_dist_gt_goal(test_loader)
