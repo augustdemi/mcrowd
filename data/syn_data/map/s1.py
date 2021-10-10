@@ -65,29 +65,35 @@ for i in range(num_poly):
 # plt.tight_layout()
 
 
+# colors = ['r', 'g', 'y', 'm', 'c', 'k', 'w', 'b']
+# for a in range(8):
+#     for t in time_rng:
+#         target_pos = trajs[a][t]
+#         plt.scatter(target_pos[0], target_pos[1], c=colors[a], s=0.5)
+
+
 #up
-plt.plot(np.linspace(5.5,95), np.linspace(-42, -42), c='black', linewidth=0.5)
-plt.plot(np.linspace(4.5,97.5), np.linspace(-44, -44), c='black', linewidth=0.5)
-plt.plot(np.linspace(4.5,97.5), np.linspace(44, 44), c='black', linewidth=0.5)
-plt.plot(np.linspace(5.5,95), np.linspace(42, 42), c='black', linewidth=0.5)
+fig = plt.figure(figsize=(5, 5))
+ax = fig.add_subplot(111)
+ax.axis('off')
+fig.tight_layout()
+
+ax.plot(np.linspace(5.5,95), np.linspace(-42, -42), c='black', linewidth=0.5)
+ax.plot(np.linspace(4.5,97.5), np.linspace(-44, -44), c='black', linewidth=0.5)
+ax.plot(np.linspace(4.5,97.5), np.linspace(44, 44), c='black', linewidth=0.5)
+ax.plot(np.linspace(5.5,95), np.linspace(42, 42), c='black', linewidth=0.5)
 # exit
-plt.plot(np.linspace(4.5, 5.5), np.linspace(1.2000000476837158, 1.2000000476837158), c='black', linewidth=0.5)
-plt.plot(np.linspace(4.5,5.5), np.linspace(-1.2000000476837158, -1.2000000476837158), c='black', linewidth=0.5)
+ax.plot(np.linspace(4.5, 5.5), np.linspace(1.2000000476837158, 1.2000000476837158), c='black', linewidth=0.5)
+ax.plot(np.linspace(4.5,5.5), np.linspace(-1.2000000476837158, -1.2000000476837158), c='black', linewidth=0.5)
 # bottom
-plt.plot(np.linspace(5.5,5.5), np.linspace(1.2000000476837158, 42), c='black', linewidth=0.5)
-plt.plot(np.linspace(4.5,4.5), np.linspace(1.2000000476837158, 44), c='black', linewidth=0.5)
-plt.plot(np.linspace(5.5,5.5), np.linspace(-1.2000000476837158, -42), c='black', linewidth=0.5)
-plt.plot(np.linspace(4.5,4.5), np.linspace(-1.2000000476837158, -44), c='black', linewidth=0.5)
+ax.plot(np.linspace(5.5,5.5), np.linspace(1.2000000476837158, 42), c='black', linewidth=0.5)
+ax.plot(np.linspace(4.5,4.5), np.linspace(1.2000000476837158, 44), c='black', linewidth=0.5)
+ax.plot(np.linspace(5.5,5.5), np.linspace(-1.2000000476837158, -42), c='black', linewidth=0.5)
+ax.plot(np.linspace(4.5,4.5), np.linspace(-1.2000000476837158, -44), c='black', linewidth=0.5)
 # right wall
-plt.plot(np.linspace(95, 95), np.linspace(-42, 42), c='black', linewidth=0.5)
-plt.plot(np.linspace(97.5, 97.5), np.linspace(-44, 44), c='black', linewidth=0.5)
+ax.plot(np.linspace(95, 95), np.linspace(-42, 42), c='black', linewidth=0.5)
+ax.plot(np.linspace(97.5, 97.5), np.linspace(-44, 44), c='black', linewidth=0.5)
 
-plt.scatter(-150, 0, c='w', s=1)
-plt.scatter(150, 0, c='w', s=1)
-plt.scatter(0, 150, c='w', s=1)
-plt.scatter(0, -150, c='w', s=1)
-
-plt.axis('off')
 #### homography
 # pts_img = np.array([
 # [238, 360], [238, 363],
@@ -99,15 +105,16 @@ plt.axis('off')
 # # [35,43], [445,43]
 # ])
 
-
+#### homography
 pts_img = np.array([
-[238,329], [238,331],
-[176, 329],  [179, 331],
-[176, 509], [179, 504],
-[304, 509], [301, 504],
-[304, 329], [301, 331],
-[242, 329], [242, 331]
+[244,36], [244,41],
+[36, 36],  [46, 41],
+[36, 464], [46, 452],
+[464, 464], [454, 452],
+[464, 36], [454, 41],
+[256, 36], [256, 41]
 ])
+
 
 pts_wrd = np.array([
 [4.5, 1.2000000476837158], [5.5, 1.2000000476837158],
@@ -130,9 +137,11 @@ with open(os.path.join('D:\crowd\datasets/syn_x/map', s_name + '_H.txt'), 'w') a
 
 
 
+#################################
 ### img process
+#################################
 c = imageio.imread(os.path.join('D:\crowd\datasets/syn_x', s_name + '.png'))
-# plt.imshow(c)
+plt.imshow(c)
 
 c = c[:,:,0]
 c = 255-c
@@ -142,20 +151,19 @@ cv2.imwrite(os.path.join('D:\crowd\datasets/syn_x', s_name + '_map.png'), c)
 
 ### make unnavi. as 1
 c = imageio.imread(os.path.join('D:\crowd\datasets/syn_x', s_name + '_map.png'))
-c[176:238,329:331] = 255
-c[176:179, 329:504] = 255
-c[301:304, 329:504] = 255
-c[176:304 , 504:509] = 255
-c[242:304, 329:331] = 255
+c[36:244, 36:41] = 255
+c[36:46, 36:464] = 255
+c[454:464, 36:464] = 255
+c[36:464 , 452:464] = 255
+c[256:464, 36:41] = 255
 
 cv2.imwrite(os.path.join('D:\crowd\datasets/syn_x/map', s_name + '_map.png'), c)
 
 
 
-
-
-
+#################################
 ### validate
+#################################
 # wall
 for a in range(len(pts_wrd)):
     target_pos = np.expand_dims(np.transpose(pts_wrd[a]), 0)

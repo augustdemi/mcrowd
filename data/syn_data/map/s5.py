@@ -40,26 +40,51 @@ for i in range(num_poly):
 
 
 
+path = 'D:\crowd\datasets\syn_x_cropped\s5/test/hallway-two-way.txt'
+
+def read_file(_path, delim='\t'):
+    data = []
+    if delim == 'tab':
+        delim = '\t'
+    elif delim == 'space':
+        delim = ' '
+    with open(_path, 'r') as f:
+        for line in f:
+            line = line.strip().split(delim)
+            line = [float(i) for i in line]
+            data.append(line)
+    return np.asarray(data)
+
+
+data = read_file(path)
+
+colors = ['r', 'g', 'y', 'm', 'c', 'k', 'w', 'b']
+for a in range(21,29):
+    one_agent_all_time_data =data[np.where(data[:,1]==a)[0]][:,2:4]
+    for target_pos in one_agent_all_time_data:
+        plt.scatter(target_pos[0], target_pos[1], c=colors[a%8], s=0.5)
+
+
+
+
+
 ## draw map for s2
 #up
-plt.plot(np.linspace(-100,100), np.linspace( 8.010000228881836,  8.010000228881836), c='black', linewidth=0.5)
-plt.plot(np.linspace(-100,100), np.linspace(-8, -8), c='black', linewidth=0.5)
-plt.plot(np.linspace(-100,100), np.linspace(100, 100), c='black', linewidth=0.5)
-plt.plot(np.linspace(-100,100), np.linspace(-100, -100), c='black', linewidth=0.5)
+fig = plt.figure(figsize=(5, 5))
+ax = fig.add_subplot(111)
+ax.axis('off')
+fig.tight_layout()
+
+
+ax.plot(np.linspace(-100,100), np.linspace( 8.010000228881836,  8.010000228881836), c='black', linewidth=0.5)
+ax.plot(np.linspace(-100,100), np.linspace(-8, -8), c='black', linewidth=0.5)
+ax.plot(np.linspace(-100,100), np.linspace(100, 100), c='black', linewidth=0.5)
+ax.plot(np.linspace(-100,100), np.linspace(-100, -100), c='black', linewidth=0.5)
 # exit
-plt.plot(np.linspace(-100, -100), np.linspace(8.010000228881836, 100), c='black', linewidth=0.5)
-plt.plot(np.linspace(100, 100), np.linspace(8.010000228881836, 100), c='black', linewidth=0.5)
-plt.plot(np.linspace(-100, -100), np.linspace(-8, -100), c='black', linewidth=0.5)
-plt.plot(np.linspace(100, 100), np.linspace(-8, -100), c='black', linewidth=0.5)
-
-plt.scatter(-150, 0, c='w', s=1)
-plt.scatter(150, 0, c='w', s=1)
-plt.scatter(0, 150, c='w', s=1)
-plt.scatter(0, -150, c='w', s=1)
-
-
-plt.axis('off')
-
+ax.plot(np.linspace(-100, -100), np.linspace(8.010000228881836, 100), c='black', linewidth=0.5)
+ax.plot(np.linspace(100, 100), np.linspace(8.010000228881836, 100), c='black', linewidth=0.5)
+ax.plot(np.linspace(-100, -100), np.linspace(-8, -100), c='black', linewidth=0.5)
+ax.plot(np.linspace(100, 100), np.linspace(-8, -100), c='black', linewidth=0.5)
 
 
 
@@ -74,10 +99,10 @@ for a in range(8):
 
 #### homography
 pts_img = np.array([
-[228, 126], [228, 514],
-[252, 126],  [252, 514],
-[95, 126], [95, 514],
-[385, 126], [385, 514],
+[233, 36], [233, 464],
+[267, 36],  [267, 464],
+[36, 36], [36, 464],
+[464, 36], [464, 464],
 ])
 
 pts_wrd = np.array([
@@ -97,8 +122,9 @@ with open(os.path.join('D:\crowd\datasets/syn_x/map', s_name + '_H.txt'), 'w') a
         line = '\t'.join([str(e) for e in elt])
         f.write(line + '\n')
 
-
+#################################
 ### img process
+#################################
 c = imageio.imread(os.path.join('D:\crowd\datasets/syn_x', s_name + '.png'))
 plt.imshow(c)
 
@@ -111,12 +137,16 @@ cv2.imwrite(os.path.join('D:\crowd\datasets/syn_x', s_name + '_map.png'), c)
 
 ### make unnavi. as 1
 c = imageio.imread(os.path.join('D:\crowd\datasets/syn_x', s_name + '_map.png'))
-c[95:228, 126:514] = 255
-c[252:385, 126:514] = 255
+c[36:233, 36:464] = 255
+c[267:464, 36:464] = 255
 
 cv2.imwrite(os.path.join('D:\crowd\datasets/syn_x/map', s_name + '_map.png'), c)
 
+
+#################################
 ### validate
+#################################
+
 for a in range(len(pts_wrd)):
     target_pos = np.expand_dims(np.transpose(pts_wrd[a]), 0)
     target_pixel = np.matmul(np.concatenate([target_pos, np.ones((len(target_pos), 1))], axis=1), inv_h_t)
@@ -125,7 +155,8 @@ for a in range(len(pts_wrd)):
     # plt.scatter(target_pixel[0][1], target_pixel[0][0], c=colors[a], s=1)
     plt.scatter(target_pixel[0][1], target_pixel[0][0], c='r', s=1)
 
-plt.show()
+
+
 
 c = imageio.imread(os.path.join('D:\crowd\datasets/syn_x/map', s_name + '_map.png'))
 plt.imshow(c)

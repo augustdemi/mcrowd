@@ -64,7 +64,7 @@ def seq_collate(data):
 
     obs_traj_st = obs_traj.clone()
     # pos is stdized by mean = last obs step
-    std = 200
+    std = 100
     obs_traj_st[:, :, :2] = (obs_traj_st[:,:,:2] - obs_traj_st[-1, :, :2]) / std
     obs_traj_st[:, :, 2:] /= std
     # print(obs_traj_st.max(), obs_traj_st.min())

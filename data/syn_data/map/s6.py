@@ -40,36 +40,41 @@ for i in range(num_poly):
 
 
 
+
+colors = ['r', 'g', 'y', 'm', 'c', 'k', 'w', 'b']
+for a in range(10,18):
+    for t in time_rng:
+        target_pos = trajs[a][t]
+        plt.scatter(target_pos[0], target_pos[1], c=colors[a%8], s=0.5)
+
+
+
 ## draw map for s2
 #up
-plt.plot(np.linspace(-100,-8.010000228881836), np.linspace( 8.010000228881836,  8.010000228881836), c='black', linewidth=0.5)
-plt.plot(np.linspace(-100,-8.010000228881836), np.linspace(100, 100), c='black', linewidth=0.5)
-plt.plot(np.linspace(-100,-100), np.linspace(8.010000228881836, 100), c='black', linewidth=0.5)
-plt.plot(np.linspace(-8.010000228881836,-8.010000228881836), np.linspace(8.010000228881836, 100), c='black', linewidth=0.5)
+fig = plt.figure(figsize=(5, 5))
+ax = fig.add_subplot(111)
+ax.axis('off')
+fig.tight_layout()
 
-plt.plot(np.linspace(8.010000228881836, 100), np.linspace( 8.010000228881836,  8.010000228881836), c='black', linewidth=0.5)
-plt.plot(np.linspace(8.010000228881836, 100), np.linspace(100, 100), c='black', linewidth=0.5)
-plt.plot(np.linspace(100,100), np.linspace(8.010000228881836, 100), c='black', linewidth=0.5)
-plt.plot(np.linspace(8.010000228881836,8.010000228881836), np.linspace(8.010000228881836, 100), c='black', linewidth=0.5)
+ax.plot(np.linspace(-100,-8.010000228881836), np.linspace( 8.010000228881836,  8.010000228881836), c='black', linewidth=0.5)
+ax.plot(np.linspace(-100,-8.010000228881836), np.linspace(100, 100), c='black', linewidth=0.5)
+ax.plot(np.linspace(-100,-100), np.linspace(8.010000228881836, 100), c='black', linewidth=0.5)
+ax.plot(np.linspace(-8.010000228881836,-8.010000228881836), np.linspace(8.010000228881836, 100), c='black', linewidth=0.5)
 
-plt.plot(np.linspace(-100,-8.010000228881836), np.linspace( -8.010000228881836,  -8.010000228881836), c='black', linewidth=0.5)
-plt.plot(np.linspace(-100,-8.010000228881836), np.linspace(-100, -100), c='black', linewidth=0.5)
-plt.plot(np.linspace(-100,-100), np.linspace(-100, -8), c='black', linewidth=0.5)
-plt.plot(np.linspace(-8.010000228881836,-8.010000228881836), np.linspace(-100, -8), c='black', linewidth=0.5)
+ax.plot(np.linspace(8.010000228881836, 100), np.linspace( 8.010000228881836,  8.010000228881836), c='black', linewidth=0.5)
+ax.plot(np.linspace(8.010000228881836, 100), np.linspace(100, 100), c='black', linewidth=0.5)
+ax.plot(np.linspace(100,100), np.linspace(8.010000228881836, 100), c='black', linewidth=0.5)
+ax.plot(np.linspace(8.010000228881836,8.010000228881836), np.linspace(8.010000228881836, 100), c='black', linewidth=0.5)
 
-plt.plot(np.linspace(8.010000228881836, 100), np.linspace(-8,  -8), c='black', linewidth=0.5)
-plt.plot(np.linspace(8.010000228881836, 100), np.linspace(-100, -100), c='black', linewidth=0.5)
-plt.plot(np.linspace(100,100), np.linspace(-100, -8), c='black', linewidth=0.5)
-plt.plot(np.linspace(8.010000228881836,8.010000228881836), np.linspace(-100, -8), c='black', linewidth=0.5)
-# plt.yticks(np.arange(-150,160, step=50))
-# plt.xticks(np.arange(-150,151, step=50))
+ax.plot(np.linspace(-100,-8.010000228881836), np.linspace( -8.010000228881836,  -8.010000228881836), c='black', linewidth=0.5)
+ax.plot(np.linspace(-100,-8.010000228881836), np.linspace(-100, -100), c='black', linewidth=0.5)
+ax.plot(np.linspace(-100,-100), np.linspace(-100, -8), c='black', linewidth=0.5)
+ax.plot(np.linspace(-8.010000228881836,-8.010000228881836), np.linspace(-100, -8), c='black', linewidth=0.5)
 
-plt.scatter(-150, 0, c='w', s=1)
-plt.scatter(150, 0, c='w', s=1)
-plt.scatter(0, 150, c='w', s=1)
-plt.scatter(0, -150, c='w', s=1)
-
-plt.axis('off')
+ax.plot(np.linspace(8.010000228881836, 100), np.linspace(-8,  -8), c='black', linewidth=0.5)
+ax.plot(np.linspace(8.010000228881836, 100), np.linspace(-100, -100), c='black', linewidth=0.5)
+ax.plot(np.linspace(100,100), np.linspace(-100, -8), c='black', linewidth=0.5)
+ax.plot(np.linspace(8.010000228881836,8.010000228881836), np.linspace(-100, -8), c='black', linewidth=0.5)
 
 
 
@@ -85,16 +90,17 @@ for a in range(8):
 
 #### homography
 pts_img = np.array([
-[228, 126], [228, 304],
-[95, 126],  [95, 304],
-[252, 126], [252, 304],
-[385, 126], [385, 304],
+[233, 36], [233, 233],
+[36, 36], [36, 233],
+[267, 36],  [267, 233],
+[464, 36], [464, 233],
 
-[228, 336], [228, 514],
-[95, 336],  [95, 514],
-[252, 336], [252, 514],
-[385, 336], [385, 514],
+[233, 267], [233, 464],
+[36, 267], [36, 464],
+[267, 267],  [267, 464],
+[464, 267], [464, 464],
 ])
+
 
 pts_wrd = np.array([
 [-100, 8.010000228881836], [-8.010000228881836, 8.010000228881836],
@@ -119,7 +125,10 @@ with open(os.path.join('D:\crowd\datasets/syn_x/map', s_name + '_H.txt'), 'w') a
         f.write(line + '\n')
 
 
+
+#################################
 ### img process
+#################################
 c = imageio.imread(os.path.join('D:\crowd\datasets/syn_x', s_name + '.png'))
 plt.imshow(c)
 
@@ -132,14 +141,19 @@ cv2.imwrite(os.path.join('D:\crowd\datasets/syn_x', s_name + '_map.png'), c)
 
 ### make unnavi. as 1
 c = imageio.imread(os.path.join('D:\crowd\datasets/syn_x', s_name + '_map.png'))
-c[95:228, 126:304] = 255
-c[252:385, 126:304] = 255
 
-c[95:228, 336:514] = 255
-c[252:385, 336:514] = 255
+c[36:233, 36:233] = 255
+c[267:464, 36:233] = 255
+
+c[36:233, 267:464] = 255
+c[267:464, 267:464] = 255
+
+
 cv2.imwrite(os.path.join('D:\crowd\datasets/syn_x/map', s_name + '_map.png'), c)
 
+#################################
 ### validate
+#################################
 for a in range(len(pts_wrd)):
     target_pos = np.expand_dims(np.transpose(pts_wrd[a]), 0)
     target_pixel = np.matmul(np.concatenate([target_pos, np.ones((len(target_pos), 1))], axis=1), inv_h_t)

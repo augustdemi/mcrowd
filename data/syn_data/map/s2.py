@@ -40,45 +40,44 @@ for i in range(num_poly):
 
 
 
+
 ## draw map for s2
 #up
-plt.plot(np.linspace(5.5,95), np.linspace(-42, -42), c='black', linewidth=0.5)
-plt.plot(np.linspace(4.5,97.5), np.linspace(-44, -44), c='black', linewidth=0.5)
-plt.plot(np.linspace(4.5,97.5), np.linspace(44, 44), c='black', linewidth=0.5)
-plt.plot(np.linspace(5.5,95), np.linspace(42, 42), c='black', linewidth=0.5)
+fig = plt.figure(figsize=(5, 5))
+ax = fig.add_subplot(111)
+ax.axis('off')
+fig.tight_layout()
+
+ax.plot(np.linspace(5.5,95), np.linspace(-42, -42), c='black', linewidth=0.5)
+ax.plot(np.linspace(4.5,97.5), np.linspace(-44, -44), c='black', linewidth=0.5)
+ax.plot(np.linspace(4.5,97.5), np.linspace(44, 44), c='black', linewidth=0.5)
+ax.plot(np.linspace(5.5,95), np.linspace(42, 42), c='black', linewidth=0.5)
 # exit
-plt.plot(np.linspace(4.5,5.5), np.linspace(0.20000000298023224, 0.20000000298023224), c='black', linewidth=0.5)
-plt.plot(np.linspace(4.5,5.5), np.linspace(-1.2000000476837158, -1.2000000476837158), c='black', linewidth=0.5)
+ax.plot(np.linspace(4.5,5.5), np.linspace(0.20000000298023224, 0.20000000298023224), c='black', linewidth=0.5)
+ax.plot(np.linspace(4.5,5.5), np.linspace(-1.2000000476837158, -1.2000000476837158), c='black', linewidth=0.5)
 # bottom
-plt.plot(np.linspace(5.5,5.5), np.linspace(0.20000000298023224, 42), c='black', linewidth=0.5)
-plt.plot(np.linspace(4.5,4.5), np.linspace(0.20000000298023224, 44), c='black', linewidth=0.5)
-plt.plot(np.linspace(5.5,5.5), np.linspace(-1.2000000476837158, -42), c='black', linewidth=0.5)
-plt.plot(np.linspace(4.5,4.5), np.linspace(-1.2000000476837158, -44), c='black', linewidth=0.5)
+ax.plot(np.linspace(5.5,5.5), np.linspace(0.20000000298023224, 42), c='black', linewidth=0.5)
+ax.plot(np.linspace(4.5,4.5), np.linspace(0.20000000298023224, 44), c='black', linewidth=0.5)
+ax.plot(np.linspace(5.5,5.5), np.linspace(-1.2000000476837158, -42), c='black', linewidth=0.5)
+ax.plot(np.linspace(4.5,4.5), np.linspace(-1.2000000476837158, -44), c='black', linewidth=0.5)
 # right wall
-plt.plot(np.linspace(95, 95), np.linspace(-42, 42), c='black', linewidth=0.5)
-plt.plot(np.linspace(97.5, 97.5), np.linspace(-44, 44), c='black', linewidth=0.5)
+ax.plot(np.linspace(95, 95), np.linspace(-42, 42), c='black', linewidth=0.5)
+ax.plot(np.linspace(97.5, 97.5), np.linspace(-44, 44), c='black', linewidth=0.5)
 
 
-plt.scatter(-150, 0, c='w', s=1)
-plt.scatter(150, 0, c='w', s=1)
-plt.scatter(0, 150, c='w', s=1)
-plt.scatter(0, -150, c='w', s=1)
+c = imageio.imread(os.path.join('D:\crowd\datasets/syn_x', s_name + '_map.png'))
 
 
-plt.axis('off')
-plt.tight_layout()
-# max traj
-# plt.scatter(-50, 0, c='w', s=1)
 
 
 #### homography
 pts_img = np.array([
-[240,329], [240,331],
-[176, 329],  [179, 331],
-[176, 509], [179, 504],
-[304, 509], [301, 504],
-[304, 329], [301, 331],
-[242, 329], [242, 331]
+[249,36], [249,41],
+[36, 36],  [46, 41],
+[36, 464], [46, 452],
+[464, 464], [454, 452],
+[464, 36], [454, 41],
+[256, 36], [256, 41]
 ])
 
 pts_wrd = np.array([
@@ -101,9 +100,11 @@ with open(os.path.join('D:\crowd\datasets/syn_x/map', s_name + '_H.txt'), 'w') a
         f.write(line + '\n')
 
 
+#################################
 ### img process
+#################################
 c = imageio.imread(os.path.join('D:\crowd\datasets/syn_x', s_name + '.png'))
-# plt.imshow(c)
+plt.imshow(c)
 
 c = c[:,:,0]
 c = 255-c
@@ -113,27 +114,19 @@ cv2.imwrite(os.path.join('D:\crowd\datasets/syn_x', s_name + '_map.png'), c)
 
 ### make unnavi. as 1
 c = imageio.imread(os.path.join('D:\crowd\datasets/syn_x', s_name + '_map.png'))
-c[176:240, 329:331] = 255
-c[176:179, 329:504] = 255
-c[301:304, 329:504] = 255
-c[176:304 , 504:509] = 255
-c[242:304, 329:331] = 255
+c[36:249, 36:41] = 255
+c[36:46, 36:464] = 255
+c[454:464, 36:464] = 255
+c[36:464 , 452:464] = 255
+c[256:464, 36:41] = 255
 
 cv2.imwrite(os.path.join('D:\crowd\datasets/syn_x/map', s_name + '_map.png'), c)
 
 
 
-pts_img = np.array([
-[240,329], [240,331],
-[176, 329],  [179, 331],
-[176, 509], [179, 504],
-[304, 509], [301, 504],
-[304, 329], [301, 331],
-[242, 329], [242, 331]
-])
-
-
+#################################
 ### validate
+#################################
 for a in range(len(pts_wrd)):
     target_pos = np.expand_dims(np.transpose(pts_wrd[a]), 0)
     target_pixel = np.matmul(np.concatenate([target_pos, np.ones((len(target_pos), 1))], axis=1), inv_h_t)
@@ -141,6 +134,10 @@ for a in range(len(pts_wrd)):
     target_pixel = target_pixel[:, :2]
     # plt.scatter(target_pixel[0][1], target_pixel[0][0], c=colors[a], s=1)
     plt.scatter(target_pixel[0][1], target_pixel[0][0], c='r', s=1)
+
+    target_pixel =np.concatenate([target_pixel, np.ones((len(target_pos), 1))], axis=1)
+    pos= np.matmul(target_pixel, np.transpose(h))
+    pos /= np.expand_dims(pos[:, 2], 1)
 
 plt.show()
 

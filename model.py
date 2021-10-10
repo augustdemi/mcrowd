@@ -55,102 +55,59 @@ def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0.0):
 
 ###############################################################################
 # -----------------------------------------------------------------------
-def ConvBlock(in_dim, out_dim, act_fn):
-    model = nn.Sequential(
-        nn.Conv2d(in_dim, out_dim, kernel_size = 3, stride = 1, padding = 1),
-        nn.BatchNorm2d(out_dim),
-        act_fn,
-    )
-    return model
-
-def ConvTransBlock(in_dim, out_dim, act_fn):
-    model = nn.Sequential(
-        nn.ConvTranspose2d(in_dim, out_dim, kernel_size = 3, stride = 2, padding=1, output_padding = 1),
-        nn.BatchNorm2d(out_dim),
-        act_fn,
-    )
-    return model
-
-def Maxpool():
-    pool = nn.MaxPool2d(kernel_size = 2, stride = 2, padding = 0)
-    return pool
-
-def ConvBlock2X(in_dim, out_dim, act_fn):
-    model = nn.Sequential(
-        ConvBlock(in_dim, out_dim, act_fn),
-        ConvBlock(out_dim, out_dim, act_fn),
-    )
-    return model
-
-class LGEncoder(nn.Module):
-    """Encoder:spatial emb -> lstm -> pooling -> fc for posterior / conditional prior"""
+class AttentionHiddenNet(nn.Module):
+    """Pooling module as proposed in our paper"""
     def __init__(
-        self, zS_dim, drop_out_conv=0., mlp_dim=32, drop_out_mlp=0.1, device='cpu'
+        self, enc_h_dim=64, mlp_dim=32
     ):
-        super(LGEncoder, self).__init__()
-        act_fn = nn.ReLU
-        in_dim=9
-        # ch_dim = [32,32,64,64,64]
-        ch_dim = 32
+        super(AttentionHiddenNet, self).__init__()
+        self.fc = nn.Linear(enc_h_dim, mlp_dim)
 
-        self.down_1 = ConvBlock2X(in_dim, ch_dim, act_fn)
-        self.pool_1 = Maxpool()
-        self.down_2 = ConvBlock2X(ch_dim, ch_dim, act_fn)
-        self.pool_2 = Maxpool()
-        self.down_3 = ConvBlock2X(ch_dim, ch_dim * 2, act_fn)
-        self.pool_3 = Maxpool()
-        self.down_4 = ConvBlock2X(ch_dim * 2, ch_dim *2, act_fn)
-        self.pool_4 = Maxpool()
-        self.down_5 = ConvBlock2X(ch_dim * 2, ch_dim *2, act_fn)
-        self.pool_5 = Maxpool()
-
-        self.zS_dim=zS_dim
-        self.enc_h_dim = 32 * 5 * 5
-        self.fc1 = nn.Linear(self.enc_h_dim + 2, mlp_dim, bias=False)
-        self.fc2 = nn.Linear(mlp_dim, zS_dim, bias=False)
-
-
-    def forward(self, obs_heat_map, last_obs_vel_local, train=False):
+    def repeat(self, tensor, num_reps):
         """
         Inputs:
-        - obs_traj: Tensor of shape (obs_len, batch, 2)
-        Output:
-        - final_h: Tensor of shape (self.num_layers, batch, self.h_dim)
+        -tensor: 2D tensor of any shape
+        -num_reps: Number of times to repeat each row
+        Outpus:
+        -repeat_tensor: Repeat each row such that: R1, R1, R2, R2
         """
+        col_len = tensor.size(1)
+        tensor = tensor.unsqueeze(dim=1).repeat(1, num_reps, 1)
+        tensor = tensor.view(-1, col_len)
+        return tensor
 
-        down_1 = self.down_1(obs_heat_map)  # concat w/ trans_4
-        pool_1 = self.pool_1(down_1)
-        down_2 = self.down_2(pool_1)  # concat w/ trans_3
-        pool_2 = self.pool_2(down_2)
-        down_3 = self.down_3(pool_2)  # concat w/ trans_2
-        pool_3 = self.pool_3(down_3)
-        down_4 = self.down_4(pool_3)  # concat w/ trans_1
-        pool_4 = self.pool_4(down_4)
+    def forward(self, h_states, seq_start_end):
+        """
+        Inputs:
+        - h_states: Tensor of shape (num_layers, batch, h_dim)
+        - seq_start_end: A list of tuples which delimit sequences within batch
+        - end_pos: Tensor of shape (batch, 2)
+        Output:
+        - context_mat: Tensor of shape (batch, pool_dim)
+        """
+        h_states = self.fc(h_states)
+        context_mat = []
+        for _, (start, end) in enumerate(seq_start_end):
+            start = start.item()
+            end = end.item()
+            num_ped = end - start
+            curr_hidden = h_states[start:end] #num_ped, mlp latent
+            score=torch.matmul(curr_hidden, curr_hidden.transpose(1,0)) #num_ped, num_ped
+            attn_dist = torch.softmax(score, dim=1) #(num_ped, num_ped)
+            curr_context_mat= [] # 현재 start-end 프레임 안의 num ped만큼의 hidden feat들이 서로간 이루는 attn_dist(score)값을 반영한 context vec를 모음.
+            for i in range(num_ped):
+                curr_attn = attn_dist[i].repeat(curr_hidden.size(1), 1).transpose(1, 0)
+                context_vec = torch.sum(curr_attn * curr_hidden, dim=0)
+                curr_context_mat.append(context_vec)
+            # for i in range(num_ped):
+            #     context_vec = torch.zeros(curr_hidden.size(1)).to(self.device)
+            #     for j in range(num_ped):
+            #         context_vec += attn_dist[i][j] * curr_hidden[j] #(latent)
+            #     curr_context_mat.append(context_vec)
+            context_mat.append(torch.stack(curr_context_mat))
 
-
-        x = F.relu(self.conv1(obs_heat_map)) # 14
-        x = self.pool(F.relu(self.conv2(x)))  # 12
-        if (self.drop_out_conv > 0) and train:
-            x = F.dropout(x,
-                          p=self.drop_out,
-                          training=train)
-
-        x = F.relu(self.conv3(x))  # 10
-        x = self.pool(F.relu(self.conv4(x))) # 8->4
-        x = x.view(-1, self.enc_h_dim)
-        # add last velocity
-        x = torch.cat((x, last_obs_vel_local), -1)
-        hx = self.fc1(x)
-        x = F.relu(hx)
-        if (self.drop_out_mlp > 0) and train:
-            x = F.dropout(x,
-                        p=self.drop_out_mlp,
-                        training=train)
-        z = self.fc2(x)
-
-        return hx, z
-
-
+        context_mat = torch.cat(context_mat, dim=0)
+        return context_mat
 
 
 
@@ -173,9 +130,12 @@ class EncoderX(nn.Module):
         self.rnn_encoder = nn.LSTM(
             input_size=n_state, hidden_size=enc_h_dim
         )
+        self.attn_net = AttentionHiddenNet(
+            enc_h_dim=enc_h_dim, mlp_dim=mlp_dim
+        )
 
 
-        self.fc1 = nn.Linear(enc_h_dim, mlp_dim)
+        self.fc1 = nn.Linear(enc_h_dim + mlp_dim, mlp_dim)
         self.fc2 = nn.Linear(mlp_dim + map_feat_dim, zS_dim*2)
 
         # self.local_map_feat_dim = np.prod([*a])
@@ -199,7 +159,14 @@ class EncoderX(nn.Module):
         final_encoder_h = F.dropout(final_encoder_h,
                             p=self.dropout_rnn,
                             training=train)  # [bs, max_time, enc_rnn_dim]
-        hx = self.fc1(final_encoder_h.view(-1, self.enc_h_dim))
+
+        final_encoder_h = final_encoder_h.view(-1, self.enc_h_dim)
+        # attention
+        attn_h = self.attn_net(final_encoder_h, seq_start_end)  # 656, 32
+        # Construct input hidden states for decoder
+        hx = torch.cat([final_encoder_h.squeeze(0), attn_h], dim=1)  # [656, 64]
+
+        hx = self.fc1(hx)
         hx = F.dropout(F.relu(hx),
                       p=self.dropout_mlp,
                       training=train)
@@ -300,19 +267,16 @@ class Decoder(nn.Module):
         self.dropout_rnn = dropout_rnn
 
         self.dec_hidden = nn.Linear(mlp_dim + z_dim, dec_h_dim)
-        self.to_vel = nn.Linear(n_state, n_pred_state)
+
+        self.attn_net = AttentionHiddenNet(
+            enc_h_dim=n_state, mlp_dim=n_pred_state
+        )
+
+        self.to_vel = nn.Linear(n_state + n_pred_state, n_pred_state)
 
         self.rnn_decoder = nn.GRUCell(
             input_size=mlp_dim + z_dim + 2*n_pred_state, hidden_size=dec_h_dim
         )
-
-        # self.mlp = make_mlp(
-        #     [32 + z_dim, dec_h_dim], #mlp_dim + z_dim = enc_hidden_feat after mlp + z
-        #     activation=activation,
-        #     batch_norm=batch_norm,
-        #     dropout=dropout_mlp
-        # )
-
         self.fc_mu = nn.Linear(dec_h_dim, n_pred_state)
         self.fc_std = nn.Linear(dec_h_dim, n_pred_state)
 
@@ -320,17 +284,7 @@ class Decoder(nn.Module):
             input_size=n_state, hidden_size=enc_h_dim, num_layers=1, bidirectional=True)
         self.sg_fc = nn.Linear(4*enc_h_dim, n_pred_state)
 
-        # normal_init(self.rnn_decoder)
-        # normal_init(self.dec_hidden)
-        # normal_init(self.to_vel)
-        # normal_init(self.fc_mu)
-        # normal_init(self.fc_std)
-        # normal_init(self.sg_rnn_enc)
-        # normal_init(self.sg_fc)
-
-
-
-    def forward(self, last_obs_st, last_obs_pos, enc_h_feat, z, sg, fut_traj=None):
+    def forward(self, seq_start_end, last_obs_st, last_obs_pos, enc_h_feat, z, sg, fut_traj=None):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
@@ -346,12 +300,13 @@ class Decoder(nn.Module):
         zx = torch.cat([enc_h_feat, z], dim=1) # 493, 89(64+25)
         decoder_h=self.dec_hidden(zx) # 493, 128
         # Infer initial action state for node from current state
-        a = self.to_vel(last_obs_st)
+        attn_h = self.attn_net(last_obs_st, seq_start_end)  # 656, 32
+        a = self.to_vel(torch.cat([last_obs_st, attn_h], dim=1))
 
         ### make six states
         dt = 0.4*4
         last_ob_sg = torch.cat([last_obs_pos.unsqueeze(1), sg], dim=1).detach().cpu().numpy()
-        last_ob_sg = (last_ob_sg - last_ob_sg[:,:1])/200
+        last_ob_sg = (last_ob_sg - last_ob_sg[:,:1])/100
 
         sg_state = []
         for pos in last_ob_sg:
@@ -374,21 +329,12 @@ class Decoder(nn.Module):
                         training=train)  # [bs, max_time, enc_rnn_dim]
         sg_heat = self.sg_fc(sg_h.reshape(-1, 4 * self.enc_h_dim))
 
-        #
-        # for i in range(3):
-        #     print((last_ob_sg[1, i+1] - last_ob_sg[1, i]) / dt)
-        #     print(sg_vel[1,i])
-        #     print('--------------')
-        # print(sg_vel[1,3])
-
         ### traj decoding
         mus = []
         stds = []
         for i in range(self.seq_len):
             decoder_h= self.rnn_decoder(torch.cat([zx, a, sg_heat], dim=1), decoder_h) #493, 128
             mu= self.fc_mu(decoder_h)
-            # logVar = torch.clamp(self.fc_std(decoder_h), min=-4e+1, max=4e+1)
-            # logVar = torch.clamp(self.fc_std(decoder_h), min=-1, max=1)
             logVar = self.fc_std(decoder_h)
             std = torch.sqrt(torch.exp(logVar))
             mus.append(mu)

@@ -39,45 +39,57 @@ for i in range(num_poly):
    plt.scatter(vertices_obstacle_x[3], vertices_obstacle_y[3], c='black', s=5)
 
 
+path = 'D:\crowd\datasets\syn_x_cropped\s1/test/bottleneck-squeeze.txt'
+
+def read_file(_path, delim='\t'):
+    data = []
+    if delim == 'tab':
+        delim = '\t'
+    elif delim == 'space':
+        delim = ' '
+    with open(_path, 'r') as f:
+        for line in f:
+            line = line.strip().split(delim)
+            line = [float(i) for i in line]
+            data.append(line)
+    return np.asarray(data)
+
+
+data = read_file(path)
+
+colors = ['r', 'g', 'y', 'm', 'c', 'k', 'w', 'b']
+for a in range(1,9):
+    one_agent_all_time_data =data[np.where(data[:,1]==a)[0]][:,2:4]
+    for target_pos in one_agent_all_time_data:
+        plt.scatter(target_pos[0], target_pos[1], c=colors[a%8], s=0.5)
+
+
 
 ## draw map for s2
 #up
-plt.plot(np.linspace(-11,20), np.linspace(2.0999999046325684, 2.0999999046325684), c='black', linewidth=0.5)
-plt.plot(np.linspace(-11,20), np.linspace(-2.0999999046325684, -2.0999999046325684), c='black', linewidth=0.5)
-plt.plot(np.linspace(-11,20), np.linspace(100, 100), c='black', linewidth=0.5)
-plt.plot(np.linspace(-11,20), np.linspace(-100, -100), c='black', linewidth=0.5)
+
+fig = plt.figure(figsize=(5, 5))
+ax = fig.add_subplot(111)
+ax.axis('off')
+fig.tight_layout()
+
+ax.plot(np.linspace(-11,20), np.linspace(2.0999999046325684, 2.0999999046325684), c='black', linewidth=0.5)
+ax.plot(np.linspace(-11,20), np.linspace(-2.0999999046325684, -2.0999999046325684), c='black', linewidth=0.5)
+ax.plot(np.linspace(-11,20), np.linspace(100, 100), c='black', linewidth=0.5)
+ax.plot(np.linspace(-11,20), np.linspace(-100, -100), c='black', linewidth=0.5)
 # exit
-plt.plot(np.linspace(-11, -11), np.linspace(2.0999999046325684, 100), c='black', linewidth=0.5)
-plt.plot(np.linspace(20, 20), np.linspace(2.0999999046325684, 100), c='black', linewidth=0.5)
-plt.plot(np.linspace(-11, -11), np.linspace(-2.0999999046325684, -100), c='black', linewidth=0.5)
-plt.plot(np.linspace(20, 20), np.linspace(-2.0999999046325684, -100), c='black', linewidth=0.5)
-
-plt.scatter(-150, 0, c='w', s=1)
-plt.scatter(150, 0, c='w', s=1)
-plt.scatter(0, 150, c='w', s=1)
-plt.scatter(0, -150, c='w', s=1)
-
-plt.axis('off')
-
-
-
-
-
-
-colors = ['r', 'g', 'y', 'm', 'c', 'k', 'w', 'b']
-for a in range(8):
-    for t in time_rng:
-        current_position = trajs[a][t].reshape((2,))
-        plt.scatter(current_position[0], current_position[1], c=colors[a], s=1)
-
+ax.plot(np.linspace(-11, -11), np.linspace(2.0999999046325684, 100), c='black', linewidth=0.5)
+ax.plot(np.linspace(20, 20), np.linspace(2.0999999046325684, 100), c='black', linewidth=0.5)
+ax.plot(np.linspace(-11, -11), np.linspace(-2.0999999046325684, -100), c='black', linewidth=0.5)
+ax.plot(np.linspace(20, 20), np.linspace(-2.0999999046325684, -100), c='black', linewidth=0.5)
 
 
 #### homography
 pts_img = np.array([
-[237, 299], [237, 359],
-[243, 299],  [243, 359],
-[95, 299], [95, 359],
-[385, 299], [385, 359],
+[246, 36], [246, 464],
+[254, 36],  [254, 464],
+[36, 36], [36, 464],
+[464, 36], [464, 464],
 ])
 
 
@@ -112,9 +124,9 @@ cv2.imwrite(os.path.join('D:\crowd\datasets/syn_x', s_name + '_map.png'), c)
 
 ### make unnavi. as 1
 c = imageio.imread(os.path.join('D:\crowd\datasets/syn_x', s_name + '_map.png'))
-c[95:237, 299:359] = 255
-c[243:385, 299:359] = 255
 
+c[36:246, 36:464] = 255
+c[254:464, 36:464] = 255
 
 cv2.imwrite(os.path.join('D:\crowd\datasets/syn_x/map', s_name + '_map.png'), c)
 
