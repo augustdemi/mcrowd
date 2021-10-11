@@ -977,7 +977,6 @@ class Solver(object):
                         # -------- trajectories --------
                         # NO TF, pred_goals, z~prior
                         fut_rel_pos_dist_prior = self.decoderMy(
-                            seq_start_end,
                             obs_traj_st[-1],
                             obs_traj[-1, :, :2],
                             hx,
