@@ -156,6 +156,16 @@ class Solver(object):
         self.decoder_h_dim = args.decoder_h_dim
 
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
+            lg_cvae_path = 'sdd.lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_0.5_anneal_e_0_aug_1_run_181'
+
+            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_43000_lg_cvae.pt')
+
+            if self.device == 'cuda':
+                self.lg_cvae = torch.load(lg_cvae_path)
+            else:
+                self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
+            print(">>>>>>>>> Init: ", lg_cvae_path)
+
 
 
             self.encoderMx = EncoderX(
@@ -332,11 +342,14 @@ class Solver(object):
              local_map, local_ic, local_homo) = next(iterator)
             batch_size = fut_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
+            obs_heat_map =  self.make_heatmap(local_ic, local_map, aug=False, only_obs=True)
 
+            #-------- map encoding from lgvae --------
+            unet_enc_feat = self.lg_cvae.unet.down_forward(obs_heat_map)
 
             #-------- trajectories --------
             (hx, mux, log_varx) \
-                = self.encoderMx(obs_traj_st, seq_start_end, train=True)
+                = self.encoderMx(obs_traj_st, seq_start_end, unet_enc_feat, local_homo, train=True)
 
 
             (muy, log_vary) \
@@ -348,7 +361,6 @@ class Solver(object):
 
             # TF, goals, z~posterior
             fut_rel_pos_dist_tf_post = self.decoderMy(
-                seq_start_end,
                 obs_traj_st[-1],
                 obs_traj[-1, :, :2],
                 hx,
@@ -361,7 +373,6 @@ class Solver(object):
 
             # NO TF, predicted goals, z~prior
             fut_rel_pos_dist_prior = self.decoderMy(
-                seq_start_end,
                 obs_traj_st[-1],
                 obs_traj[-1, :, :2],
                 hx,
@@ -468,17 +479,20 @@ class Solver(object):
                 batch_size = fut_traj.size(1)
                 total_traj += fut_traj.size(1)
 
+                obs_heat_map = self.make_heatmap(local_ic, local_map, aug=False, only_obs=True)
+
+                # -------- map encoding from lgvae --------
+                unet_enc_feat = self.lg_cvae.unet.down_forward(obs_heat_map)
 
                 # -------- trajectories --------
                 (hx, mux, log_varx) \
-                    = self.encoderMx(obs_traj_st, seq_start_end)
+                    = self.encoderMx(obs_traj_st, seq_start_end, unet_enc_feat, local_homo)
                 p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
 
                 fut_rel_pos_dist20 = []
                 for _ in range(4):
                     # NO TF, pred_goals, z~prior
                     fut_rel_pos_dist_prior = self.decoderMy(
-                        seq_start_end,
                         obs_traj_st[-1],
                         obs_traj[-1,:,:2],
                         hx,
