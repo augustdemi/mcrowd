@@ -34,46 +34,22 @@ def seq_collate(data):
     fut_traj = torch.cat(pred_seq_list, dim=0).permute(2, 0, 1)
     seq_start_end = torch.LongTensor(seq_start_end)
 
-    obs_frames = np.concatenate(obs_frames)
-    fut_frames = np.concatenate(fut_frames)
+    obs_frames = np.stack(obs_frames)
+    fut_frames = np.stack(fut_frames)
     # map_path = np.concatenate(map_path, 0)
     inv_h_t = np.concatenate(inv_h_t, 0)
     # local_map = np.array(np.concatenate(local_map, 0))
     # local_map = np.concatenate(local_map, 0)
     local_ic = np.concatenate(local_ic, 0)
-    local_homo = torch.tensor(np.concatenate(local_homo, 0)).float().to(obs_traj.device)
+    local_homo = np.stack(local_homo, 0)
 
-    local_maps = []
-    for seq_local_map in local_map:
-        for elt in seq_local_map:
-            local_maps.append(np.expand_dims(elt,0))
-
-    # all_traj_st = torch.cat([obs_traj, fut_traj], dim=0)
-    # # pos is stdized by mean = last obs step
-    # std = all_traj_st[:, :, :2].std(0)
-    # all_traj_st[:, :, :2] = (all_traj_st[:,:,:2] - all_traj_st[7, :, :2]) / std
-    # all_traj_st[:, :, 2:4] /= std**2
-    # all_traj_st[:, :, 4:6] /= std**3
-    #
-    #
-    # out = [
-    #     obs_traj, fut_traj, all_traj_st[:8], all_traj_st[8:], seq_start_end,
-    #     obs_frames, fut_frames, map_path, inv_h_t,
-    #     local_maps, local_ic, local_homo
-    # ]
-
-    obs_traj_st = obs_traj.clone()
-    # pos is stdized by mean = last obs step
-    std = 100
-    obs_traj_st[:, :, :2] = (obs_traj_st[:,:,:2] - obs_traj_st[-1, :, :2]) / std
-    obs_traj_st[:, :, 2:] /= std
-    # print(obs_traj_st.max(), obs_traj_st.min())
 
     out = [
-        obs_traj, fut_traj, obs_traj_st, fut_traj[:,:,2:4] / std, seq_start_end,
+        obs_traj, fut_traj, seq_start_end,
         obs_frames, fut_frames, map_path, inv_h_t,
-        local_maps, local_ic, local_homo
+        local_map, local_ic, local_homo
     ]
+
 
     return tuple(out)
 
@@ -167,7 +143,6 @@ class TrajectoryDataset(Dataset):
         scene_names = []
         local_map_size=[]
 
-        self.stats={}
         self.maps={}
         for file in os.listdir(self.map_dir):
             m = imageio.imread(os.path.join(self.map_dir, file)).astype(float)
@@ -200,11 +175,6 @@ class TrajectoryDataset(Dataset):
             map_size = self.maps[s + '_mask'].shape
             scene_data[:,2] = np.clip(scene_data[:,2], a_min=None, a_max=map_size[1]-1)
             scene_data[:,3] =  np.clip(scene_data[:,3], a_min=None, a_max=map_size[0]-1)
-
-            # mean = scene_data[:,2:4].astype(float).mean(0)
-            # std = scene_data[:,2:4].astype(float).std(0)
-            # scene_data[:, 2:4] = (scene_data[:, 2:4] - mean) / std
-            # self.stats.update({s: {'mean': mean, 'std': std}})
             '''
             scene_data = data[data['sceneId'] == s]
             all_traj = np.array(scene_data)[:,2:4]
@@ -266,8 +236,8 @@ class TrajectoryDataset(Dataset):
                         np.ones((num_peds_considered, self.pred_len)) * frames[idx + self.obs_len:idx + self.seq_len])
                     scene_names.append([s] * num_peds_considered)
                     # inv_h_ts.append(inv_h_t)
-                # if data_split == 'test' and np.concatenate(this_scene_seq).shape[0] > 10:
-                #     break
+                if data_split == 'test' and np.concatenate(this_scene_seq).shape[0] > 10:
+                    break
 
 
             this_scene_seq = np.concatenate(this_scene_seq)
@@ -324,10 +294,10 @@ class TrajectoryDataset(Dataset):
         ] # [(0, 2),  (2, 4),  (4, 7),  (7, 10), ... (32682, 32684),  (32684, 32686)]
 
         self.map_file_name = np.concatenate(scene_names)
-        self.num_seq = len(self.seq_start_end) # = slide (seq. of 16 frames) 수 = 2692
+        self.num_seq = len(self.obs_traj) # = slide (seq. of 16 frames) 수 = 2692
         self.local_map_size = np.stack(local_map_size)
-        self.local_ic = [[]] * len(self.obs_frame_num)
-        self.local_homo = [[]] * len(self.obs_frame_num)
+        self.local_ic = [[]] * self.num_seq
+        self.local_homo = [[]] * self.num_seq
 
         print(self.seq_start_end[-1])
 
@@ -335,39 +305,25 @@ class TrajectoryDataset(Dataset):
     def __len__(self):
         return self.num_seq
 
-    def __getitem__(self, seq_idx):
-        start, end = self.seq_start_end[seq_idx]
-        global_map = self.maps[self.map_file_name[start] + '_mask']
+    def __getitem__(self, index):
+        global_map = self.maps[self.map_file_name[index] + '_mask']
         inv_h_t = np.expand_dims(np.eye(3), axis=0)
-
-        local_maps =[]
-        local_ics =[]
-        local_homos =[]
-        for index in range(start, end):
-            all_traj = torch.cat([self.obs_traj[index, :2, :],  self.pred_traj[index, :2, :]], dim=1).detach().cpu().numpy().transpose((1,0))
-            if len(self.local_ic[index]) == 0:
-                local_map, local_ic, local_homo = self.get_local_map_ic(global_map, all_traj, zoom=1, radius=self.local_map_size[index], compute_local_homo=True)
-                self.local_ic[index] = local_ic
-                self.local_homo[index] = local_homo
-            else:
-                local_map, _, _ = self.get_local_map_ic(global_map, all_traj, zoom=1, radius=self.local_map_size[index])
-                local_ic = self.local_ic[index]
-                local_homo = self.local_homo[index]
-
-            local_maps.append(local_map)
-            local_ics.append(local_ic)
-            local_homos.append(local_homo)
-
-
-        local_ics = np.stack(local_ics)
-        local_homos = np.stack(local_homos)
+        all_traj = torch.cat([self.obs_traj[index, :2, :],  self.pred_traj[index, :2, :]], dim=1).detach().cpu().numpy().transpose((1,0))
+        if len(self.local_ic[index]) == 0:
+            local_map, local_ic, local_homo = self.get_local_map_ic(global_map, all_traj, zoom=1, radius=self.local_map_size[index], compute_local_homo=True)
+            self.local_ic[index] = local_ic
+            self.local_homo[index] = local_homo
+        else:
+            local_map, _, _ = self.get_local_map_ic(global_map, all_traj, zoom=1, radius=self.local_map_size[index])
+            local_ic = self.local_ic[index]
+            local_homo = self.local_homo[index]
 
         #########
         out = [
-            self.obs_traj[start:end].to(self.device), self.pred_traj[start:end].to(self.device),
-            self.obs_frame_num[start:end], self.fut_frame_num[start:end],
-            [global_map] * (end-start), [inv_h_t] * (end-start),
-            local_maps, local_ics, local_homos
+            self.obs_traj[index].to(self.device).unsqueeze(0), self.pred_traj[index].to(self.device).unsqueeze(0),
+            self.obs_frame_num[index], self.fut_frame_num[index],
+            np.expand_dims(global_map, axis = 0), inv_h_t,
+            np.expand_dims(local_map, axis=0), np.expand_dims(local_ic, axis=0), local_homo
         ]
         return out
 
