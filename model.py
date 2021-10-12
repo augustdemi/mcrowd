@@ -234,7 +234,7 @@ class Decoder(nn.Module):
 
 
 
-    def forward(self, last_obs_st, last_obs_pos, enc_h_feat, z, sg, fut_traj=None):
+    def forward(self, last_obs_st, last_obs_pos, enc_h_feat, z, sg, sg_update_idx, fut_traj=None):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
@@ -250,7 +250,7 @@ class Decoder(nn.Module):
         zx = torch.cat([enc_h_feat, z], dim=1) # 493, 89(64+25)
         decoder_h=self.dec_hidden(zx) # 493, 128
         # Infer initial action state for node from current state
-        a = self.to_vel(last_obs_st)
+        pred_vel = self.to_vel(last_obs_st)
 
         ### make six states
         dt = 0.4*4
@@ -288,8 +288,9 @@ class Decoder(nn.Module):
         ### traj decoding
         mus = []
         stds = []
+        j=0
         for i in range(self.seq_len):
-            decoder_h= self.rnn_decoder(torch.cat([zx, a, sg_heat], dim=1), decoder_h) #493, 128
+            decoder_h= self.rnn_decoder(torch.cat([zx, pred_vel, sg_heat], dim=1), decoder_h) #493, 128
             mu= self.fc_mu(decoder_h)
             # logVar = torch.clamp(self.fc_std(decoder_h), min=-4e+1, max=4e+1)
             # logVar = torch.clamp(self.fc_std(decoder_h), min=-1, max=1)
@@ -299,10 +300,12 @@ class Decoder(nn.Module):
             stds.append(std)
 
             if fut_traj is not None:
-                a = fut_traj[i,:,2:4]
+                pred_vel = fut_traj[i,:,2:4]
             else:
-                a = Normal(mu, std).rsample()
+                if(i == sg_update_idx[j]):
+                    pred_vel = sg_state[j+1,:,2:4] * 100
+                    j += 1
+                else:
+                    pred_vel = Normal(mu, std).rsample()
+                # pred_fut_traj = integrate_samples(pred_vel.unsqueeze(0), last_obs_pos , dt=self.dt)
 
-        mus = torch.stack(mus, dim=0)
-        stds = torch.stack(stds, dim=0)
-        return Normal(mus, stds)

@@ -365,6 +365,7 @@ class Solver(object):
                 hx,
                 q_dist.rsample(),
                 fut_traj[self.sg_idx, :, :2].permute(1,0,2), # goal
+                self.sg_idx,
                 fut_traj # TF
             )
 
@@ -376,6 +377,7 @@ class Solver(object):
                 hx,
                 p_dist.rsample(),
                 fut_traj[self.sg_idx, :, :2].permute(1, 0, 2),  # goal
+                self.sg_idx
             )
 
 
@@ -495,6 +497,7 @@ class Solver(object):
                         hx,
                         p_dist.rsample(),
                         fut_traj[self.sg_idx, :, :2].permute(1, 0, 2),  # goal
+                        self.sg_idx
                     )
                     fut_rel_pos_dist20.append(fut_rel_pos_dist_prior)
 
