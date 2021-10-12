@@ -288,7 +288,7 @@ class Decoder(nn.Module):
     def __init__(
         self, seq_len, dec_h_dim=128, mlp_dim=1024, num_layers=1,
         dropout_rnn=0.0, enc_h_dim=32, z_dim=32,
-        device='cpu'
+        device='cpu', scale=100
     ):
         super(Decoder, self).__init__()
         n_state=6
@@ -300,6 +300,7 @@ class Decoder(nn.Module):
         self.device=device
         self.num_layers = num_layers
         self.dropout_rnn = dropout_rnn
+        self.scale = scale
 
         self.dec_hidden = nn.Linear(mlp_dim + z_dim, dec_h_dim)
         self.to_vel = nn.Linear(n_state, n_pred_state)
@@ -332,7 +333,7 @@ class Decoder(nn.Module):
 
 
 
-    def forward(self, last_obs_st, last_obs_pos, enc_h_feat, z, sg, sg_update_idx, fut_traj=None):
+    def forward(self, last_obs_st, last_obs_pos, enc_h_feat, z, sg, sg_update_idx, fut_vel_st=None):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
@@ -353,7 +354,7 @@ class Decoder(nn.Module):
         ### make six states
         dt = 0.4*4
         last_ob_sg = torch.cat([last_obs_pos.unsqueeze(1), sg], dim=1).detach().cpu().numpy()
-        last_ob_sg = (last_ob_sg - last_ob_sg[:,:1])/100
+        last_ob_sg = (last_ob_sg - last_ob_sg[:,:1])/self.scale
 
         sg_state = []
         for pos in last_ob_sg:
@@ -367,7 +368,7 @@ class Decoder(nn.Module):
         ### sg encoding
         _, sg_h = self.sg_rnn_enc(sg_state) # [8, 656, 16], 두개의 [1, 656, 32]
         sg_h = torch.cat(sg_h, dim=0).permute(1, 0, 2)
-        if fut_traj is not None:
+        if fut_vel_st is not None:
             train=True
         else:
             train=False
@@ -397,11 +398,11 @@ class Decoder(nn.Module):
             mus.append(mu)
             stds.append(std)
 
-            if fut_traj is not None:
-                pred_vel = fut_traj[i,:,2:4]
+            if fut_vel_st is not None:
+                pred_vel = fut_vel_st
             else:
                 if(i == sg_update_idx[j]):
-                    pred_vel = sg_state[j+1,:,2:4] * 100
+                    pred_vel = sg_state[j+1,:,2:4]
                     j += 1
                 else:
                     pred_vel = Normal(mu, std).rsample()
