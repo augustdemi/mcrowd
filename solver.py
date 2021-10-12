@@ -354,6 +354,8 @@ class Solver(object):
                 sg_map = recon_sg_heat[:,i]
                 normalized_recon_sg_heat.append(F.normalize(sg_map.view((sg_map.shape[0], -1)), p=1))
             recon_sg_heat = torch.stack(normalized_recon_sg_heat, dim=1)
+            sg_heat_map= sg_heat_map.view(sg_heat_map.shape[0], len(self.sg_idx), -1)
+
 
             sg_recon_loss = - (
             self.alpha * sg_heat_map * torch.log(recon_sg_heat + self.eps) * ((1 - recon_sg_heat) ** self.gamma) \
@@ -505,6 +507,7 @@ class Solver(object):
                     sg_recon += - (self.alpha * sg_heat_map * torch.log(pred_sg_heat + self.eps) * ((1 - pred_sg_heat) ** self.gamma) \
                                     + (1 - self.alpha) * (1 - sg_heat_map) * torch.log(1 - pred_sg_heat + self.eps) * (
                                        pred_sg_heat ** self.gamma)).sum().div(batch_size)
+
                 sg_ade.append(torch.sqrt(((torch.stack(pred_sg_wcs).permute(0, 2, 1, 3)
                                            - fut_traj[self.sg_idx, :, :2].unsqueeze(0).repeat((20, 1, 1, 1))) ** 2).sum(-1)).sum(1))
 
