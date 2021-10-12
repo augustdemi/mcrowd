@@ -332,7 +332,7 @@ class Decoder(nn.Module):
 
 
 
-    def forward(self, last_obs_st, last_obs_pos, enc_h_feat, z, sg, fut_traj=None):
+    def forward(self, last_obs_st, last_obs_pos, enc_h_feat, z, sg, sg_update_idx, fut_traj=None):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
@@ -386,6 +386,7 @@ class Decoder(nn.Module):
         ### traj decoding
         mus = []
         stds = []
+        j=0
         for i in range(self.seq_len):
             decoder_h= self.rnn_decoder(torch.cat([zx, pred_vel, sg_heat], dim=1), decoder_h) #493, 128
             mu= self.fc_mu(decoder_h)
@@ -399,10 +400,11 @@ class Decoder(nn.Module):
             if fut_traj is not None:
                 pred_vel = fut_traj[i,:,2:4]
             else:
-                # if (i < sg_update_idx[-1] + 1) and (i == sg_update_idx[j]):
-                #     pred_vel = Normal(mu, std).rsample()
-                # else:
-                pred_vel = Normal(mu, std).rsample()
+                if(i == sg_update_idx[j]):
+                    pred_vel = sg_state[j+1,:,2:4] * 100
+                    j += 1
+                else:
+                    pred_vel = Normal(mu, std).rsample()
                 # pred_fut_traj = integrate_samples(pred_vel.unsqueeze(0), last_obs_pos , dt=self.dt)
 
 
