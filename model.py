@@ -399,7 +399,7 @@ class Decoder(nn.Module):
             stds.append(std)
 
             if fut_vel_st is not None:
-                pred_vel = fut_vel_st
+                pred_vel = fut_vel_st[i]
             else:
                 if(i == sg_update_idx[j]):
                     pred_vel = sg_state[j+1,:,2:4]
