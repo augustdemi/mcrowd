@@ -158,11 +158,11 @@ class TrajectoryDataset(Dataset):
         self.maps={}
         for file in os.listdir(self.map_dir):
             m = imageio.imread(os.path.join(self.map_dir, file)).astype(float)
-            m[np.argwhere(m == 1)[:, 0], np.argwhere(m == 1)[:, 1]] = 0
-            m[np.argwhere(m == 2)[:, 0], np.argwhere(m == 2)[:, 1]] = 0
-            m[np.argwhere(m == 3)[:, 0], np.argwhere(m == 3)[:, 1]] = 1
-            m[np.argwhere(m == 4)[:, 0], np.argwhere(m == 4)[:, 1]] = 1
-            m[np.argwhere(m == 5)[:, 0], np.argwhere(m == 5)[:, 1]] = 1
+            # m[np.argwhere(m == 1)[:, 0], np.argwhere(m == 1)[:, 1]] = 0
+            # m[np.argwhere(m == 2)[:, 0], np.argwhere(m == 2)[:, 1]] = 0
+            # m[np.argwhere(m == 3)[:, 0], np.argwhere(m == 3)[:, 1]] = 1
+            # m[np.argwhere(m == 4)[:, 0], np.argwhere(m == 4)[:, 1]] = 1
+            # m[np.argwhere(m == 5)[:, 0], np.argwhere(m == 5)[:, 1]] = 1
             self.maps.update({file.split('.')[0]:m})
 
 
