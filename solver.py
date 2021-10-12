@@ -162,8 +162,13 @@ class Solver(object):
         self.num_layers = args.num_layers
         self.decoder_h_dim = args.decoder_h_dim
 
+        # lg_cvae_path = 'sdd.lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_0.5_anneal_e_0_aug_1_run_181'
+        # lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_43000_lg_cvae.pt')
+
+
         lg_cvae_path = 'sdd.lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_lg_klw_1.0_a_0.25_r_2.0_fb_0.5_anneal_e_20_aug_1_run_181'
         lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_25000_lg_cvae.pt')
+
 
         if self.device == 'cuda':
             self.lg_cvae = torch.load(lg_cvae_path)
@@ -509,7 +514,7 @@ class Solver(object):
                                        pred_sg_heat ** self.gamma)).sum().div(batch_size)
 
                 sg_ade.append(torch.sqrt(((torch.stack(pred_sg_wcs).permute(0, 2, 1, 3)
-                                           - fut_traj[self.sg_idx, :, :2].unsqueeze(0).repeat((20, 1, 1, 1))) ** 2).sum(-1)).sum(1))
+                                           - fut_traj[list(self.sg_idx), :, :2].unsqueeze(0).repeat((20, 1, 1, 1))) ** 2).sum(-1)).sum(1))
 
             sg_ade=torch.cat(sg_ade, dim=1).cpu().numpy()
 
