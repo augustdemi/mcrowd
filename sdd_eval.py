@@ -99,35 +99,6 @@ class Solver(object):
         self.beta2_VAE = args.beta2_VAE
         print(args.desc)
 
-        # visdom setup
-        self.viz_on = args.viz_on
-        if self.viz_on:
-            self.win_id = dict(
-                recon='win_recon', test_total_loss='win_test_total_loss',
-                lg_fde_min='win_lg_fde_min', lg_fde_avg='win_lg_fde_avg', lg_fde_std='win_lg_fde_std',
-                sg_recon='win_sg_recon', test_sg_recon='win_test_sg_recon',
-                sg_ade_min='win_sg_ade_min', sg_ade_avg='win_sg_ade_avg', sg_ade_std='win_sg_ade_std',
-            )
-            self.line_gather = DataGather(
-                'iter',
-                'test_total_loss',
-                'lg_fde_min', 'lg_fde_avg', 'lg_fde_std',
-                'sg_recon', 'test_sg_recon',
-                'sg_ade_min', 'sg_ade_avg', 'sg_ade_std',
-            )
-
-
-            self.viz_port = args.viz_port  # port number, eg, 8097
-            self.viz = visdom.Visdom(port=self.viz_port)
-            self.viz_ll_iter = args.viz_ll_iter
-            self.viz_la_iter = args.viz_la_iter
-
-            self.viz_init()
-
-        # create dirs: "records", "ckpts", "outputs" (if not exist)
-        mkdirs("records");
-        mkdirs("ckpts");
-        mkdirs("outputs")
 
         # set run id
         if args.run_id < 0:  # create a new id
