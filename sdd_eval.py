@@ -810,128 +810,12 @@ class Solver(object):
             lg_fde_avg = np.mean(lg_fde, axis=0).mean()
             lg_fde_std = np.std(lg_fde, axis=0).mean()
 
-        self.set_mode(train=True)
         return ade_min, fde_min, \
                ade_avg, fde_avg, \
                ade_std, fde_std, \
                sg_ade_min, sg_ade_avg, sg_ade_std, \
                lg_fde_min, lg_fde_avg, lg_fde_std
 
-
-
-
-
-    ####
-    def viz_init(self):
-        self.viz.close(env=self.name + '/lines', win=self.win_id['test_total_loss'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['lg_fde_min'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['lg_fde_avg'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['lg_fde_std'])
-
-        self.viz.close(env=self.name + '/lines', win=self.win_id['sg_recon'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['test_sg_recon'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['sg_ade_min'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['sg_ade_avg'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['sg_ade_std'])
-
-    ####
-    def visualize_line(self):
-
-        # prepare data to plot
-        data = self.line_gather.data
-        iters = torch.Tensor(data['iter'])
-        test_total_loss = torch.Tensor(data['test_total_loss'])
-
-        sg_ade_min = torch.Tensor(data['sg_ade_min'])
-        sg_ade_avg = torch.Tensor(data['sg_ade_avg'])
-        sg_ade_std = torch.Tensor(data['sg_ade_std'])
-        sg_recon = torch.Tensor(data['sg_recon'])
-        test_sg_recon = torch.Tensor(data['test_sg_recon'])
-
-        lg_fde_min = torch.Tensor(data['lg_fde_min'])
-        lg_fde_avg = torch.Tensor(data['lg_fde_avg'])
-        lg_fde_std = torch.Tensor(data['lg_fde_std'])
-
-
-        self.viz.line(
-            X=iters, Y=lg_fde_min, env=self.name + '/lines',
-            win=self.win_id['lg_fde_min'], update='append',
-            opts=dict(xlabel='iter', ylabel='lg_fde_min',
-                      title='lg_fde_min'),
-        )
-        self.viz.line(
-            X=iters, Y=lg_fde_avg, env=self.name + '/lines',
-            win=self.win_id['lg_fde_avg'], update='append',
-            opts=dict(xlabel='iter', ylabel='lg_fde_avg',
-                      title='lg_fde_avg'),
-        )
-        self.viz.line(
-            X=iters, Y=lg_fde_std, env=self.name + '/lines',
-            win=self.win_id['lg_fde_std'], update='append',
-            opts=dict(xlabel='iter', ylabel='lg_fde_std',
-                      title='lg_fde_std'),
-        )
-
-        self.viz.line(
-            X=iters, Y=sg_ade_std, env=self.name + '/lines',
-            win=self.win_id['sg_ade_std'], update='append',
-            opts=dict(xlabel='iter', ylabel='sg_ade_std',
-                      title='sg_ade_std')
-        )
-
-        self.viz.line(
-            X=iters, Y=sg_ade_avg, env=self.name + '/lines',
-            win=self.win_id['sg_ade_avg'], update='append',
-            opts=dict(xlabel='iter', ylabel='sg_ade_avg',
-                      title='sg_ade_avg')
-        )
-
-        self.viz.line(
-            X=iters, Y=sg_ade_min, env=self.name + '/lines',
-            win=self.win_id['sg_ade_min'], update='append',
-            opts=dict(xlabel='iter', ylabel='sg_ade_min',
-                      title='sg_ade_min')
-        )
-
-        self.viz.line(
-            X=iters, Y=sg_recon, env=self.name + '/lines',
-            win=self.win_id['sg_recon'], update='append',
-            opts=dict(xlabel='iter', ylabel='sg_recon',
-                      title='sg_recon')
-        )
-
-        self.viz.line(
-            X=iters, Y=test_sg_recon, env=self.name + '/lines',
-            win=self.win_id['test_sg_recon'], update='append',
-            opts=dict(xlabel='iter', ylabel='test_sg_recon',
-                      title='test_sg_recon')
-        )
-
-
-        self.viz.line(
-            X=iters, Y=test_total_loss, env=self.name + '/lines',
-            win=self.win_id['test_total_loss'], update='append',
-            opts=dict(xlabel='iter', ylabel='elbo',
-                      title='test_elbo')
-        )
-
-
-
-    def set_mode(self, train=True):
-
-        if train:
-            self.sg_unet.train()
-        else:
-            self.sg_unet.eval()
-
-    ####
-    def save_checkpoint(self, iteration):
-        sg_unet_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_sg_unet.pt' % iteration
-        )
-        mkdirs(self.ckpt_dir)
-        torch.save(self.sg_unet, sg_unet_path)
 
 
 
