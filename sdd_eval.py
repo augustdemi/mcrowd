@@ -293,100 +293,6 @@ class Solver(object):
         return heat_map_traj
 
     ####
-    def train(self):
-        self.set_mode(train=True)
-        data_loader = self.train_loader
-        self.N = len(data_loader.dataset)
-        iterator = iter(data_loader)
-
-        iter_per_epoch = len(iterator)
-        start_iter = self.ckpt_load_iter + 1
-        epoch = int(start_iter / iter_per_epoch)
-
-        for iteration in range(start_iter, self.max_iter + 1):
-
-            # reset data iterators for each epoch
-            if iteration % iter_per_epoch == 0:
-                print('==== epoch %d done ====' % epoch)
-                epoch +=1
-
-                iterator = iter(data_loader)
-
-            # ============================================
-            #          TRAIN THE VAE (ENC & DEC)
-            # ============================================
-
-            (obs_traj, fut_traj, seq_start_end,
-             obs_frames, pred_frames, map_path, inv_h_t,
-             local_map, local_ic, local_homo) = next(iterator)
-            batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
-
-            obs_heat_map, sg_heat_map, lg_heat_map =  self.make_heatmap(local_ic, local_map, aug=self.aug)
-
-            # -------- short term goal --------
-            # obs_lg_heat = torch.cat([obs_heat_map, lg_heat_map[:,-1].unsqueeze(1)], dim=1)
-            recon_sg_heat = self.sg_unet.forward(torch.cat([obs_heat_map, lg_heat_map], dim=1))
-            recon_sg_heat = F.sigmoid(recon_sg_heat)
-            normalized_recon_sg_heat = []
-            for i in range(3):
-                sg_map = recon_sg_heat[:,i]
-                normalized_recon_sg_heat.append(F.normalize(sg_map.view((sg_map.shape[0], sg_map.shape[1], -1))))
-            recon_sg_heat = torch.stack(normalized_recon_sg_heat, dim=1)
-
-            sg_recon_loss = - (
-            self.alpha * sg_heat_map * torch.log(recon_sg_heat + self.eps) * ((1 - recon_sg_heat) ** self.gamma) \
-            + (1 - self.alpha) * (1 - sg_heat_map) * torch.log(1 - recon_sg_heat + self.eps) * (
-                recon_sg_heat ** self.gamma)).sum().div(batch_size)
-
-            loss = sg_recon_loss * self.scale
-
-            self.optim_vae.zero_grad()
-            loss.backward()
-            self.optim_vae.step()
-
-
-            # save model parameters
-            if iteration % self.ckpt_save_iter == 0:
-                self.save_checkpoint(iteration)
-
-            # (visdom) insert current line stats
-            if self.viz_on and (iteration % self.viz_ll_iter == 0):
-                lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon, test_lg_kl, \
-                        test_sg_recon_loss, sg_ade_min, sg_ade_avg, sg_ade_std = self.evaluate_dist(self.val_loader, loss=True)
-                test_total_loss = test_sg_recon_loss * self.scale
-                self.line_gather.insert(iter=iteration,
-                                        lg_fde_min=lg_fde_min,
-                                        lg_fde_avg=lg_fde_avg,
-                                        lg_fde_std=lg_fde_std,
-                                        test_total_loss=test_total_loss.item(),
-                                        sg_recon=sg_recon_loss.item(),
-                                        test_sg_recon=test_sg_recon_loss.item(),
-                                        sg_ade_min=sg_ade_min,
-                                        sg_ade_avg=sg_ade_avg,
-                                        sg_ade_std=sg_ade_std,
-                                        )
-
-                prn_str = ('[iter_%d (epoch_%d)] VAE Loss: %.3f '
-                          ) % \
-                          (iteration, epoch,
-                           loss.item(),
-                           )
-
-                print(prn_str)
-
-
-                if self.record_file:
-                    record = open(self.record_file, 'a')
-                    record.write('%s\n' % (prn_str,))
-                    record.close()
-
-
-            # (visdom) visualize line stats (then flush out)
-            if self.viz_on and (iteration % self.viz_la_iter == 0):
-                self.visualize_line()
-                self.line_gather.flush()
-
-
     def repeat(self, tensor, num_reps):
         """
         Inputs:
@@ -863,13 +769,14 @@ class Solver(object):
                             hx,
                             z_prior,
                             pred_sg_wc,  # goal
+                            self.sg_idx
                         )
                         fut_rel_pos_dists.append(fut_rel_pos_dist_prior)
 
 
                 ade, fde = [], []
                 for dist in fut_rel_pos_dists:
-                    pred_fut_traj=integrate_samples(dist.rsample(), obs_traj[-1, :, :2], dt=self.dt)
+                    pred_fut_traj=integrate_samples(dist.rsample() * self.scale, obs_traj[-1, :, :2], dt=self.dt)
                     ade.append(displacement_error(
                         pred_fut_traj, fut_traj[:,:,:2], mode='raw'
                     ))
