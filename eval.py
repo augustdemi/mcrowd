@@ -158,29 +158,30 @@ def main(args):
         gh = True
         print("GEN HEAT MAP: ", gh)
 
-        traj_path = 'sdd.traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_0.07_run_4'
+        traj_path = 'sdd.traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_' \
+                    'map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_0.07_run_14'
 
-        traj_iter = '25000'
+        traj_iter = '40000'
         traj_ckpt = {'ckpt_dir': os.path.join('ckpts', traj_path), 'iter': traj_iter}
         print('===== TRAJECTORY:', traj_ckpt)
 
         # lg_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_0.5_anneal_e_0_load_e_1_run_24'
         # lg_iter = '57100'
 
-        lg_path = 'sdd.lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_0.5_anneal_e_0_aug_1_run_181'
-        lg_iter = '43000'
+        lg_path = 'sdd.lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_4.0_anneal_e_0_aug_1_run_23'
+        lg_iter = '21500'
         lg_ckpt = {'ckpt_dir': os.path.join('ckpts', lg_path), 'iter': lg_iter}
         print('===== LG CVAE:', lg_ckpt)
 
-        sg_path = 'sdd.sg_enc_block_1_fcomb_block_2_wD_20_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_0.5_anneal_e_20_load_e_1_aug_1_scael_1.0_run_5'
-        sg_iter = '20000'
+        sg_path = 'sdd.sg_enc_block_1_fcomb_block_2_wD_20_lr_0.001_lg_klw_1.0_a_0.25_r_2.0_fb_0.5_anneal_e_0_load_e_1_aug_1_scael_1.0_run_7'
+        sg_iter = '19000'
         sg_ckpt = {'ckpt_dir': os.path.join('ckpts', sg_path), 'iter': sg_iter}
         print('===== SG CVAE:', sg_ckpt)
 
 
         solver.pretrain_load_checkpoint(traj_ckpt, lg_ckpt, sg_ckpt)
 
-        # solver.check_feat(test_loader)
+        solver.check_feat(test_loader)
 
         # solver.plot_traj_var(test_loader)
         # solver.evaluate_dist_gt_goal(test_loader)
