@@ -829,3 +829,14 @@ class Solver(object):
             self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
             self.sg_unet = torch.load(sg_unet_path, map_location='cpu')
 
+
+    def set_mode(self, train=True):
+
+        if train:
+            self.encoderMx.train()
+            self.encoderMy.train()
+            self.decoderMy.train()
+        else:
+            self.encoderMx.eval()
+            self.encoderMy.eval()
+            self.decoderMy.eval()
