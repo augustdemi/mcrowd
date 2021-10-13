@@ -752,7 +752,7 @@ class Solver(object):
 
                 # -------- trajectories --------
                 (hx, mux, log_varx) \
-                    = self.encoderMx(obs_traj_st, seq_start_end)
+                    = self.encoderMx(obs_traj_st, seq_start_end, self.lg_cvae.unet_enc_feat, local_homo)
 
                 p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
                 z_priors = []
