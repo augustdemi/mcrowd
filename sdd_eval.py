@@ -48,7 +48,7 @@ class Solver(object):
     def __init__(self, args):
 
         self.args = args
-
+        args.num_sg = args.load_e
         self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_lg_klw_%s_a_%s_r_%s_fb_%s_anneal_e_%s_load_e_%s_aug_%s_scael_%s' % \
                     (args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE,
                      args.lg_kl_weight, args.alpha, args.gamma, args.fb, args.anneal_epoch, args.load_e, args.aug, args.scale)
@@ -68,7 +68,8 @@ class Solver(object):
         self.dt=0.4
         self.eps=1e-9
         self.ll_prior_w =args.ll_prior_w
-        self.sg_idx =  np.array([3,7,11])
+        self.sg_idx = np.array(range(12))
+        self.sg_idx = np.flip(11-self.sg_idx[::(12//args.num_sg)])
         self.no_convs_fcomb = args.no_convs_fcomb
         self.no_convs_per_block = args.no_convs_per_block
 
