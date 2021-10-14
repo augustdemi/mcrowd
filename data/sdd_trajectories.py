@@ -146,11 +146,6 @@ class TrajectoryDataset(Dataset):
         self.maps={}
         for file in os.listdir(self.map_dir):
             m = imageio.imread(os.path.join(self.map_dir, file)).astype(float)
-            # m[np.argwhere(m == 1)[:, 0], np.argwhere(m == 1)[:, 1]] = 0
-            # m[np.argwhere(m == 2)[:, 0], np.argwhere(m == 2)[:, 1]] = 0
-            # m[np.argwhere(m == 3)[:, 0], np.argwhere(m == 3)[:, 1]] = 1
-            # m[np.argwhere(m == 4)[:, 0], np.argwhere(m == 4)[:, 1]] = 1
-            # m[np.argwhere(m == 5)[:, 0], np.argwhere(m == 5)[:, 1]] = 1
             self.maps.update({file.split('.')[0]:m})
 
 
@@ -243,20 +238,6 @@ class TrajectoryDataset(Dataset):
             this_scene_seq = np.concatenate(this_scene_seq)
             # print(s, len(scene_data), this_scene_seq.shape[0])
 
-            '''
-            argmax_idx = (per_step_dist * 20).argmax()
-            # argmax_idx = 3
-            # plt.scatter(this_scene_seq[argmax_idx, 0, :8], this_scene_seq[argmax_idx, 1, :8], s=1, c='b')
-            # plt.scatter(this_scene_seq[argmax_idx, 0, 8:], this_scene_seq[argmax_idx, 1, 8:], s=1, c='r')
-            # plt.imshow(self.maps[s + '_mask'])
-            for i in range(8):
-                plt.scatter(this_scene_seq[argmax_idx, 0, i], this_scene_seq[argmax_idx, 1, i], s=4, c='b', alpha=(1-((i+1)/10)))
-            for i in range(8,20):
-                plt.scatter(this_scene_seq[argmax_idx, 0, i], this_scene_seq[argmax_idx, 1, i], s=4, c='r', alpha=(1-((i)/20)))
-            traj = this_scene_seq[argmax_idx].transpose(1, 0)
-            np.sqrt(((traj[1:] - traj[:-1]) ** 2).sum(1))
-            
-            '''
             ### for map
             per_step_dist = []
             for traj in this_scene_seq:
