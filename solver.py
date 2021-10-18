@@ -332,34 +332,30 @@ class Solver(object):
                 self.save_checkpoint(iteration)
 
             # (visdom) insert current line stats
-            if self.viz_on and (iteration % self.viz_ll_iter == 0):
-                lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon, test_lg_kl, \
-                        test_sg_recon_loss, sg_ade_min, sg_ade_avg, sg_ade_std = self.evaluate_dist(self.val_loader, loss=True)
-                self.line_gather.insert(iter=iteration,
-                                        lg_fde_min=lg_fde_min,
-                                        lg_fde_avg=lg_fde_avg,
-                                        lg_fde_std=lg_fde_std,
-                                        test_total_loss=0,
-                                        sg_recon=sg_recon_loss.item(),
-                                        test_sg_recon=test_sg_recon_loss.item(),
-                                        sg_ade_min=sg_ade_min,
-                                        sg_ade_avg=sg_ade_avg,
-                                        sg_ade_std=sg_ade_std,
-                                        )
+            if (iteration > 10000) or (iteration < 4000):
+                if self.viz_on and (iteration % self.viz_ll_iter == 0):
+                    lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon, test_lg_kl, \
+                            test_sg_recon_loss, sg_ade_min, sg_ade_avg, sg_ade_std = self.evaluate_dist(self.val_loader, loss=True)
+                    self.line_gather.insert(iter=iteration,
+                                            lg_fde_min=lg_fde_min,
+                                            lg_fde_avg=lg_fde_avg,
+                                            lg_fde_std=lg_fde_std,
+                                            test_total_loss=0,
+                                            sg_recon=sg_recon_loss.item(),
+                                            test_sg_recon=test_sg_recon_loss.item(),
+                                            sg_ade_min=sg_ade_min,
+                                            sg_ade_avg=sg_ade_avg,
+                                            sg_ade_std=sg_ade_std,
+                                            )
 
-                prn_str = ('[iter_%d (epoch_%d)] VAE Loss: %.3f '
-                          ) % \
-                          (iteration, epoch,
-                           loss.item(),
-                           )
+                    prn_str = ('[iter_%d (epoch_%d)] VAE Loss: %.3f '
+                              ) % \
+                              (iteration, epoch,
+                               loss.item(),
+                               )
 
-                print(prn_str)
+                    print(prn_str)
 
-
-                if self.record_file:
-                    record = open(self.record_file, 'a')
-                    record.write('%s\n' % (prn_str,))
-                    record.close()
 
 
             # (visdom) visualize line stats (then flush out)
