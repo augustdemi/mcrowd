@@ -1619,50 +1619,16 @@ class Solver(object):
     ####
     def save_checkpoint(self, iteration):
 
-        encoderMx_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_encoderMx.pt' % iteration
-        )
-        encoderMy_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_encoderMy.pt' % iteration
-        )
-        decoderMy_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_decoderMy.pt' % iteration
-        )
-        lg_cvae_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_lg_cvae.pt' % iteration
-        )
         sg_unet_path = os.path.join(
             self.ckpt_dir,
             'iter_%s_sg_unet.pt' % iteration
         )
         mkdirs(self.ckpt_dir)
-        torch.save(self.lg_cvae, lg_cvae_path)
         torch.save(self.sg_unet, sg_unet_path)
 
 
     ####
     def load_checkpoint(self):
-
-        encoderMx_path = os.path.join(
-            self.ckpt_dir,
-            'iter_48400_encoderMx.pt'
-        )
-        encoderMy_path = os.path.join(
-            self.ckpt_dir,
-            'iter_48400_encoderMy.pt'
-        )
-        decoderMy_path = os.path.join(
-            self.ckpt_dir,
-            'iter_48400_decoderMy.pt'
-        )
-        lg_cvae_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_lg_cvae.pt' % self.ckpt_load_iter
-        )
         sg_unet_path = os.path.join(
             self.ckpt_dir,
             'iter_%s_sg_unet.pt' % self.ckpt_load_iter
@@ -1670,16 +1636,8 @@ class Solver(object):
 
 
         if self.device == 'cuda':
-            # self.encoderMx = torch.load(encoderMx_path)
-            # self.encoderMy = torch.load(encoderMy_path)
-            # self.decoderMy = torch.load(decoderMy_path)
-            # self.lg_cvae = torch.load(lg_cvae_path)
             self.sg_unet = torch.load(sg_unet_path)
         else:
-            # self.encoderMx = torch.load(encoderMx_path, map_location='cpu')
-            # self.encoderMy = torch.load(encoderMy_path, map_location='cpu')
-            # self.decoderMy = torch.load(decoderMy_path, map_location='cpu')
-            # self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
             sg_unet_path = 'ckpts/sg_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_2.0_anneal_e_10_load_e_1_run_1/iter_20000_sg_unet.pt'
             self.sg_unet = torch.load(sg_unet_path, map_location='cpu')
          ####
