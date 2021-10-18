@@ -113,8 +113,8 @@ class AxisAlignedConvGaussian(nn.Module):
 
         # This is a multivariate normal with diagonal covariance matrix sigma
         # https://github.com/pytorch/pytorch/pull/11178
-        dist = Independent(Normal(loc=mu, scale=torch.sqrt(torch.exp(log_var))), 1)
-        # dist = Normal(loc=mu, scale=torch.sqrt(torch.exp(log_var)))
+        # dist = Independent(Normal(loc=mu, scale=torch.sqrt(torch.exp(log_var))), 1)
+        dist = Normal(loc=mu, scale=torch.sqrt(torch.exp(log_var)))
         return dist
 
 
