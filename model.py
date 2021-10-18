@@ -37,122 +37,9 @@ def normal_init(m):
         if m.bias is not None:
             m.bias.data.fill_(0)
 
-def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0.0):
-    layers = []
-    for dim_in, dim_out in zip(dim_list[:-1], dim_list[1:]):
-        layers.append(nn.Linear(dim_in, dim_out))
-        if batch_norm:
-            layers.append(nn.BatchNorm1d(dim_out))
-        if activation == 'relu':
-            layers.append(nn.ReLU())
-        elif activation == 'leakyrelu':
-            layers.append(nn.LeakyReLU())
-        if dropout > 0:
-            layers.append(nn.Dropout(p=dropout))
-    return nn.Sequential(*layers)
-
-
 
 ###############################################################################
 # -----------------------------------------------------------------------
-def ConvBlock(in_dim, out_dim, act_fn):
-    model = nn.Sequential(
-        nn.Conv2d(in_dim, out_dim, kernel_size = 3, stride = 1, padding = 1),
-        nn.BatchNorm2d(out_dim),
-        act_fn,
-    )
-    return model
-
-def ConvTransBlock(in_dim, out_dim, act_fn):
-    model = nn.Sequential(
-        nn.ConvTranspose2d(in_dim, out_dim, kernel_size = 3, stride = 2, padding=1, output_padding = 1),
-        nn.BatchNorm2d(out_dim),
-        act_fn,
-    )
-    return model
-
-def Maxpool():
-    pool = nn.MaxPool2d(kernel_size = 2, stride = 2, padding = 0)
-    return pool
-
-def ConvBlock2X(in_dim, out_dim, act_fn):
-    model = nn.Sequential(
-        ConvBlock(in_dim, out_dim, act_fn),
-        ConvBlock(out_dim, out_dim, act_fn),
-    )
-    return model
-
-class LGEncoder(nn.Module):
-    """Encoder:spatial emb -> lstm -> pooling -> fc for posterior / conditional prior"""
-    def __init__(
-        self, zS_dim, drop_out_conv=0., mlp_dim=32, drop_out_mlp=0.1, device='cpu'
-    ):
-        super(LGEncoder, self).__init__()
-        act_fn = nn.ReLU
-        in_dim=9
-        # ch_dim = [32,32,64,64,64]
-        ch_dim = 32
-
-        self.down_1 = ConvBlock2X(in_dim, ch_dim, act_fn)
-        self.pool_1 = Maxpool()
-        self.down_2 = ConvBlock2X(ch_dim, ch_dim, act_fn)
-        self.pool_2 = Maxpool()
-        self.down_3 = ConvBlock2X(ch_dim, ch_dim * 2, act_fn)
-        self.pool_3 = Maxpool()
-        self.down_4 = ConvBlock2X(ch_dim * 2, ch_dim *2, act_fn)
-        self.pool_4 = Maxpool()
-        self.down_5 = ConvBlock2X(ch_dim * 2, ch_dim *2, act_fn)
-        self.pool_5 = Maxpool()
-
-        self.zS_dim=zS_dim
-        self.enc_h_dim = 32 * 5 * 5
-        self.fc1 = nn.Linear(self.enc_h_dim + 2, mlp_dim, bias=False)
-        self.fc2 = nn.Linear(mlp_dim, zS_dim, bias=False)
-
-
-    def forward(self, obs_heat_map, last_obs_vel_local, train=False):
-        """
-        Inputs:
-        - obs_traj: Tensor of shape (obs_len, batch, 2)
-        Output:
-        - final_h: Tensor of shape (self.num_layers, batch, self.h_dim)
-        """
-
-        down_1 = self.down_1(obs_heat_map)  # concat w/ trans_4
-        pool_1 = self.pool_1(down_1)
-        down_2 = self.down_2(pool_1)  # concat w/ trans_3
-        pool_2 = self.pool_2(down_2)
-        down_3 = self.down_3(pool_2)  # concat w/ trans_2
-        pool_3 = self.pool_3(down_3)
-        down_4 = self.down_4(pool_3)  # concat w/ trans_1
-        pool_4 = self.pool_4(down_4)
-
-
-        x = F.relu(self.conv1(obs_heat_map)) # 14
-        x = self.pool(F.relu(self.conv2(x)))  # 12
-        if (self.drop_out_conv > 0) and train:
-            x = F.dropout(x,
-                          p=self.drop_out,
-                          training=train)
-
-        x = F.relu(self.conv3(x))  # 10
-        x = self.pool(F.relu(self.conv4(x))) # 8->4
-        x = x.view(-1, self.enc_h_dim)
-        # add last velocity
-        x = torch.cat((x, last_obs_vel_local), -1)
-        hx = self.fc1(x)
-        x = F.relu(hx)
-        if (self.drop_out_mlp > 0) and train:
-            x = F.dropout(x,
-                        p=self.drop_out_mlp,
-                        training=train)
-        z = self.fc2(x)
-
-        return hx, z
-
-
-
-
 
 class EncoderX(nn.Module):
     """Encoder:spatial emb -> lstm -> pooling -> fc for posterior / conditional prior"""
@@ -180,7 +67,7 @@ class EncoderX(nn.Module):
         self.fc_latent = nn.Linear(mlp_dim, zS_dim*2)
 
         # self.local_map_feat_dim = np.prod([*a])
-        self.map_h_dim = 64*16*16
+        self.map_h_dim = 64*10*10
 
         self.map_fc1 = nn.Linear(self.map_h_dim + 9, map_mlp_dim)
         self.map_fc2 = nn.Linear(map_mlp_dim, map_feat_dim)
@@ -288,7 +175,7 @@ class Decoder(nn.Module):
     def __init__(
         self, seq_len, dec_h_dim=128, mlp_dim=1024, num_layers=1,
         dropout_rnn=0.0, enc_h_dim=32, z_dim=32,
-        device='cpu', scale=100
+        device='cpu', scale=1
     ):
         super(Decoder, self).__init__()
         n_state=6
@@ -309,28 +196,12 @@ class Decoder(nn.Module):
             input_size=mlp_dim + z_dim + 2*n_pred_state, hidden_size=dec_h_dim
         )
 
-        # self.mlp = make_mlp(
-        #     [32 + z_dim, dec_h_dim], #mlp_dim + z_dim = enc_hidden_feat after mlp + z
-        #     activation=activation,
-        #     batch_norm=batch_norm,
-        #     dropout=dropout_mlp
-        # )
-
         self.fc_mu = nn.Linear(dec_h_dim, n_pred_state)
         self.fc_std = nn.Linear(dec_h_dim, n_pred_state)
 
         self.sg_rnn_enc = nn.LSTM(
             input_size=n_state, hidden_size=enc_h_dim, num_layers=1, bidirectional=True)
         self.sg_fc = nn.Linear(4*enc_h_dim, n_pred_state)
-
-        # normal_init(self.rnn_decoder)
-        # normal_init(self.dec_hidden)
-        # normal_init(self.to_vel)
-        # normal_init(self.fc_mu)
-        # normal_init(self.fc_std)
-        # normal_init(self.sg_rnn_enc)
-        # normal_init(self.sg_fc)
-
 
 
     def forward(self, last_obs_st, last_obs_pos, enc_h_feat, z, sg, sg_update_idx, fut_vel_st=None):
@@ -352,7 +223,7 @@ class Decoder(nn.Module):
         pred_vel = self.to_vel(last_obs_st)
 
         ### make six states
-        dt = 0.4*4
+        dt = 0.4*(12/len(sg_update_idx))
         last_ob_sg = torch.cat([last_obs_pos.unsqueeze(1), sg], dim=1).detach().cpu().numpy()
         last_ob_sg = (last_ob_sg - last_ob_sg[:,:1])/self.scale
 
@@ -375,24 +246,16 @@ class Decoder(nn.Module):
         sg_h = F.dropout(sg_h,
                         p=self.dropout_rnn,
                         training=train)  # [bs, max_time, enc_rnn_dim]
-        sg_heat = self.sg_fc(sg_h.reshape(-1, 4 * self.enc_h_dim))
+        sg_feat = self.sg_fc(sg_h.reshape(-1, 4 * self.enc_h_dim))
 
-        #
-        # for i in range(3):
-        #     print((last_ob_sg[1, i+1] - last_ob_sg[1, i]) / dt)
-        #     print(sg_vel[1,i])
-        #     print('--------------')
-        # print(sg_vel[1,3])
 
         ### traj decoding
         mus = []
         stds = []
         j=0
         for i in range(self.seq_len):
-            decoder_h= self.rnn_decoder(torch.cat([zx, pred_vel, sg_heat], dim=1), decoder_h) #493, 128
+            decoder_h= self.rnn_decoder(torch.cat([zx, pred_vel, sg_feat], dim=1), decoder_h) #493, 128
             mu= self.fc_mu(decoder_h)
-            # logVar = torch.clamp(self.fc_std(decoder_h), min=-4e+1, max=4e+1)
-            # logVar = torch.clamp(self.fc_std(decoder_h), min=-1, max=1)
             logVar = self.fc_std(decoder_h)
             std = torch.sqrt(torch.exp(logVar))
             mus.append(mu)
@@ -406,24 +269,9 @@ class Decoder(nn.Module):
                     j += 1
                 else:
                     pred_vel = Normal(mu, std).rsample()
-                # pred_fut_traj = integrate_samples(pred_vel.unsqueeze(0), last_obs_pos , dt=self.dt)
-
-
-
 
         mus = torch.stack(mus, dim=0)
         stds = torch.stack(stds, dim=0)
         return Normal(mus, stds)
 
 
-
-def integrate_samples(v, p_0, dt=1):
-    """
-    Integrates deterministic samples of velocity.
-
-    :param v: Velocity samples
-    :return: Position samples
-    """
-    v=v.permute(1, 0, 2)
-    abs_traj = torch.cumsum(v, dim=1) * dt + p_0.unsqueeze(1)
-    return  abs_traj.permute((1, 0, 2))
