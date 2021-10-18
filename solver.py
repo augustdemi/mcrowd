@@ -377,11 +377,6 @@ class Solver(object):
                     print(prn_str)
 
 
-                if self.record_file:
-                    record = open(self.record_file, 'a')
-                    record.write('%s\n' % (prn_str,))
-                    record.close()
-
 
             # (visdom) visualize line stats (then flush out)
             if self.viz_on and (iteration % self.viz_la_iter == 0):
