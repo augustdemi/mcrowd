@@ -50,10 +50,9 @@ class Solver(object):
 
         self.args = args
 
-        # self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_lg_klw_%s_a_%s_r_%s_fb_%s_anneal_e_%s_load_e_%s' % \
-        #             (args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE,
-        #              args.lg_kl_weight, args.alpha, args.gamma, args.fb, args.anneal_epoch, args.load_e)
-        self.name = 'sg_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_2.0_anneal_e_10_load_e_1'
+        self.name = '%s_lr_%s_a_%s_r_%s' % \
+                    (args.dataset_name, args.lr_VAE, args.alpha, args.gamma)
+        # self.name = 'sg_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_2.0_anneal_e_10_load_e_1'
 
         # to be appended by run_id
 
@@ -167,7 +166,7 @@ class Solver(object):
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
 
             lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_2.0_anneal_e_10_load_e_1_run_21'
-            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_26000_lg_cvae.pt')
+            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_21500_lg_cvae.pt')
 
             if self.device == 'cuda':
                 self.lg_cvae = torch.load(lg_cvae_path)
