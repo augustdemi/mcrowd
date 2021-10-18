@@ -430,12 +430,12 @@ class Solver(object):
                             argmax_idx = heat_map.argmax()
                             argmax_idx = [argmax_idx//map_size[0], argmax_idx%map_size[0]]
                             pred_lg_ic.append(argmax_idx)
-                        pred_lg_ic = torch.stack(pred_lg_ic).float()
+                        pred_lg_ic = torch.tensor(pred_lg_ic).float().to(self.device)
 
                         # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
                         back_wc = torch.matmul(
                             torch.cat([pred_lg_ic, torch.ones((len(pred_lg_ic), 1)).to(self.device)], dim=1),
-                            torch.transpose(local_homo[i], 1, 0))
+                            torch.transpose(local_homo[i].float().to(self.device), 1, 0))
                         pred_lg_wc.append(back_wc[0,:2] / back_wc[0,2])
                         # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
                     pred_lg_wc = torch.stack(pred_lg_wc)
