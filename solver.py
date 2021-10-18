@@ -261,7 +261,7 @@ class Solver(object):
             plt.imshow(heat_map_traj)
             '''
         heatmaps = torch.tensor(np.stack(heatmaps)).float().to(self.device)
-        return heatmaps[:,:2], heatmaps[:,2:], heat_maps[:,-1].unsqueeze(1)
+        return heatmaps[:,:2], heatmaps[:,2:], heatmaps[:,-1].unsqueeze(1)
 
     ####
     def train(self):
