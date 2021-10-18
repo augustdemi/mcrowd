@@ -16,7 +16,8 @@ def data_loader(args, path, data_split='train', shuffle=True):
         dset = sdd_Traj(
             path,
             data_split=data_split,
-            device=args.device)
+            device=args.device,
+            scale=args.scale)
         seq_col = sdd_seq_collate
 
 
