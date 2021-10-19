@@ -211,7 +211,6 @@ class Solver(object):
             lr=self.lr_VAE,
             betas=[self.beta1_VAE, self.beta2_VAE]
         )
-        # self.lg_optimizer = torch.optim.Adam(, lr=self., weight_decay=0)
 
         # prepare dataloader (iterable)
         print('Start loading data...')
@@ -226,8 +225,6 @@ class Solver(object):
                 'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
             )
         print('...done')
-
-        self.recon_loss_with_logit = nn.BCEWithLogitsLoss(size_average = False, reduce=False, reduction=None)
 
 
 
