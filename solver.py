@@ -404,40 +404,34 @@ class Solver(object):
                 self.save_checkpoint(iteration)
 
             # (visdom) insert current line stats
-            if self.viz_on and (iteration % self.viz_ll_iter == 0):
-                lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon, test_lg_kl = self.evaluate_dist(self.val_loader, loss=True)
-                test_total_loss = test_lg_recon - lg_kl_weight * test_lg_kl
-                self.line_gather.insert(iter=iteration,
-                                        lg_fde_min=lg_fde_min,
-                                        lg_fde_avg=lg_fde_avg,
-                                        lg_fde_std=lg_fde_std,
-                                        total_loss=-loss.item(),
-                                        lg_recon=-focal_loss.item(),
-                                        lg_kl=lg_kl.item(),
-                                        test_total_loss=test_total_loss.item(),
-                                        test_lg_recon=-test_lg_recon.item(),
-                                        test_lg_kl=test_lg_kl.item(),
-                                        )
+            if iteration < 4000 or iteration > 14000:
+                if self.viz_on and (iteration % self.viz_ll_iter == 0):
+                    lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon, test_lg_kl = self.evaluate_dist(self.val_loader, loss=True)
+                    test_total_loss = test_lg_recon - lg_kl_weight * test_lg_kl
+                    self.line_gather.insert(iter=iteration,
+                                            lg_fde_min=lg_fde_min,
+                                            lg_fde_avg=lg_fde_avg,
+                                            lg_fde_std=lg_fde_std,
+                                            total_loss=-loss.item(),
+                                            lg_recon=-focal_loss.item(),
+                                            lg_kl=lg_kl.item(),
+                                            test_total_loss=test_total_loss.item(),
+                                            test_lg_recon=-test_lg_recon.item(),
+                                            test_lg_kl=test_lg_kl.item(),
+                                            )
 
-                prn_str = ('[iter_%d (epoch_%d)] VAE Loss: %.3f '
-                          ) % \
-                          (iteration, epoch,
-                           loss.item(),
-                           )
+                    prn_str = ('[iter_%d (epoch_%d)] VAE Loss: %.3f '
+                              ) % \
+                              (iteration, epoch,
+                               loss.item(),
+                               )
 
-                print(prn_str)
+                    print(prn_str)
 
-
-                if self.record_file:
-                    record = open(self.record_file, 'a')
-                    record.write('%s\n' % (prn_str,))
-                    record.close()
-
-
-            # (visdom) visualize line stats (then flush out)
-            if self.viz_on and (iteration % self.viz_la_iter == 0):
-                self.visualize_line()
-                self.line_gather.flush()
+                # (visdom) visualize line stats (then flush out)
+                if self.viz_on and (iteration % self.viz_la_iter == 0):
+                    self.visualize_line()
+                    self.line_gather.flush()
 
 
     def repeat(self, tensor, num_reps):
