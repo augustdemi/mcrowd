@@ -131,27 +131,7 @@ class Solver(object):
         self.num_layers = args.num_layers
         self.decoder_h_dim = args.decoder_h_dim
 
-        num_filters = [32, 32, 64, 64, 64, 128]
-        # input = env + 8 past + lg / output = env + sg(including lg)
-        self.sg_unet = Unet(input_channels=3, num_classes=3, num_filters=num_filters,
-                            apply_last_layer=True, padding=True).to(self.device)
 
-        # get VAE parameters
-        vae_params = \
-            list(self.sg_unet.parameters())
-
-        # create optimizers
-        self.optim_vae = optim.Adam(
-            vae_params,
-            lr=self.lr_VAE,
-            betas=[self.beta1_VAE, self.beta2_VAE]
-        )
-        # self.lg_optimizer = torch.optim.Adam(, lr=self., weight_decay=0)
-
-        # prepare dataloader (iterable)
-        print('Start loading data...')
-
-        # long_dtype, float_dtype = get_dtypes(args)
 
         if self.ckpt_load_iter != self.max_iter:
             print("Initializing train dataset")
@@ -834,10 +814,14 @@ class Solver(object):
     def set_mode(self, train=True):
 
         if train:
+            self.sg_unet.train()
+            self.lg_cvae.train()
             self.encoderMx.train()
             self.encoderMy.train()
             self.decoderMy.train()
         else:
+            self.sg_unet.eval()
+            self.lg_cvae.eval()
             self.encoderMx.eval()
             self.encoderMy.eval()
             self.decoderMy.eval()
