@@ -163,57 +163,7 @@ class Solver(object):
         self.num_layers = args.num_layers
         self.decoder_h_dim = args.decoder_h_dim
 
-        if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
 
-            lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_0.5_anneal_e_0_load_e_1_run_24'
-            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_57100_lg_cvae.pt')
-
-            if self.device == 'cuda':
-                self.lg_cvae = torch.load(lg_cvae_path)
-            else:
-                self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
-
-            print(">>>>>>>>> Init: ", lg_cvae_path)
-
-            num_filters = [32, 32, 64, 64, 64, 128]
-            # input = env + 8 past + lg / output = env + sg(including lg)
-            self.sg_unet = Unet(input_channels=3, num_classes=3, num_filters=num_filters,
-                             apply_last_layer=True, padding=True).to(self.device)
-
-
-        else:  # load a previously saved model
-            print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
-            self.load_checkpoint()
-            lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_0.5_anneal_e_0_load_e_1_run_24'
-            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_57100_lg_cvae.pt')
-
-            if self.device == 'cuda':
-                self.lg_cvae = torch.load(lg_cvae_path)
-            else:
-                self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
-
-            print(">>>>>>>>> Init: ", lg_cvae_path)
-            print('...done')
-
-
-        # get VAE parameters
-        vae_params = \
-            list(self.sg_unet.parameters())
-
-        # create optimizers
-        self.optim_vae = optim.Adam(
-            vae_params,
-            lr=self.lr_VAE,
-            betas=[self.beta1_VAE, self.beta2_VAE]
-        )
-        # self.lg_optimizer = torch.optim.Adam(, lr=self., weight_decay=0)
-
-        # prepare dataloader (iterable)
-        print('Start loading data...')
-        # args.batch_size=4
-        # self.agrs = args
-        train_path = os.path.join(self.dataset_dir, self.dataset_name, 'Train.txt')
-        val_path = os.path.join(self.dataset_dir, self.dataset_name, 'Val.txt')
 
         # long_dtype, float_dtype = get_dtypes(args)
 
@@ -1390,8 +1340,16 @@ class Solver(object):
 
         if train:
             self.sg_unet.train()
+            self.lg_cvae.train()
+            self.encoderMx.train()
+            self.encoderMy.train()
+            self.decoderMy.train()
         else:
             self.sg_unet.eval()
+            self.lg_cvae.eval()
+            self.encoderMx.eval()
+            self.encoderMy.eval()
+            self.decoderMy.eval()
 
     ####
     def save_checkpoint(self, iteration):
@@ -1404,22 +1362,13 @@ class Solver(object):
         torch.save(self.sg_unet, sg_unet_path)
 
 
-    ####
-    def load_checkpoint(self):
+
+    def pretrain_load_checkpoint(self, traj, lg, sg):
         sg_unet_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_sg_unet.pt' % self.ckpt_load_iter
+            sg['ckpt_dir'],
+            'iter_%s_sg_unet.pt' % sg['iter']
         )
 
-
-        if self.device == 'cuda':
-            self.sg_unet = torch.load(sg_unet_path)
-        else:
-            sg_unet_path = 'ckpts/sg_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_2.0_anneal_e_10_load_e_1_run_1/iter_20000_sg_unet.pt'
-            self.sg_unet = torch.load(sg_unet_path, map_location='cpu')
-         ####
-
-    def pretrain_load_checkpoint(self, traj, lg):
 
         encoderMx_path = os.path.join(
             traj['ckpt_dir'],
@@ -1444,8 +1393,11 @@ class Solver(object):
             self.encoderMy = torch.load(encoderMy_path)
             self.decoderMy = torch.load(decoderMy_path)
             self.lg_cvae = torch.load(lg_cvae_path)
+            self.sg_unet = torch.load(sg_unet_path)
+
         else:
             self.encoderMx = torch.load(encoderMx_path, map_location='cpu')
             self.encoderMy = torch.load(encoderMy_path, map_location='cpu')
             self.decoderMy = torch.load(decoderMy_path, map_location='cpu')
             self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
+            self.sg_unet = torch.load(sg_unet_path, map_location='cpu')
