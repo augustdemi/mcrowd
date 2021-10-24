@@ -41,7 +41,7 @@ class data_generator(object):
         self.num_sample_list = []
         self.sequence = []
         for seq_name in self.sequence_to_load:
-            print("loading sequence {} ...".format(seq_name))
+            # print("loading sequence {} ...".format(seq_name))
             preprocessor = process_func(data_root, seq_name, parser, log, self.split, self.phase)
 
             num_seq_samples = preprocessor.num_fr - (parser.min_past_frames - 1) * self.frame_skip - parser.min_future_frames * self.frame_skip + 1

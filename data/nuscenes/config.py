@@ -11,7 +11,7 @@ class Config:
 
     def __init__(self, cfg_id, tmp=False, create_dirs=False):
         self.id = cfg_id
-        cfg_path = './data/nuscenes/cfg/**/%s.yml' % cfg_id
+        cfg_path = './data/nuscenes/cfg/%s.yml' % cfg_id
         files = glob.glob(cfg_path, recursive=True)
         assert(len(files) == 1)
         self.yml_dict = EasyDict(yaml.safe_load(open(files[0], 'r')))
