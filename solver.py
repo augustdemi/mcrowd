@@ -171,7 +171,7 @@ class Solver(object):
                 lg_cvae_path = 'ckpts/nu.lgcvae.ae_enc_block_1' \
                                '_fcomb_block_2' + \
                                '_wD_20_lr_0.001_a_0.25_r_2.0_aug_1_run_1/' \
-                               'iter_8000_lg_cvae.pt'
+                               'iter_14000_lg_cvae.pt'
 
                 if self.device == 'cuda':
                     self.lg_cvae = torch.load(lg_cvae_path)
@@ -451,11 +451,13 @@ class Solver(object):
         lg_fde=[]
         with torch.no_grad():
             b=0
-            for batch in data_loader:
+            while not data_loader.is_epoch_end():
+                data = data_loader.next_sample()
+                if data is None:
+                    continue
                 b+=1
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-                 obs_frames, pred_frames, map_path, inv_h_t,
-                 local_map, local_ic, local_homo) = batch
+                 maps, local_map, local_ic, local_homo) = data
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
