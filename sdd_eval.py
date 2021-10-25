@@ -771,6 +771,143 @@ class Solver(object):
 
 
 
+    def make_pred(self, data_loader, lg_num=5, traj_num=4, generate_heat=True):
+        self.set_mode(train=False)
+
+        all_gt=[]
+        all_pred = []
+        with torch.no_grad():
+            b=0
+            for batch in data_loader:
+                b+=1
+                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
+                 obs_frames, pred_frames, map_path, inv_h_t,
+                 local_map, local_ic, local_homo) = batch
+                batch_size = obs_traj.size(1)
+                obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
+
+                self.lg_cvae.forward(obs_heat_map, None, training=False)
+                fut_rel_pos_dists = []
+                pred_lg_wcs = []
+                pred_sg_wcs = []
+
+                ####### long term goals and the corresponding (deterministic) short term goals ########
+                w_priors = []
+                for _ in range(lg_num):
+                    w_priors.append(self.lg_cvae.prior_latent_space.sample())
+
+                for w_prior in w_priors:
+                    # -------- long term goal --------
+                    pred_lg_heat = F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, w_prior))
+                    pred_lg_ics = []
+                    pred_lg_wc = []
+                    for i in range(batch_size):
+                        map_size = local_map[i][0].shape
+                        pred_lg_ic = []
+                        for heat_map in pred_lg_heat[i]:
+                            # heat_map = nnf.interpolate(heat_map.unsqueeze(0), size=map_size, mode='nearest')
+                            heat_map = nnf.interpolate(heat_map.unsqueeze(0).unsqueeze(0),
+                                                       size=map_size, mode='bicubic',
+                                                       align_corners=False).squeeze(0).squeeze(0)
+                            argmax_idx = heat_map.argmax()
+                            argmax_idx = [argmax_idx // map_size[0], argmax_idx % map_size[0]]
+                            pred_lg_ic.append(argmax_idx)
+
+                        pred_lg_ic = torch.tensor(pred_lg_ic).float().to(self.device)
+
+                        pred_lg_ics.append(pred_lg_ic)
+
+                        # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
+                        back_wc = torch.matmul(
+                            torch.cat([pred_lg_ic, torch.ones((len(pred_lg_ic), 1)).to(self.device)], dim=1),
+                            torch.transpose(local_homo[i], 1, 0))
+                        pred_lg_wc.append(back_wc[0, :2] / back_wc[0, 2])
+                        # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
+                    pred_lg_wc = torch.stack(pred_lg_wc)
+                    pred_lg_wcs.append(pred_lg_wc)
+                    # -------- short term goal --------
+
+                    if generate_heat:
+                        pred_lg_heat_from_ic = []
+                        for i in range(len(pred_lg_ics)):
+                            pred_lg_heat_from_ic.append(self.make_one_heatmap(local_map[i][0], pred_lg_ics[i][
+                                0].detach().cpu().numpy().astype(int)))
+                        pred_lg_heat_from_ic = torch.tensor(np.stack(pred_lg_heat_from_ic)).unsqueeze(1).float().to(
+                            self.device)
+                        pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1)))
+                    else:
+                        pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat], dim=1)))
+
+                    pred_sg_wc = []
+                    for i in range(batch_size):
+                        map_size = local_map[i][0].shape
+                        pred_sg_ic = []
+                        for heat_map in pred_sg_heat[i]:
+                            heat_map = nnf.interpolate(heat_map.unsqueeze(0).unsqueeze(0),
+                                                       size=map_size, mode='bicubic',
+                                                       align_corners=False).squeeze(0).squeeze(0)
+                            argmax_idx = heat_map.argmax()
+                            argmax_idx = [argmax_idx // map_size[0], argmax_idx % map_size[0]]
+                            pred_sg_ic.append(argmax_idx)
+                        pred_sg_ic = torch.tensor(pred_sg_ic).float().to(self.device)
+                        # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
+                        back_wc = torch.matmul(
+                            torch.cat([pred_sg_ic, torch.ones((len(pred_sg_ic), 1)).to(self.device)], dim=1),
+                            torch.transpose(local_homo[i], 1, 0))
+                        back_wc /= back_wc[:, 2].unsqueeze(1)
+                        pred_sg_wc.append(back_wc[:, :2])
+                        # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
+                    pred_sg_wc = torch.stack(pred_sg_wc)
+                    pred_sg_wcs.append(pred_sg_wc)
+
+                    ################
+
+
+                ##### trajectories per long&short goal ####
+
+                # -------- trajectories --------
+                (hx, mux, log_varx) \
+                    = self.encoderMx(obs_traj_st, seq_start_end, self.lg_cvae.unet_enc_feat, local_homo)
+
+                p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
+                z_priors = []
+                for _ in range(traj_num):
+                    z_priors.append(p_dist.sample())
+
+                for pred_sg_wc in pred_sg_wcs:
+                    for z_prior in z_priors:
+                        # -------- trajectories --------
+                        # NO TF, pred_goals, z~prior
+                        fut_rel_pos_dist_prior = self.decoderMy(
+                            obs_traj_st[-1],
+                            obs_traj[-1, :, :2],
+                            hx,
+                            z_prior,
+                            pred_sg_wc,  # goal
+                            self.sg_idx
+                        )
+                        fut_rel_pos_dists.append(fut_rel_pos_dist_prior)
+
+                pred = []
+                for dist in fut_rel_pos_dists:
+                    pred_fut_traj=integrate_samples(dist.rsample() * self.scale, obs_traj[-1, :, :2], dt=self.dt)
+                    pred.append(pred_fut_traj)
+                all_pred.append(torch.stack(pred).detach().cpu().numpy())
+                all_gt.append(fut_traj[:,:,:2].unsqueeze(0).repeat((traj_num*lg_num,1,1,1)).detach().cpu().numpy())
+
+        import pickle
+        data = [np.concatenate(all_pred, -2).transpose(0,2,1,3), np.concatenate(all_gt, -2).transpose(0,2,1,3)]
+        with open('sdd.pkl', 'wb') as handle:
+            pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        # with open('sdd.pkl', 'rb') as f:
+        #     a= pickle.load(f)
+
+
+
+
+
+
+
     def pretrain_load_checkpoint(self, traj, lg, sg):
         sg_unet_path = os.path.join(
             sg['ckpt_dir'],
