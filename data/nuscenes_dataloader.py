@@ -78,8 +78,8 @@ class data_generator(object):
 
         assert False, 'index is %d, out of range' % (index)
 
-    def is_epoch_end(self):
-        if self.index >= len(self.idx_list):
+    def is_epoch_end(self, force=False):
+        if (self.index >= len(self.idx_list)) or force:
             self.index = 0      # reset
             return True
         else:
