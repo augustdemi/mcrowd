@@ -170,7 +170,7 @@ class Solver(object):
             if args.load_e > 0:
                 lg_cvae_path = 'ckpts/nu.lgcvae.ae_enc_block_1' \
                                '_fcomb_block_2' + \
-                               '_wD_20_lr_0.001_a_0.25_r_2.0_aug_1_run_1/' \
+                               '_wD_20_lr_0.001_a_0.25_r_2.0_aug_1_run_1/' \ 
                                'iter_14000_lg_cvae.pt'
 
                 if self.device == 'cuda':
@@ -471,26 +471,27 @@ class Solver(object):
 
                     pred_lg_wc = []
                     for i in range(batch_size):
-                        map_size = local_map[i][0].shape
-                        h = torch.tensor(local_homo[i]).float().to(self.device)
-
+                        map_size = local_map[i].shape
+                        h = local_homo[i]
                         pred_lg_ic = []
                         for heat_map in pred_lg_heat[i]:
+                            # heat_map = nnf.interpolate(heat_map.unsqueeze(0), size=map_size, mode='nearest')
                             heat_map = nnf.interpolate(heat_map.unsqueeze(0).unsqueeze(0),
                                                        size=map_size, mode='bicubic',
                                                        align_corners=False).squeeze(0).squeeze(0)
-                            pred_lg_ic.append((heat_map == torch.max(heat_map)).nonzero()[0])
-                        pred_lg_ic = torch.stack(pred_lg_ic).float()
+                            argmax_idx = heat_map.argmax()
+                            argmax_idx = [argmax_idx//map_size[0], argmax_idx%map_size[0]]
+                            pred_lg_ic.append(argmax_idx)
 
-                        # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
+                        pred_lg_ic = torch.tensor(pred_lg_ic).float().to(self.device)
+
                         back_wc = torch.matmul(
                             torch.cat([pred_lg_ic, torch.ones((len(pred_lg_ic), 1)).to(self.device)], dim=1),
                             torch.transpose(h, 1, 0))
                         pred_lg_wc.append(back_wc[0,:2] / back_wc[0,2])
-                        # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
-                    pred_lg_wc = torch.stack(pred_lg_wc)
-                    pred_lg_wc20.append(pred_lg_wc)
 
+                    pred_lg_wc = torch.stack(pred_lg_wc).squeeze(1)
+                    pred_lg_wc20.append(pred_lg_wc)
                 if loss:
                     self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
                     pred_lg_heat = F.normalize(pred_lg_heat.view(pred_lg_heat.shape[0], -1), p=1)
