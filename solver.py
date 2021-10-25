@@ -311,7 +311,10 @@ class Solver(object):
                 continue
             # reset data iterators for each epoch
             if iteration % iter_per_epoch == 0:
-                data_loader.is_epoch_end()
+                if self.ckpt_load_iter > 0:
+                    data_loader.is_epoch_end(force=True)
+                else:
+                    data_loader.is_epoch_end()
                 print('==== epoch %d done ====' % epoch)
                 epoch +=1
 
@@ -440,7 +443,7 @@ class Solver(object):
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 pred_lg_wc20 = []
-                for _ in range(20):
+                for _ in range(5):
                     # -------- long term goal --------
                     pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True))
 
@@ -477,7 +480,7 @@ class Solver(object):
                          + (1 - self.alpha) * (1 - lg_heat_map) * torch.log(1 - pred_lg_heat + self.eps) * (pred_lg_heat ** self.gamma)).sum().div(batch_size)
 
                 lg_fde.append(torch.sqrt(((torch.stack(pred_lg_wc20)
-                                           - fut_traj[-1,:,:2].unsqueeze(0).repeat((20,1,1)))**2).sum(-1))) # 20, 3, 4, 2
+                                           - fut_traj[-1,:,:2].unsqueeze(0).repeat((5,1,1)))**2).sum(-1))) # 20, 3, 4, 2
 
             lg_fde=torch.cat(lg_fde, dim=1).cpu().numpy() # all batches are concatenated
 
