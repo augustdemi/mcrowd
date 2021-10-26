@@ -36,21 +36,24 @@ def compute_fde(predicted_trajs, gt_traj):
 From https://github.com/StanfordASL/Trajectron-plus-plus.git
 '''
 def compute_kde_nll(predicted_trajs, gt_traj):
+    predicted_trajs = predicted_trajs.transpose(1,0,2,3)
+    gt_traj = gt_traj[0]
     kde_ll = 0.
     log_pdf_lower_bound = -20
-    num_timesteps = gt_traj.shape[0]
+    num_timesteps = predicted_trajs.shape[2]
     num_batches = predicted_trajs.shape[0]
 
     for batch_num in range(num_batches):
         for timestep in range(num_timesteps):
             try:
                 kde = gaussian_kde(predicted_trajs[batch_num, :, timestep].T)
-                pdf = np.clip(kde.logpdf(gt_traj[timestep].T), a_min=log_pdf_lower_bound, a_max=None)[0]
-                kde_ll += pdf / (num_timesteps * num_batches)
+                pdf = np.clip(kde.logpdf(gt_traj[batch_num, timestep].T), a_min=log_pdf_lower_bound, a_max=None)[0]
+                kde_ll += pdf
             except np.linalg.LinAlgError:
+                print('nan')
                 kde_ll = np.nan
 
-    return -kde_ll
+    return -kde_ll / (num_timesteps * num_batches)
 
 
 def compute_obs_violations(predicted_trajs, map):
@@ -73,16 +76,17 @@ def compute_obs_violations(predicted_trajs, map):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--file_path', default='../baseline', type=str, help='predicted result path' )
-    parser.add_argument('--file_name', type=str, required=True, help='modelname_datasetname such as ynet_sdd')
+    parser.add_argument('--file_path', default='../', type=str, help='predicted result path' )
+    parser.add_argument('--file_name', default='sdd', type=str, help='modelname_datasetname_k such as ynet_sdd_5')
     args = parser.parse_args()
 
-    path = args.data_path
     with open(os.path.join(args.file_path, args.file_name + '.pkl'), 'rb') as handle:
         all_data = pickle.load(handle)
 
-    print('model & dataset name :', args.file_name)
+    print('>>> file name: ', args.file_name)
     print('=== ADE min / avg / std ===' )
     print(compute_ade(all_data[0], all_data[1]))
     print('=== FDE min / avg / std ===' )
     print(compute_fde(all_data[0][:,:,-1,:], all_data[1][:,:,-1,:]))
+    print('=== NLL ===' )
+    print(compute_kde_nll(all_data[0], all_data[1]))
