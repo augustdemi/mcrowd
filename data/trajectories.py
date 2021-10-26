@@ -86,7 +86,7 @@ class TrajectoryDataset(Dataset):
         self.data_dir = os.path.join(data_dir, data_split)
         self.device = device
 
-        with open(os.path.join(data_dir, data_split + '.pickle'), 'rb') as handle:
+        with open(os.path.join(data_dir, data_split + '.pkl'), 'rb') as handle:
             all_data = pickle.load(handle)
 
 
