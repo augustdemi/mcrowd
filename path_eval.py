@@ -841,8 +841,7 @@ class Solver(object):
                         fut_rel_pos_dists.append(fut_rel_pos_dist_prior)
                 pred = []
                 for dist in fut_rel_pos_dists:
-                    pred_fut_traj = integrate_samples(dist.rsample() * self.scale, obs_traj[-1, :, :2],
-                                                      dt=self.dt)
+                    pred_fut_traj = integrate_samples(dist.rsample(), obs_traj[-1, :, :2],  dt=self.dt)
                     pred.append(pred_fut_traj)
                 all_pred.append(torch.stack(pred).detach().cpu().numpy())
                 all_gt.append(
