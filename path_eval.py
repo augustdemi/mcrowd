@@ -720,7 +720,7 @@ class Solver(object):
 
 
 
-    def all_evaluation(self, data_loader, lg_num=5, traj_num=4, generate_heat=True):
+    def make_pred(self, data_loader, lg_num=5, traj_num=4, generate_heat=True):
         self.set_mode(train=False)
         total_traj = 0
 
