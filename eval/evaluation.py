@@ -38,22 +38,24 @@ From https://github.com/StanfordASL/Trajectron-plus-plus.git
 def compute_kde_nll(predicted_trajs, gt_traj):
     predicted_trajs = predicted_trajs.transpose(1,0,2,3)
     gt_traj = gt_traj[0]
-    kde_ll = 0.
     log_pdf_lower_bound = -20
     num_timesteps = predicted_trajs.shape[2]
-    num_batches = predicted_trajs.shape[0]
+    num_seq = predicted_trajs.shape[0]
 
-    for batch_num in range(num_batches):
+    all_kde = []
+    for i in range(num_seq):
+        kde_ll = 0.
         for timestep in range(num_timesteps):
             try:
-                kde = gaussian_kde(predicted_trajs[batch_num, :, timestep].T)
-                pdf = np.clip(kde.logpdf(gt_traj[batch_num, timestep].T), a_min=log_pdf_lower_bound, a_max=None)[0]
+                kde = gaussian_kde(predicted_trajs[i, :, timestep].T)
+                pdf = np.clip(kde.logpdf(gt_traj[i, timestep].T), a_min=log_pdf_lower_bound, a_max=None)[0]
                 kde_ll += pdf
             except np.linalg.LinAlgError:
                 print('nan')
                 kde_ll = np.nan
+        all_kde.append(-kde_ll/num_timesteps)
 
-    return -kde_ll / (num_timesteps * num_batches)
+    return np.array(all_kde).mean()
 
 
 def compute_obs_violations(predicted_trajs, map):
