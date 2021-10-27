@@ -549,11 +549,13 @@ class Solver(object):
 
         with torch.no_grad():
             b = 0
-            for batch in data_loader:
-                b += 1
-                (obs_traj, fut_traj, seq_start_end,
-                 obs_frames, pred_frames, map_path, inv_h_t,
-                 local_map, local_ic, local_homo) = batch
+            while not data_loader.is_epoch_end():
+                data = data_loader.next_sample()
+                if data is None:
+                    continue
+                b+=1
+                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
+                 maps, local_map, local_ic, local_homo) = data
 
                 obs_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
 
@@ -612,16 +614,16 @@ class Solver(object):
                 # mm.append(F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, self.lg_cvae.posterior_latent_space.rsample())))
 
                 #------- plot -----------
-                env = local_map[i][0]
+                env = local_map[i]
                 # env = cv2.resize(env, (256,256))
                 # for t in [0, 1, 2, 3, 4, 5, 6, 7, 11, 15, 19]:
                 #     env[local_ic[i, t, 0], local_ic[i, t, 1]] = 0
 
                 heat_map_traj = np.zeros_like(env)
-                for t in [0, 1, 2, 3, 4, 5, 6, 7, 11, 15, 19]:
+                for t in [0, 1, 2, 3, 7, 11, 15]:
                     heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 50
-                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=8)
-                heat_map_traj = 1-heat_map_traj / heat_map_traj.max()
+                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=1)
+                heat_map_traj = 1-heat_map_traj*3 / heat_map_traj.max()
 
                 # plt.imshow(np.stack([heat_map_traj, heat_map_traj, heat_map_traj], axis=2))
 
@@ -629,13 +631,13 @@ class Solver(object):
                 for k in range(5):
                     a = mm[k][i, 0]
                     a = nnf.interpolate(torch.tensor(a).unsqueeze(0).unsqueeze(0),
-                                        size=local_map[i][0].shape, mode='bicubic',
+                                        size=local_map[i].shape, mode='bicubic',
                                         align_corners=False).squeeze(0).squeeze(0).detach().cpu().numpy().copy()
                     all_pred.append(1 - a / a.max())
                 for k in range(5):
                     a = mmm[k][i, 0].detach().cpu().numpy().copy()
                     a = nnf.interpolate(torch.tensor(a).unsqueeze(0).unsqueeze(0),
-                                        size=local_map[i][0].shape, mode='bicubic',
+                                        size=local_map[i].shape, mode='bicubic',
                                         align_corners=False).squeeze(0).squeeze(0).detach().cpu().numpy().copy()
                     all_pred.append(1 - a / a.max())
 
@@ -648,7 +650,7 @@ class Solver(object):
                     if k < 5:
                         # ax.imshow(np.stack([env * (1 - heat_map_traj), env * (1 - a * 5), env], axis=2))
                         # ax.imshow(np.stack([(1 - heat_map_traj*1000), (1 - all_pred[k]*1000), env/env.max()], axis=2))
-                        ax.imshow(np.stack([heat_map_traj, all_pred[k], 1 - env/5], axis=2))
+                        ax.imshow(np.stack([heat_map_traj, all_pred[k], 1 - env], axis=2))
                     else:
                         ax.imshow(mm[k % 5][i, 0])
 
@@ -656,7 +658,7 @@ class Solver(object):
                     ax = fig.add_subplot(4, 5, k + 11)
                     ax.set_title('prior' + str(k % 5 + 6))
                     if k < 5:
-                        ax.imshow(np.stack([heat_map_traj, all_pred[k+5], 1 - env/5], axis=2))
+                        ax.imshow(np.stack([heat_map_traj, all_pred[k+5], 1 - env], axis=2))
                     else:
                         ax.imshow(mmm[k % 5][i, 0])
 
@@ -794,6 +796,7 @@ class Solver(object):
             self.lg_cvae = torch.load(lg_cvae_path)
 
         else:
-            # lg_cvae_path = 'D:\crowd\mcrowd\ckpts\lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_0.5_anneal_e_0_load_e_1_run_24/iter_57100_lg_cvae.pt'
+            lg_cvae_path = 'D:\crowd\mcrowd\ckpts/nu.lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_2.0_anneal_e_10_aug_1_llprior_0.0' \
+                           '_run_3/iter_31000_lg_cvae.pt'
             self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
 
