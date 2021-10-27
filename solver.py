@@ -516,6 +516,32 @@ class Solver(object):
         else:
             return lg_fde_min, lg_fde_avg, lg_fde_std
 
+
+
+    def repeat_evaluate_dist(self, data_loader):
+        self.set_mode(train=False)
+        for iteration in range(10000, 40000, 2000):
+            lg_cvae_path = os.path.join(
+                self.ckpt_dir,
+                'iter_%s_lg_cvae.pt' % iteration
+            )
+            self.lg_cvae = torch.load(lg_cvae_path)
+
+            lg_fde_min, lg_fde_avg, lg_fde_std= self.evaluate_dist(data_loader, loss=False)
+            self.line_gather.insert(iter=iteration,
+                                    lg_fde_min=lg_fde_min,
+                                    lg_fde_avg=lg_fde_avg,
+                                    lg_fde_std=lg_fde_std,
+                                    total_loss=0,
+                                    lg_recon=0,
+                                    lg_kl=0,
+                                    test_total_loss=0,
+                                    test_lg_recon=0,
+                                    test_lg_kl=0,
+                                    )
+            print('>>>> iter: ', iteration)
+            print(lg_fde_min, lg_fde_avg, lg_fde_std)
+
     def check_feat(self, data_loader):
         self.set_mode(train=False)
 
