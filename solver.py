@@ -520,7 +520,7 @@ class Solver(object):
 
     def repeat_evaluate_dist(self, data_loader):
         self.set_mode(train=False)
-        for iteration in range(10000, 40000, 2000):
+        for iteration in range(14000, 40000, 2000):
             lg_cvae_path = os.path.join(
                 self.ckpt_dir,
                 'iter_%s_lg_cvae.pt' % iteration
@@ -539,6 +539,8 @@ class Solver(object):
                                     test_lg_recon=0,
                                     test_lg_kl=0,
                                     )
+            self.visualize_line()
+            self.line_gather.flush()
             print('>>>> iter: ', iteration)
             print(lg_fde_min, lg_fde_avg, lg_fde_std)
 
