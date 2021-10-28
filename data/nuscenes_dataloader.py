@@ -11,7 +11,7 @@ class data_generator(object):
 
     def __init__(self, parser, log, split='train', phase='training', batch_size=8, device='cpu', scale=1, shuffle=False):
         self.past_frames = parser.past_frames
-        self.min_past_frames = self.past_frames
+        self.min_past_frames = parser.min_past_frames
 
         self.frame_skip = parser.get('frame_skip', 1)
         self.phase = phase
