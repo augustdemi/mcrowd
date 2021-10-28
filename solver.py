@@ -170,8 +170,8 @@ class Solver(object):
             if args.load_e > 0:
                 lg_cvae_path = 'ckpts/nu.lgcvae.ae_enc_block_1' + \
                                '_fcomb_block_2' + \
-                               '_wD_20_lr_0.001_a_0.25_r_2.0_aug_1_run_2/' + \
-                               'iter_14000_lg_cvae.pt'
+                               '_wD_' + str(args.w_dim) + '_lr_0.001_a_0.25_r_2.0_aug_1_run_4/' + \
+                               'iter_15000_lg_cvae.pt'
 
                 if self.device == 'cuda':
                     self.lg_cvae = torch.load(lg_cvae_path)
@@ -218,11 +218,15 @@ class Solver(object):
         # long_dtype, float_dtype = get_dtypes(args)
 
         if self.ckpt_load_iter != self.max_iter:
-            cfg = Config('nuscenes', False, create_dirs=True)
+            cfg = Config('nuscenes_train', False, create_dirs=True)
             torch.set_default_dtype(torch.float32)
             log = open('log.txt', 'a+')
             self.train_loader = data_generator(cfg, log, split='train', phase='training',
                                                batch_size=args.batch_size, device=self.device, scale=args.scale, shuffle=True)
+
+            cfg = Config('nuscenes', False, create_dirs=True)
+            torch.set_default_dtype(torch.float32)
+            log = open('log.txt', 'a+')
             self.val_loader = data_generator(cfg, log, split='test', phase='testing',
                                              batch_size=args.batch_size, device=self.device, scale=args.scale, shuffle=True)
 
