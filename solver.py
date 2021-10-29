@@ -47,9 +47,9 @@ class Solver(object):
 
         self.args = args
 
-        self.name = '%s_zD_%s_dr_mlp_%s_dr_rnn_%s_enc_hD_%s_dec_hD_%s_mlpD_%s_map_featD_%s_map_mlpD_%s_lr_%s_klw_%s_ll_prior_w_%s_zfb_%s' % \
+        self.name = '%s_zD_%s_dr_mlp_%s_dr_rnn_%s_enc_hD_%s_dec_hD_%s_mlpD_%s_map_featD_%s_map_mlpD_%s_lr_%s_klw_%s_ll_prior_w_%s_zfb_%s_scale_%s' % \
                     (args.dataset_name, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
-                     args.decoder_h_dim, args.mlp_dim, args.map_feat_dim , args.map_mlp_dim, args.lr_VAE, args.kl_weight, args.ll_prior_w, args.fb)
+                     args.decoder_h_dim, args.mlp_dim, args.map_feat_dim , args.map_mlp_dim, args.lr_VAE, args.kl_weight, args.ll_prior_w, args.fb, args.scale)
 
 
         # to be appended by run_id
@@ -67,6 +67,7 @@ class Solver(object):
         self.lg_kl_weight=args.lg_kl_weight
 
         self.max_iter = int(args.max_iter)
+        self.scale = args.scale
 
 
         # do it every specified iters
