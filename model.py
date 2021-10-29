@@ -67,7 +67,7 @@ class EncoderX(nn.Module):
         self.fc_latent = nn.Linear(mlp_dim, zS_dim*2)
 
         # self.local_map_feat_dim = np.prod([*a])
-        self.map_h_dim = 64*10*10
+        self.map_h_dim = 64*16*16
 
         self.map_fc1 = nn.Linear(self.map_h_dim + 9, map_mlp_dim)
         self.map_fc2 = nn.Linear(map_mlp_dim, map_feat_dim)
@@ -175,7 +175,7 @@ class Decoder(nn.Module):
     def __init__(
         self, seq_len, dec_h_dim=128, mlp_dim=1024, num_layers=1,
         dropout_rnn=0.0, enc_h_dim=32, z_dim=32,
-        device='cpu', scale=1
+        device='cpu', scale=1, dt=0.4
     ):
         super(Decoder, self).__init__()
         n_state=6
@@ -188,6 +188,7 @@ class Decoder(nn.Module):
         self.num_layers = num_layers
         self.dropout_rnn = dropout_rnn
         self.scale = scale
+        self.dt = dt
 
         self.dec_hidden = nn.Linear(mlp_dim + z_dim, dec_h_dim)
         self.to_vel = nn.Linear(n_state, n_pred_state)
@@ -223,7 +224,7 @@ class Decoder(nn.Module):
         pred_vel = self.to_vel(last_obs_st)
 
         ### make six states
-        dt = 0.4*(12/len(sg_update_idx))
+        dt = self.dt * (12/len(sg_update_idx))
         last_ob_sg = torch.cat([last_obs_pos.unsqueeze(1), sg], dim=1).detach().cpu().numpy()
         last_ob_sg = (last_ob_sg - last_ob_sg[:,:1])/self.scale
 
