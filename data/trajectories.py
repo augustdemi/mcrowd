@@ -16,7 +16,8 @@ logger = logging.getLogger(__name__)
 def seq_collate(data):
     (obs_seq_list, pred_seq_list,
      obs_frames, fut_frames, map_path, inv_h_t,
-     local_map, local_ic, local_homo) = zip(*data)
+     local_map, local_ic, local_homo, scale) = zip(*data)
+    scale = scale[0]
 
     _len = [len(seq) for seq in obs_seq_list]
     cum_start_idx = [0] + np.cumsum(_len).tolist()
@@ -39,8 +40,16 @@ def seq_collate(data):
     local_homo = torch.cat(local_homo, 0)
 
 
+
+    obs_traj_st = obs_traj.clone()
+    # pos is stdized by mean = last obs step
+    obs_traj_st[:, :, :2] = (obs_traj_st[:,:,:2] - obs_traj_st[-1, :, :2]) / scale
+    obs_traj_st[:, :, 2:] /= scale
+    # print(obs_traj_st.max(), obs_traj_st.min())
+
+
     out = [
-        obs_traj, fut_traj, seq_start_end,
+        obs_traj, fut_traj, obs_traj_st, fut_traj[:,:,2:4] / scale, seq_start_end,
         obs_frames, fut_frames, map_path, inv_h_t,
         local_map, local_ic, local_homo
     ]
@@ -67,7 +76,7 @@ def read_file(_path, delim='\t'):
 class TrajectoryDataset(Dataset):
     """Dataloder for the Trajectory datasets"""
     def __init__(
-        self, data_dir, data_split, device='cpu'
+        self, data_dir, data_split, device='cpu', scale=1
     ):
         """
         Args:
@@ -85,6 +94,7 @@ class TrajectoryDataset(Dataset):
 
         self.data_dir = os.path.join(data_dir, data_split)
         self.device = device
+        self.scale = scale
 
         with open(os.path.join(data_dir, data_split + '.pkl'), 'rb') as handle:
             all_data = pickle.load(handle)
@@ -121,6 +131,6 @@ class TrajectoryDataset(Dataset):
             np.array([self.map_file_name[index]] * (end - start)), np.array([self.inv_h_t[index]] * (end - start)),
             self.local_map[start:end],
             self.local_ic[start:end],
-            torch.from_numpy(self.local_homo[start:end]).float().to(self.device)
+            torch.from_numpy(self.local_homo[start:end]).float().to(self.device), self.scale
         ]
         return out
