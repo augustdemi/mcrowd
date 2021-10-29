@@ -15,9 +15,8 @@ from torch.distributions import RelaxedOneHotCategorical as concrete
 import cv2
 from scipy.interpolate import RectBivariateSpline
 from scipy.ndimage import binary_dilation
-# from model_map_ae import Decoder as Map_Decoder
-from unet.probabilistic_unet import ProbabilisticUnet
-from unet.unet import Unet
+from data.nuscenes.config import Config
+from data.nuscenes_dataloader import data_generator
 import numpy as np
 import visdom
 import torch.nn.functional as F
@@ -131,21 +130,24 @@ class Solver(object):
         self.num_layers = args.num_layers
         self.decoder_h_dim = args.decoder_h_dim
 
-
-
         if self.ckpt_load_iter != self.max_iter:
-            print("Initializing train dataset")
-            _, self.train_loader = data_loader(self.args, args.dataset_dir, 'train', shuffle=True)
-            print("Initializing val dataset")
-            _, self.val_loader = data_loader(self.args, args.dataset_dir, 'test', shuffle=True)
+            cfg = Config('nuscenes_train', False, create_dirs=True)
+            torch.set_default_dtype(torch.float32)
+            log = open('log.txt', 'a+')
+            self.train_loader = data_generator(cfg, log, split='train', phase='training',
+                                               batch_size=args.batch_size, device=self.device, scale=args.scale, shuffle=True)
 
+            cfg = Config('nuscenes', False, create_dirs=True)
+            torch.set_default_dtype(torch.float32)
+            log = open('log.txt', 'a+')
+            self.val_loader = data_generator(cfg, log, split='test', phase='testing',
+                                             batch_size=args.batch_size, device=self.device, scale=args.scale, shuffle=True)
 
             print(
-                'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
+                'There are {} iterations per epoch'.format(len(self.train_loader.idx_list))
             )
         print('...done')
 
-        self.recon_loss_with_logit = nn.BCEWithLogitsLoss(size_average = False, reduce=False, reduction=None)
 
 
 
