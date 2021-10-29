@@ -219,7 +219,7 @@ class Solver(object):
 
         if self.ckpt_load_iter != self.max_iter:
             print("Initializing train dataset")
-            _, self.train_loader = data_loader(self.args, args.dataset_dir, 'val', shuffle=True)
+            _, self.train_loader = data_loader(self.args, args.dataset_dir, 'train', shuffle=True)
             print("Initializing val dataset")
             _, self.val_loader = data_loader(self.args, args.dataset_dir, 'val', shuffle=True)
             print(
