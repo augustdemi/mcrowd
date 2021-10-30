@@ -790,11 +790,13 @@ class Solver(object):
         all_pred = []
         with torch.no_grad():
             b=0
-            for batch in data_loader:
+            while not data_loader.is_epoch_end():
+                data = data_loader.next_sample()
+                if data is None:
+                    continue
                 b+=1
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-                 obs_frames, pred_frames, map_path, inv_h_t,
-                 local_map, local_ic, local_homo) = batch
+                 maps, local_map, local_ic, local_homo) = data
                 batch_size = obs_traj.size(1)
                 obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
 
@@ -909,7 +911,7 @@ class Solver(object):
 
         import pickle
         data = [np.concatenate(all_pred, -2).transpose(0,2,1,3), np.concatenate(all_gt, -2).transpose(0,2,1,3)]
-        with open('./baseline/nusc_' + str(traj_num*lg_num) + '.pkl', 'wb') as handle:
+        with open('./nu_' + str(traj_num*lg_num) + '.pkl', 'wb') as handle:
             pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
         # with open('sdd.pkl', 'rb') as f:
         #     a= pickle.load(f)
