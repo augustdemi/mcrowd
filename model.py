@@ -209,12 +209,13 @@ class Decoder(nn.Module):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
-        - last_pos_rel: Tensor of shape (batch, 2)
+        - last_obs_st: Tensor of shape (batch, 6)
         - enc_h_feat: hidden feature from the encoder
         - z: sample from the posterior/prior dist.
+        - sg: sg position (batch, # sg, 2)
         - seq_start_end: A list of tuples which delimit sequences within batch
         Output:
-        - pred_traj: tensor of shape (self.seq_len, batch, 2)
+        - fut_vel_st: tensor of shape (seq_len, batch, 2)
         """
 
         # x_feat+z(=zx) initial state생성(FC)
@@ -226,7 +227,7 @@ class Decoder(nn.Module):
         ### make six states
         dt = self.dt * (12/len(sg_update_idx))
         last_ob_sg = torch.cat([last_obs_pos.unsqueeze(1), sg], dim=1).detach().cpu().numpy()
-        last_ob_sg = (last_ob_sg - last_ob_sg[:,:1])/self.scale
+        last_ob_sg = (last_ob_sg - last_ob_sg[:,:1])/self.scale # bs, 4(last obs + # sg), 2
 
         sg_state = []
         for pos in last_ob_sg:
@@ -235,7 +236,7 @@ class Decoder(nn.Module):
             ax = np.gradient(vx, dt)
             ay = np.gradient(vy, dt)
             sg_state.append(np.array([pos[:,0], pos[:,1], vx, vy, ax, ay]))
-        sg_state = torch.tensor(np.stack(sg_state)).permute((2,0,1)).float().to(z.device)
+        sg_state = torch.tensor(np.stack(sg_state)).permute((2,0,1)).float().to(z.device) # bs, 6, 4(last_obs + #sg) --> 4, bs, 6
 
         ### sg encoding
         _, sg_h = self.sg_rnn_enc(sg_state) # [8, 656, 16], 두개의 [1, 656, 32]
@@ -262,7 +263,7 @@ class Decoder(nn.Module):
             mus.append(mu)
             stds.append(std)
 
-            if fut_vel_st is not None:
+            if train is not None:
                 pred_vel = fut_vel_st[i]
             else:
                 if(i == sg_update_idx[j]):
