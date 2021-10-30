@@ -734,7 +734,7 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, seq_start_end,
+                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
                  obs_frames, pred_frames, map_path, inv_h_t,
                  local_map, local_ic, local_homo) = batch
                 batch_size = obs_traj.size(1)
@@ -819,7 +819,7 @@ class Solver(object):
 
                 # -------- trajectories --------
                 (hx, mux, log_varx) \
-                    = self.encoderMx(obs_traj, seq_start_end, self.lg_cvae.unet_enc_feat, local_homo)
+                    = self.encoderMx(obs_traj_st, seq_start_end, self.lg_cvae.unet_enc_feat, local_homo)
 
                 p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
                 z_priors = []
@@ -831,7 +831,7 @@ class Solver(object):
                         # -------- trajectories --------
                         # NO TF, pred_goals, z~prior
                         fut_rel_pos_dist_prior = self.decoderMy(
-                            obs_traj[-1],
+                            obs_traj_st[-1],
                             obs_traj[-1, :, :2],
                             hx,
                             z_prior,
@@ -850,10 +850,10 @@ class Solver(object):
         import pickle
         data = [np.concatenate(all_pred, -2).transpose(0, 2, 1, 3),
                 np.concatenate(all_gt, -2).transpose(0, 2, 1, 3)]
-        with open('path_' + str(lg_num) + '.pkl', 'wb') as handle:
+        with open('path_' + str(traj_num * lg_num) + '.pkl', 'wb') as handle:
             pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
-        # with open('baseline/sdd.pkl', 'rb') as f:
-        #             a = pickle.load(f)
+        # with open('D:\crowd\datasets\Trajectories\/test.pickle', 'rb') as f:
+        #     a = pickle.load(f)
 
     def evaluate_dist_gt_goal(self, data_loader):
         self.set_mode(train=False)
