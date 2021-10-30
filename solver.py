@@ -166,8 +166,8 @@ class Solver(object):
 
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
 
-            lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_1.0_anneal_e_10_load_e_3_run_101'
-            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_21000_lg_cvae.pt')
+            lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1.0_a_0.25_r_2.0_fb_0.8_anneal_e_10_load_e_3_run_101'
+            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_17000_lg_cvae.pt')
 
             if self.device == 'cuda':
                 self.lg_cvae = torch.load(lg_cvae_path)
@@ -178,7 +178,7 @@ class Solver(object):
 
             num_filters = [32, 32, 64, 64, 64, 128]
             # input = env + 8 past + lg / output = env + sg(including lg)
-            self.sg_unet = Unet(input_channels=3, num_classes=3, num_filters=num_filters,
+            self.sg_unet = Unet(input_channels=3, num_classes=len(self.sg_idx), num_filters=num_filters,
                              apply_last_layer=True, padding=True).to(self.device)
 
 
@@ -324,7 +324,7 @@ class Solver(object):
                 self.save_checkpoint(iteration)
 
             # (visdom) insert current line stats
-            if (iteration > 10000) or (iteration < 6000):
+            if (iteration > 10000):
                 if self.viz_on and (iteration % self.viz_ll_iter == 0):
                     lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon, test_lg_kl, \
                             test_sg_recon_loss, sg_ade_min, sg_ade_avg, sg_ade_std = self.evaluate_dist(self.val_loader, loss=True)
