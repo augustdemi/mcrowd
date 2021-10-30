@@ -263,7 +263,7 @@ class Decoder(nn.Module):
             mus.append(mu)
             stds.append(std)
 
-            if train is not None:
+            if train:
                 pred_vel = fut_vel_st[i]
             else:
                 if(i == sg_update_idx[j]):
