@@ -13,10 +13,8 @@ from scipy import ndimage
 import matplotlib.pyplot as plt
 from torch.distributions import RelaxedOneHotCategorical as concrete
 import cv2
-from scipy.interpolate import RectBivariateSpline
-from scipy.ndimage import binary_dilation
-# from model_map_ae import Decoder as Map_Decoder
-from unet.probabilistic_unet import ProbabilisticUnet
+from data.nuscenes.config import Config
+from data.nuscenes_dataloader import data_generator
 from unet.unet import Unet
 import numpy as np
 import visdom
@@ -49,22 +47,21 @@ class Solver(object):
 
         self.args = args
 
-        self.name = '%s_lr_%s_a_%s_r_%s_aug_%s_scale_%s_num_sg_%s' % \
-                    (args.dataset_name, args.lr_VAE, args.alpha, args.gamma, args.aug, args.scale, args.load_e)
+        self.name = '%s_lr_%s_a_%s_r_%s_aug_%s_num_sg_%s' % \
+                    (args.dataset_name, args.lr_VAE, args.alpha, args.gamma, args.aug, args.load_e)
         # self.name = 'sg_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_2.0_anneal_e_10_load_e_1'
 
         # to be appended by run_id
 
         # self.use_cuda = args.cuda and torch.cuda.is_available()
         self.fb = args.fb
-        self.scale = args.scale
         self.anneal_epoch = args.anneal_epoch
         self.alpha = args.alpha
         self.gamma = args.gamma
         self.aug = args.aug
         self.device = args.device
         self.temp=1.99
-        self.dt=0.4
+        self.dt=0.5
         self.eps=1e-9
         self.ll_prior_w =args.ll_prior_w
         self.sg_idx = np.array(range(12))
@@ -157,14 +154,15 @@ class Solver(object):
 
         self.ckpt_load_iter = args.ckpt_load_iter
 
-        self.obs_len = args.obs_len
+        self.obs_len = 4
         self.pred_len = args.pred_len
         self.num_layers = args.num_layers
         self.decoder_h_dim = args.decoder_h_dim
 
 
-        lg_cvae_path = 'sdd.lgcvae_enc_block_1_fcomb_block_3_wD_20_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_6.0_anneal_e_10_aug_1_run_23'
-        lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_59000_lg_cvae.pt')
+        lg_cvae_path = 'nu.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_3.0_anneal_e_10_aug_1_llprior_0.0_run_4'
+
+        lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_39000_lg_cvae.pt')
 
         if self.device == 'cuda':
             self.lg_cvae = torch.load(lg_cvae_path)
@@ -204,14 +202,19 @@ class Solver(object):
         # long_dtype, float_dtype = get_dtypes(args)
 
         if self.ckpt_load_iter != self.max_iter:
-            print("Initializing train dataset")
-            _, self.train_loader = data_loader(self.args, args.dataset_dir, 'train', shuffle=True)
-            print("Initializing val dataset")
-            _, self.val_loader = data_loader(self.args, args.dataset_dir, 'test', shuffle=True)
-
+            cfg = Config('nuscenes_train', False, create_dirs=True)
+            torch.set_default_dtype(torch.float32)
+            log = open('log.txt', 'a+')
+            self.train_loader = data_generator(cfg, log, split='train', phase='training',
+                                               batch_size=args.batch_size, device=self.device, scale=args.scale, shuffle=True)
+            cfg = Config('nuscenes', False, create_dirs=True)
+            torch.set_default_dtype(torch.float32)
+            log = open('log.txt', 'a+')
+            self.val_loader = data_generator(cfg, log, split='test', phase='testing',
+                                             batch_size=args.batch_size, device=self.device, scale=args.scale, shuffle=True)
 
             print(
-                'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
+                'There are {} iterations per epoch'.format(len(self.train_loader.idx_list))
             )
         print('...done')
 
@@ -224,12 +227,17 @@ class Solver(object):
         down_size=256
         half = down_size//2
         for i in range(len(local_ic)):
-            map_size = local_map[i][0].shape[0]
+            '''
+            plt.imshow(local_map[i])
+            plt.scatter(local_ic[i,:4,1], local_ic[i,:4,0], s=1, c='b')
+            plt.scatter(local_ic[i,4:,1], local_ic[i,4:,0], s=1, c='g')
+            '''
+            map_size = local_map[i].shape[0]
             if map_size < down_size:
-                env = np.full((down_size,down_size),3)
-                env[half-map_size//2:half+map_size//2, half-map_size//2:half+map_size//2] = local_map[i][0]
-                ohm = [env/5]
-                heat_map_traj = np.zeros_like(local_map[i][0])
+                env = np.full((down_size,down_size),1)
+                env[half-map_size//2:half+map_size//2, half-map_size//2:half+map_size//2] = local_map[i]
+                ohm = [env]
+                heat_map_traj = np.zeros_like(local_map[i])
                 heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 1
                 heat_map_traj= ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
                 heat_map_traj = heat_map_traj / heat_map_traj.sum()
@@ -237,8 +245,8 @@ class Solver(object):
                 extended_map[half-map_size//2:half+map_size//2, half-map_size//2:half+map_size//2] = heat_map_traj
                 ohm.append(extended_map)
                 # future
-                for j in (self.sg_idx + 8):
-                    heat_map_traj = np.zeros_like(local_map[i][0])
+                for j in (self.sg_idx + self.obs_len):
+                    heat_map_traj = np.zeros_like(local_map[i])
                     heat_map_traj[local_ic[i, j, 0], local_ic[i, j, 1]] = 1
                     heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
                     extended_map = np.zeros((down_size, down_size))
@@ -246,9 +254,9 @@ class Solver(object):
                     ohm.append(extended_map)
                 heat_maps.append(np.stack(ohm))
             else:
-                env = cv2.resize(local_map[i][0], dsize=(down_size, down_size))
-                ohm = [env/5]
-                heat_map_traj = np.zeros_like(local_map[i][0])
+                env = cv2.resize(local_map[i], dsize=(down_size, down_size))
+                ohm = [env]
+                heat_map_traj = np.zeros_like(local_map[i])
                 heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 100
 
                 if map_size > 1000:
@@ -265,13 +273,13 @@ class Solver(object):
 
                 '''
                 heat_map = nnf.interpolate(torch.tensor(heat_map_traj).unsqueeze(0).unsqueeze(0),
-                                           size=local_map[i][0].shape, mode='nearest').squeeze(0).squeeze(0)
+                                           size=local_map[i].shape, mode='nearest').squeeze(0).squeeze(0)
                 heat_map = nnf.interpolate(torch.tensor(heat_map_traj).unsqueeze(0).unsqueeze(0),
-                                           size=local_map[i][0].shape,  mode='bicubic',
+                                           size=local_map[i].shape,  mode='bicubic',
                                                   align_corners = False).squeeze(0).squeeze(0)
                 '''
-                for j in (self.sg_idx+ 8):
-                    heat_map_traj = np.zeros_like(local_map[i][0])
+                for j in (self.sg_idx+ self.obs_len):
+                    heat_map_traj = np.zeros_like(local_map[i])
                     heat_map_traj[local_ic[i, j, 0], local_ic[i, j, 1]] = 1000
                     if map_size > 1000:
                         heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2),
@@ -318,33 +326,42 @@ class Solver(object):
     def train(self):
         self.set_mode(train=True)
         data_loader = self.train_loader
-        self.N = len(data_loader.dataset)
-        iterator = iter(data_loader)
 
-        iter_per_epoch = len(iterator)
+        iter_per_epoch = len(data_loader.idx_list)
         start_iter = self.ckpt_load_iter + 1
         epoch = int(start_iter / iter_per_epoch)
 
-        for iteration in range(start_iter, self.max_iter + 1):
 
+
+        for iteration in range(start_iter, self.max_iter + 1):
+            data = data_loader.next_sample()
+            if data is None:
+                print(0)
+                continue
             # reset data iterators for each epoch
             if iteration % iter_per_epoch == 0:
+                if self.ckpt_load_iter > 0:
+                    data_loader.is_epoch_end(force=True)
+                else:
+                    data_loader.is_epoch_end()
                 print('==== epoch %d done ====' % epoch)
                 epoch +=1
-
-                iterator = iter(data_loader)
 
             # ============================================
             #          TRAIN THE VAE (ENC & DEC)
             # ============================================
-
-
             (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-             obs_frames, pred_frames, map_path, inv_h_t,
-             local_map, local_ic, local_homo) = next(iterator)
-
+             maps, local_map, local_ic, local_homo) = data
             batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
+            '''
+            map_idx = np.where([i in range(elt[0], elt[1]) for elt in seq_start_end])[0][0]
+            plt.imshow(maps[map_idx].data.transpose(2,1,0))
+            all_traj = torch.cat([obs_traj[:,i,:2], fut_traj[:,i,:2]], dim=0)
+            all_traj = maps[map_idx].to_map_points(all_traj*cfg['traj_scale'])
+            plt.scatter(all_traj[:4,0], all_traj[:4,1], s=1, c='b')
+            plt.scatter(all_traj[4:,0], all_traj[4:,1], s=1, c='g')
+            '''
             obs_heat_map, sg_heat_map, lg_heat_map =  self.make_heatmap(local_ic, local_map, aug=self.aug)
 
             # -------- short term goal --------
@@ -364,7 +381,7 @@ class Solver(object):
             + (1 - self.alpha) * (1 - sg_heat_map) * torch.log(1 - recon_sg_heat + self.eps) * (
                 recon_sg_heat ** self.gamma)).sum().div(batch_size)
 
-            loss = sg_recon_loss * self.scale
+            loss = sg_recon_loss
 
             self.optim_vae.zero_grad()
             loss.backward()
@@ -376,11 +393,11 @@ class Solver(object):
                 self.save_checkpoint(iteration)
 
             # (visdom) insert current line stats
-            if iteration > 12000:
+            if iteration > 26000:
                 if self.viz_on and (iteration % self.viz_ll_iter == 0):
                     lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon, test_lg_kl, \
                             test_sg_recon_loss, sg_ade_min, sg_ade_avg, sg_ade_std = self.evaluate_dist(self.val_loader, loss=True)
-                    test_total_loss = test_sg_recon_loss * self.scale
+                    test_total_loss = test_sg_recon_loss
                     self.line_gather.insert(iter=iteration,
                                             lg_fde_min=lg_fde_min,
                                             lg_fde_avg=lg_fde_avg,
@@ -436,11 +453,13 @@ class Solver(object):
         sg_ade = []
         with torch.no_grad():
             b=0
-            for batch in data_loader:
+            while not data_loader.is_epoch_end():
+                data = data_loader.next_sample()
+                if data is None:
+                    continue
                 b+=1
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-                 obs_frames, pred_frames, map_path, inv_h_t,
-                 local_map, local_ic, local_homo) = batch
+                 maps, local_map, local_ic, local_homo) = data
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
@@ -455,7 +474,7 @@ class Solver(object):
                     pred_lg_wc = []
                     pred_lg_ics = []
                     for i in range(batch_size):
-                        map_size = local_map[i][0].shape
+                        map_size = local_map[i].shape
                         pred_lg_ic = []
                         for heat_map in pred_lg_heat[i]:
                             # heat_map = nnf.interpolate(heat_map.unsqueeze(0), size=map_size, mode='nearest')
@@ -472,14 +491,14 @@ class Solver(object):
                     # -------- short term goal --------
                     pred_lg_heat_from_ic = []
                     for i in range(len(pred_lg_ics)):
-                        pred_lg_heat_from_ic.append(self.make_one_heatmap(local_map[i][0], pred_lg_ics[i][0].detach().cpu().numpy().astype(int)))
+                        pred_lg_heat_from_ic.append(self.make_one_heatmap(local_map[i], pred_lg_ics[i][0].detach().cpu().numpy().astype(int)))
                     pred_lg_heat_from_ic = torch.tensor(np.stack(pred_lg_heat_from_ic)).unsqueeze(1).float().to(self.device)
 
                     pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1)))
 
                     pred_sg_wc = []
                     for i in range(batch_size):
-                        map_size = local_map[i][0].shape
+                        map_size = local_map[i].shape
                         pred_sg_ic = []
                         for heat_map in pred_sg_heat[i]:
                             heat_map = nnf.interpolate(heat_map.unsqueeze(0).unsqueeze(0),
@@ -827,7 +846,7 @@ class Solver(object):
 
                     pred_pixel = np.matmul(pred_pixel, np.linalg.inv(np.transpose(local_homo[one_ped])))
                     pred_pixel /= np.expand_dims(pred_pixel[:, 2], 1)
-                    pred_data.append(np.concatenate([local_ic[i,:8], pred_pixel[:,:2]], 0))
+                    pred_data.append(np.concatenate([local_ic[i,:self.obs_len], pred_pixel[:,:2]], 0))
 
                 pred_data = np.expand_dims(np.stack(pred_data),1)
 
