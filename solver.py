@@ -444,7 +444,7 @@ class Solver(object):
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 pred_sg_wcs = []
-                for _ in range(20):
+                for _ in range(5):
                     # -------- long term goal --------
                     pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True))
 
@@ -509,7 +509,7 @@ class Solver(object):
                                        pred_sg_heat ** self.gamma)).sum().div(batch_size)
 
                 sg_ade.append(torch.sqrt(((torch.stack(pred_sg_wcs).permute(0, 2, 1, 3)
-                                           - fut_traj[list(self.sg_idx), :, :2].unsqueeze(0).repeat((20, 1, 1, 1))) ** 2).sum(-1)).sum(1))
+                                           - fut_traj[list(self.sg_idx), :, :2].unsqueeze(0).repeat((5, 1, 1, 1))) ** 2).sum(-1)).sum(1))
 
             sg_ade=torch.cat(sg_ade, dim=1).cpu().numpy()
 
