@@ -160,7 +160,8 @@ class Solver(object):
         self.decoder_h_dim = args.decoder_h_dim
 
 
-        lg_cvae_path = 'nu.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1.0_a_0.25_r_2.0_fb_3.0_anneal_e_10_aug_1_llprior_1.0_run_3'
+        lg_cvae_path = 'nu.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_3.0_anneal_e_10_aug_1_llprior_1.0_run_3'
+
         lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_39000_lg_cvae.pt')
 
         if self.device == 'cuda':
