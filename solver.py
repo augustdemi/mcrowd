@@ -357,45 +357,46 @@ class Solver(object):
                 self.save_checkpoint(iteration)
 
             # (visdom) insert current line stats
-            if self.viz_on and (iteration % self.viz_ll_iter == 0):
-                ade_min, fde_min, \
-                ade_avg, fde_avg, \
-                ade_std, fde_std, \
-                test_loss_recon, test_loss_kl, = self.evaluate_dist(self.val_loader, loss=True)
-                self.line_gather.insert(iter=iteration,
-                                        ade_min=ade_min,
-                                        fde_min=fde_min,
-                                        ade_avg=ade_avg,
-                                        fde_avg=fde_avg,
-                                        ade_std=ade_std,
-                                        fde_std=fde_std,
-                                        loss_recon=-ll_tf_post.item(),
-                                        loss_recon_prior=-ll_prior.item(),
-                                        loss_kl=loss_kl.item(),
-                                        test_loss_recon=test_loss_recon.item(),
-                                        test_loss_kl=test_loss_kl.item(),
+            if iteration > 10000:
+                if self.viz_on and (iteration % self.viz_ll_iter == 0):
+                    ade_min, fde_min, \
+                    ade_avg, fde_avg, \
+                    ade_std, fde_std, \
+                    test_loss_recon, test_loss_kl, = self.evaluate_dist(self.val_loader, loss=True)
+                    self.line_gather.insert(iter=iteration,
+                                            ade_min=ade_min,
+                                            fde_min=fde_min,
+                                            ade_avg=ade_avg,
+                                            fde_avg=fde_avg,
+                                            ade_std=ade_std,
+                                            fde_std=fde_std,
+                                            loss_recon=-ll_tf_post.item(),
+                                            loss_recon_prior=-ll_prior.item(),
+                                            loss_kl=loss_kl.item(),
+                                            test_loss_recon=test_loss_recon.item(),
+                                            test_loss_kl=test_loss_kl.item(),
 
-                                        )
-                prn_str = ('[iter_%d (epoch_%d)] vae_loss: %.3f ' + \
-                              '(recon: %.3f, kl: %.3f)\n' + \
-                              'ADE min: %.2f, FDE min: %.2f, ADE avg: %.2f, FDE avg: %.2f\n'
-                          ) % \
-                          (iteration, epoch,
-                           loss.item(), -loglikelihood.item(), loss_kl.item(),
-                           ade_min, fde_min, ade_avg, fde_avg
-                           )
+                                            )
+                    prn_str = ('[iter_%d (epoch_%d)] vae_loss: %.3f ' + \
+                                  '(recon: %.3f, kl: %.3f)\n' + \
+                                  'ADE min: %.2f, FDE min: %.2f, ADE avg: %.2f, FDE avg: %.2f\n'
+                              ) % \
+                              (iteration, epoch,
+                               loss.item(), -loglikelihood.item(), loss_kl.item(),
+                               ade_min, fde_min, ade_avg, fde_avg
+                               )
 
-                print(prn_str)
-                if self.record_file:
-                    record = open(self.record_file, 'a')
-                    record.write('%s\n' % (prn_str,))
-                    record.close()
+                    print(prn_str)
+                    if self.record_file:
+                        record = open(self.record_file, 'a')
+                        record.write('%s\n' % (prn_str,))
+                        record.close()
 
 
-            # (visdom) visualize line stats (then flush out)
-            if self.viz_on and (iteration % self.viz_la_iter == 0):
-                self.visualize_line()
-                self.line_gather.flush()
+                # (visdom) visualize line stats (then flush out)
+                if self.viz_on and (iteration % self.viz_la_iter == 0):
+                    self.visualize_line()
+                    self.line_gather.flush()
 
 
     def repeat(self, tensor, num_reps):
