@@ -1362,14 +1362,16 @@ class Solver(object):
                         pred_sg_wc.append(back_wc[:, :2])
                         # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
                     pred_sg_wc = torch.stack(pred_sg_wc)
-                    pred_sg_wcs.append(pred_sg_wc.detach().cpu().numpy())
+                    pred_sg_wcs.append(pred_sg_wc)
 
-                all_pred.append(np.stack(pred_sg_wcs))
+                all_pred.append(torch.stack(pred_sg_wcs).permute(0, 2, 1, 3).detach().cpu().numpy())
                 all_gt.append(
                     fut_traj[:, :, :2].unsqueeze(0).repeat((traj_num * lg_num, 1, 1, 1)).detach().cpu().numpy())
 
         import pickle
-        data = [np.concatenate(all_pred, 1),
+        print('pred:', np.concatenate(all_pred, -2).transpose(0, 2, 1, 3).shape)
+        print('gt:', np.concatenate(all_gt, -2).transpose(0, 2, 1, 3).shape)
+        data = [np.concatenate(all_pred, -2).transpose(0, 2, 1, 3),
                 np.concatenate(all_gt, -2).transpose(0, 2, 1, 3)]
         with open('12sg_path_' + str(traj_num * lg_num) + '.pkl', 'wb') as handle:
             pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
