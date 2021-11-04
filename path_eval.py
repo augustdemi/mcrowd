@@ -56,6 +56,7 @@ class Solver(object):
     def __init__(self, args):
 
         self.args = args
+        args.num_sg = args.load_e
 
         self.name = '%s_lr_%s_a_%s_r_%s' % \
                     (args.dataset_name, args.lr_VAE, args.alpha, args.gamma)
@@ -73,7 +74,9 @@ class Solver(object):
         self.dt=0.4
         self.eps=1e-9
         self.ll_prior_w =args.ll_prior_w
-        self.sg_idx =  np.array([3,7,11])
+        self.sg_idx = np.array(range(12))
+        self.sg_idx = np.flip(11-self.sg_idx[::(12//args.num_sg)])
+        print('>>>>>>>>>> sg :', self.sg_idx)
         self.no_convs_fcomb = args.no_convs_fcomb
         self.no_convs_per_block = args.no_convs_per_block
 
@@ -1178,6 +1181,102 @@ class Solver(object):
 
 
 
+    def make_pred_lg(self, data_loader, lg_num=5, traj_num=4, generate_heat=True):
+        self.set_mode(train=False)
+        total_traj = 0
+
+        all_ade =[]
+        all_fde =[]
+        sg_ade=[]
+        lg_fde=[]
+        all_pred = []
+        all_gt = []
+        with torch.no_grad():
+            b=0
+            for batch in data_loader:
+                b+=1
+                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
+                 obs_frames, pred_frames, map_path, inv_h_t,
+                 local_map, local_ic, local_homo) = batch
+                batch_size = obs_traj.size(1)
+                total_traj += fut_traj.size(1)
+
+                obs_heat_map, _, _= self.make_heatmap(local_ic, local_map)
+
+                self.lg_cvae.forward(obs_heat_map, None, training=False)
+                fut_rel_pos_dists = []
+                pred_lg_wcs = []
+                pred_sg_wcs = []
+
+                ####### long term goals and the corresponding (deterministic) short term goals ########
+                w_priors = []
+                for _ in range(lg_num):
+                    w_priors.append(self.lg_cvae.prior_latent_space.sample())
+
+                for w_prior in w_priors:
+                    # -------- long term goal --------
+                    pred_lg_heat = F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, w_prior))
+
+                    pred_lg_wc = []
+                    pred_lg_ics = []
+                    for i in range(batch_size):
+                        map_size = local_map[i][0].shape
+                        pred_lg_ic = []
+                        for heat_map in pred_lg_heat[i]:
+                            argmax_idx = heat_map.argmax()
+                            argmax_idx = [argmax_idx//map_size[0], argmax_idx%map_size[0]]
+                            pred_lg_ic.append(argmax_idx)
+                        pred_lg_ic = torch.tensor(pred_lg_ic).float().to(self.device)
+                        pred_lg_ics.append(pred_lg_ic)
+
+                        # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
+                        back_wc = torch.matmul(
+                            torch.cat([pred_lg_ic, torch.ones((len(pred_lg_ic), 1)).to(self.device)], dim=1),
+                            torch.transpose(local_homo[i].float().to(self.device), 1, 0))
+                        pred_lg_wc.append(back_wc[0, :2] / back_wc[0, 2])
+                        # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
+                    pred_lg_wc = torch.stack(pred_lg_wc)
+                    pred_lg_wcs.append(pred_lg_wc)
+
+                # -------- trajectories --------
+                (hx, mux, log_varx) \
+                    = self.encoderMx(obs_traj_st, seq_start_end, self.lg_cvae.unet_enc_feat, local_homo)
+
+                p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
+                z_priors = []
+                for _ in range(traj_num):
+                    z_priors.append(p_dist.sample())
+
+                for pred_lg_wc in pred_lg_wcs:
+                    for z_prior in z_priors:
+                        # -------- trajectories --------
+                        # NO TF, pred_goals, z~prior
+                        fut_rel_pos_dist_prior = self.decoderMy(
+                            obs_traj_st[-1],
+                            obs_traj[-1, :, :2],
+                            hx,
+                            z_prior,
+                            pred_lg_wc,  # goal
+                            self.sg_idx
+                        )
+                        fut_rel_pos_dists.append(fut_rel_pos_dist_prior)
+                pred = []
+                for dist in fut_rel_pos_dists:
+                    pred_fut_traj = integrate_samples(dist.rsample(), obs_traj[-1, :, :2],  dt=self.dt)
+                    pred.append(pred_fut_traj)
+                all_pred.append(torch.stack(pred).detach().cpu().numpy())
+                all_gt.append(
+                    fut_traj[:, :, :2].unsqueeze(0).repeat((traj_num * lg_num, 1, 1, 1)).detach().cpu().numpy())
+
+        import pickle
+        data = [np.concatenate(all_pred, -2).transpose(0, 2, 1, 3),
+                np.concatenate(all_gt, -2).transpose(0, 2, 1, 3)]
+        with open('lg_path_' + str(traj_num * lg_num) + '.pkl', 'wb') as handle:
+            pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        # with open('D:\crowd\datasets\Trajectories\/test.pickle', 'rb') as f:
+        #     a = pickle.load(f)
+
+
 
     def make_pred_12sg(self, data_loader, lg_num=5, traj_num=4, generate_heat=True):
         self.set_mode(train=False)
@@ -1277,7 +1376,7 @@ class Solver(object):
         import pickle
         data = [np.concatenate(all_pred, -2).transpose(0, 2, 1, 3),
                 np.concatenate(all_gt, -2).transpose(0, 2, 1, 3)]
-        with open('path_12sg_' + str(traj_num * lg_num) + '.pkl', 'wb') as handle:
+        with open('12sg_path_' + str(traj_num * lg_num) + '.pkl', 'wb') as handle:
             pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
         # with open('D:\crowd\datasets\Trajectories\/test.pickle', 'rb') as f:
         #     a = pickle.load(f)
