@@ -35,7 +35,7 @@ def compute_fde(predicted_trajs, gt_traj):
 '''
 From https://github.com/StanfordASL/Trajectron-plus-plus.git
 '''
-def compute_kde_nll(predicted_trajs, gt_traj):
+def compute_kde_nll(predicted_trajs, gt_traj, lower_bound):
     predicted_trajs = predicted_trajs.transpose(1,0,2,3)
     gt_traj = gt_traj[0]
     log_pdf_lower_bound = -20
@@ -48,8 +48,10 @@ def compute_kde_nll(predicted_trajs, gt_traj):
         for timestep in range(num_timesteps):
             try:
                 kde = gaussian_kde(predicted_trajs[i, :, timestep].T)
-                pdf = np.clip(kde.logpdf(gt_traj[i, timestep].T), a_min=log_pdf_lower_bound, a_max=None)[0]
-                kde_ll += pdf
+                pdf = kde.logpdf(gt_traj[i, timestep].T)
+                if lower_bound:
+                    pdf = np.clip(pdf, a_min=log_pdf_lower_bound, a_max=None)
+                kde_ll += pdf[0]
             except np.linalg.LinAlgError:
                 print('nan')
                 kde_ll = np.nan
@@ -58,37 +60,22 @@ def compute_kde_nll(predicted_trajs, gt_traj):
     return np.array(all_kde).mean()
 
 
-def compute_obs_violations(predicted_trajs, map):
-    obs_map = map.data
-
-    interp_obs_map = RectBivariateSpline(range(obs_map.shape[1]),
-                                         range(obs_map.shape[0]),
-                                         binary_dilation(obs_map.T, iterations=4),
-                                         kx=1, ky=1)
-
-    old_shape = predicted_trajs.shape
-    pred_trajs_map = map.to_map_points(predicted_trajs.reshape((-1, 2)))
-
-    traj_obs_values = interp_obs_map(pred_trajs_map[:, 0], pred_trajs_map[:, 1], grid=False)
-    traj_obs_values = traj_obs_values.reshape((old_shape[0], old_shape[1]))
-    num_viol_trajs = np.sum(traj_obs_values.max(axis=1) > 0, dtype=float)
-
-    return num_viol_trajs
-
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--file_path', default='../', type=str, help='predicted result path' )
-    parser.add_argument('--file_name', default='sdd', type=str, help='modelname_datasetname_k such as ynet_sdd_5')
+    parser.add_argument('--file_path', default='../res', type=str, help='pkl file dir' )
+    parser.add_argument('--file_name', default='sdd_5', type=str, help='pkl file name with file extension')
     args = parser.parse_args()
 
+    import pickle5
     with open(os.path.join(args.file_path, args.file_name + '.pkl'), 'rb') as handle:
-        all_data = pickle.load(handle)
+        all_data = pickle5.load(handle) # (prediction, GT) where prediction.shape = gt.shape = (k, n, # future steps, 2)
 
     print('>>> file name: ', args.file_name)
     print('=== ADE min / avg / std ===' )
     print(compute_ade(all_data[0], all_data[1]))
     print('=== FDE min / avg / std ===' )
     print(compute_fde(all_data[0][:,:,-1,:], all_data[1][:,:,-1,:]))
-    print('=== NLL ===' )
-    print(compute_kde_nll(all_data[0], all_data[1]))
+    print('=== NLL without lower bound ===' )
+    print(compute_kde_nll(all_data[0], all_data[1], False))
+    print('=== NLL with lower bound ===' )
+    print(compute_kde_nll(all_data[0], all_data[1], True))
