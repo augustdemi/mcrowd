@@ -1268,7 +1268,7 @@ class Solver(object):
                         pred_sg_wc.append(back_wc[:, :2])
                         # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
                     pred_sg_wc = torch.stack(pred_sg_wc)
-                    pred_sg_wcs.append(pred_sg_wc)
+                    pred_sg_wcs.append(pred_sg_wc.detach().cpu().numpy())
 
                 all_pred.append(np.stack(pred_sg_wcs))
                 all_gt.append(
