@@ -1184,11 +1184,6 @@ class Solver(object):
     def make_pred_lg(self, data_loader, lg_num=5, traj_num=4, generate_heat=True):
         self.set_mode(train=False)
         total_traj = 0
-
-        all_ade =[]
-        all_fde =[]
-        sg_ade=[]
-        lg_fde=[]
         all_pred = []
         all_gt = []
         with torch.no_grad():
@@ -1256,7 +1251,7 @@ class Solver(object):
                             obs_traj[-1, :, :2],
                             hx,
                             z_prior,
-                            pred_lg_wc,  # goal
+                            pred_lg_wc.unsqueeze(1),  # goal
                             self.sg_idx
                         )
                         fut_rel_pos_dists.append(fut_rel_pos_dist_prior)
