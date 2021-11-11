@@ -563,7 +563,7 @@ class Solver(object):
 
                 for t in range(self.obs_len, self.obs_len + self.pred_len):
                     # sns.kdeplot(pred_data[:, 0, t, 1], pred_data[:, 0, t, 0],shade=True)
-                    sns.kdeplot(pred_data[:, 0, t, 1], pred_data[:, 0, t, 0],
+                    sns.kdeplot(pred_data[:, 0, t, 1], pred_data[:, 0, t, 0], bw=None,
                                 ax=ax, shade=True, shade_lowest=False,
                                 color='r', zorder=600, alpha=0.6, legend=True)
 
@@ -582,7 +582,7 @@ class Solver(object):
 
                 ax.plot(local_ic[0, 8:, 1], local_ic[0, 8:, 0],
                         'r--o',
-                        c='#F05F78',
+                        c='darkorange',
                         linewidth=2,
                         markersize=2,
                         zorder=650,
@@ -609,7 +609,7 @@ class Solver(object):
 
                 ################### LG ##############################
                 # ------- plot -----------
-                idx_list = range(16,20)
+                idx_list = range(0,3)
 
                 fig = plt.figure(figsize=(12, 10))
                 for h in range(3):
@@ -631,7 +631,7 @@ class Solver(object):
                             path_effects=[pe.Stroke(linewidth=1, foreground='k'), pe.Normal()], label='GT past')
                     ax.plot(local_ic[0, 8:, 1], local_ic[0, 8:, 0],
                             'r--o',
-                            c='#F05F78',
+                            c='darkorange',
                             linewidth=1,
                             markersize=1.5,
                             zorder=500,
@@ -639,7 +639,7 @@ class Solver(object):
 
                     ax.plot(local_ic[0, -1, 1], local_ic[0, -1, 0],
                             'r--x',
-                            c='#F05F78',
+                            c='darkorange',
                             linewidth=1,
                             markersize=4,
                             zorder=500,
@@ -647,7 +647,10 @@ class Solver(object):
 
                     a = mm[idx][i, 0]
 
-                    ax.imshow(a / a.max(), alpha=0.7)
+                    c = a / a.max()
+                    d=np.stack([1-c, np.ones_like(c), np.ones_like(c)]).transpose(1,2,0)
+                    ax.imshow(d, alpha=0.7)
+
 
                     # -------- short term goal --------
 
@@ -691,7 +694,7 @@ class Solver(object):
                                 path_effects=[pe.Stroke(linewidth=1, foreground='k'), pe.Normal()], label='GT past')
                         ax.plot(local_ic[0, 8:, 1], local_ic[0, 8:, 0],
                                 'r--o',
-                                c='#F05F78',
+                                c='darkorange',
                                 linewidth=1,
                                 markersize=1.5,
                                 zorder=500,
@@ -700,12 +703,14 @@ class Solver(object):
                         ax.plot(local_ic[0, self.sg_idx[jj] + self.obs_len, 1],
                                 local_ic[0, self.sg_idx[jj] + self.obs_len, 0],
                                 'r--x',
-                                c='#F05F78',
+                                c='darkorange',
                                 linewidth=1,
                                 markersize=4,
                                 zorder=500,
                                 path_effects=[pe.Stroke(linewidth=2, foreground='k'), pe.Normal()], label='GT past')
-                        ax.imshow(m[jj] / m[jj].max(), alpha=0.7)
+                        c = m[jj] / m[jj].max()
+                        d = np.stack([1 - c, np.ones_like(c), np.ones_like(c)]).transpose(1, 2, 0)
+                        ax.imshow(d, alpha=0.7)
 
                         ##@@@@@@@@@@@@@@@@@@@@@@@@
                         zs = []
@@ -724,7 +729,9 @@ class Solver(object):
                         ######################
                         # T++
                         import pickle5
-                        with open('C:\dataset/t++\experiments\pedestrians/t_path_20.pkl', 'rb') as f:
+                        # with open('C:\dataset/t++\experiments\pedestrians/t_path_20.pkl', 'rb') as f:
+                        with open('D:\crowd\AgentFormer pathfinding k=20/pathfinding_20_AF.pkl', 'rb') as f:
+                        # with open('C:/Users\Mihee\Documents\카카오톡 받은 파일/ynet_pathfinding_k20.pkl', 'rb') as f:
                             aa = pickle5.load(f)
                         our_gt = fut_traj[:, 0, :2].numpy()
                         idx= np.where(((aa[1][0,:,0] - our_gt[0])**2).sum(1) <1)[0][1]
@@ -763,7 +770,7 @@ class Solver(object):
                         ax.axis('off')
                         for t in range(self.obs_len, self.obs_len + self.pred_len):
                             # sns.kdeplot(pred_data[:, 0, t, 1], pred_data[:, 0, t, 0],shade=True)
-                            sns.kdeplot(af_pred_data[:, 0, t, 1], af_pred_data[:, 0, t, 0],
+                            sns.kdeplot(af_pred_data[:, 0, t, 1], af_pred_data[:, 0, t, 0], bw=None,
                                         ax=ax, shade=True, shade_lowest=False,
                                         color='r', zorder=600, alpha=0.6, legend=True)
 
@@ -782,7 +789,8 @@ class Solver(object):
 
                         ax.plot(local_ic[0, 8:, 1], local_ic[0, 8:, 0],
                                 'r--o',
-                                c='#F05F78',
+                                # c='darkorange',
+                                c='darkorange',
                                 linewidth=2,
                                 markersize=2,
                                 zorder=650,
@@ -863,7 +871,7 @@ class Solver(object):
 
                         ax.plot(local_ic[0, 4:, 1], local_ic[0, 4:, 0],
                                 'r--o',
-                                c='#F05F78',
+                                c='darkorange',
                                 linewidth=2,
                                 markersize=2,
                                 zorder=650,
@@ -1048,12 +1056,9 @@ class Solver(object):
         self.set_mode(train=False)
         total_traj = 0
 
-        all_ade =[]
-        all_fde =[]
-        sg_ade=[]
-        lg_fde=[]
         all_pred = []
         all_gt = []
+        all_map = []
         with torch.no_grad():
             b=0
             for batch in data_loader:
@@ -1166,18 +1171,42 @@ class Solver(object):
                 pred = []
                 for dist in fut_rel_pos_dists:
                     pred_fut_traj = integrate_samples(dist.rsample(), obs_traj[-1, :, :2],  dt=self.dt)
-                    pred.append(pred_fut_traj)
-                all_pred.append(torch.stack(pred).detach().cpu().numpy())
-                all_gt.append(
-                    fut_traj[:, :, :2].unsqueeze(0).repeat((traj_num * lg_num, 1, 1, 1)).detach().cpu().numpy())
+                    # pred.append(pred_fut_traj)
+                    idx= -1
+                    batch_ic_pred = []
+                    for wc in pred_fut_traj.transpose(1,0):
+                        idx +=1
+                        wc = wc.detach().cpu().numpy()
+                        all_pixel_local = np.matmul(np.concatenate([wc, np.ones((len(wc), 1))], axis=1),
+                                                    np.linalg.pinv(np.transpose(local_homo[idx])))
+                        all_pixel_local /= np.expand_dims(all_pixel_local[:, 2], 1)
+                        all_pixel_local = np.round(all_pixel_local).astype(int)[:, :2]
+                        batch_ic_pred.append(all_pixel_local)
+                    pred.append(np.stack(batch_ic_pred))
+
+                # all_pred.append(np.stack(pred))
+                # all_gt.append(
+                #     fut_traj[:, :, :2].unsqueeze(0).repeat((traj_num * lg_num, 1, 1, 1)).detach().cpu().numpy())
+                all_pred.append(np.stack(pred).transpose(1,0,2,3))
+                # plt.imshow(local_map[0][0])
+                # plt.scatter(np.stack(pred).transpose(1,0,2,3)[0,0,:,1], np.stack(pred).transpose(1,0,2,3)[0,0,:,0])
+                # k=0
+                # local_map[0][0][np.stack(pred).transpose(1,0,2,3)[0,0,k,1], np.stack(pred).transpose(1,0,2,3)[0,0,k,1]]
+                all_gt.append(local_ic[:,8:])
+                all_map.append(1-local_map.squeeze(1))
+
+
 
         import pickle
-        data = [np.concatenate(all_pred, -2).transpose(0, 2, 1, 3),
-                np.concatenate(all_gt, -2).transpose(0, 2, 1, 3)]
-        with open('path_' + str(traj_num * lg_num) + '.pkl', 'wb') as handle:
+        # data = [np.concatenate(all_pred, -2).transpose(0, 2, 1, 3),
+        #         np.concatenate(all_gt, -2).transpose(0, 2, 1, 3)]
+        # with open('path_' + str(traj_num * lg_num) + '.pkl', 'wb') as handle:
+        #     pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        data = [np.concatenate(all_pred, 0),
+                np.concatenate(all_gt, 0), np.concatenate(all_map, 0)]
+        with open('path_c_' + str(traj_num * lg_num) + '.pkl', 'wb') as handle:
             pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
-        # with open('D:\crowd\datasets\Trajectories\/test.pickle', 'rb') as f:
-        #     a = pickle.load(f)
+        print()
 
 
 
