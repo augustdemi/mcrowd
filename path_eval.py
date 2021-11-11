@@ -1177,7 +1177,7 @@ class Solver(object):
                 all_pred.append(np.stack(pred).transpose(2,0,1,3))
                 all_gt.append(fut_traj[:, :, :2].transpose(1,0).detach().cpu().numpy())
                 all_map.append(1-local_map.squeeze(1))
-                all_homo.append(local_homo)
+                all_homo.append(local_homo.detach().cpu().numpy())
 
         import pickle
         # data = [np.concatenate(all_pred, -2).transpose(0, 2, 1, 3),
