@@ -32,6 +32,37 @@ def compute_fde(predicted_trajs, gt_traj):
     std_fde = final_error.std(axis=0)
     return min_fde.mean(), avg_fde.mean(), std_fde.mean()
 
+
+def compute_ECFL(output_traj, binary_navmaps, local_homo):
+    '''
+    :param output_traj: (# scenes, # samples, # frames, # coordinates) # all sample number, 20, 12, 2
+    :param binary_navmaps: (# scenes, # height/y, # width/x)
+        1 indicates navigable; 0 indicates non-navigable
+    :return: avgECFL
+    '''
+
+    ecfl = 0.0
+    for i in range(output_traj.shape[0]):
+        for k in range(output_traj.shape[1]):
+            collided = False
+            wc = output_traj[i,k]
+            all_pixel_local = np.matmul(np.concatenate([wc, np.ones((len(wc), 1))], axis=1),
+                                        np.linalg.pinv(np.transpose(local_homo[i])))
+            all_pixel_local /= np.expand_dims(all_pixel_local[:, 2], 1)
+            all_pixel_local = np.round(all_pixel_local).astype(int)[:, :2]
+
+            for t in range(output_traj.shape[2]):
+                pos = all_pixel_local[t]
+                if binary_navmaps[i, pos[0], pos[1]] == 0:
+                    collided = True
+                    break
+
+            if not collided:
+                ecfl += 1.0 / output_traj.shape[1]
+
+    return ecfl / output_traj.shape[0]
+
+
 '''
 From https://github.com/StanfordASL/Trajectron-plus-plus.git
 '''
@@ -62,13 +93,18 @@ def compute_kde_nll(predicted_trajs, gt_traj, lower_bound):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--file_path', default='../res', type=str, help='pkl file dir' )
-    parser.add_argument('--file_name', default='sdd_5', type=str, help='pkl file name with file extension')
+    # parser.add_argument('--file_path', default='D:\crowd\AgentFormer sdd k=20', type=str, help='pkl file dir' )
+    parser.add_argument('--file_path', default='D:\crowd', type=str, help='pkl file dir' )
+    # parser.add_argument('--file_path', default='D:\crowd\AgentFormer pathfinding k=20', type=str, help='pkl file dir' )
+    parser.add_argument('--file_name', default='path_c_20', type=str, help='pkl file name with file extension')
     args = parser.parse_args()
 
     import pickle5
     with open(os.path.join(args.file_path, args.file_name + '.pkl'), 'rb') as handle:
         all_data = pickle5.load(handle) # (prediction, GT) where prediction.shape = gt.shape = (k, n, # future steps, 2)
+
+    print(compute_ECFL(all_data[0], all_data[2], all_data[3]))
+    print(compute_ECFL(np.expand_dims(all_data[1], 1), all_data[2], all_data[3]))
 
     print('>>> file name: ', args.file_name)
     print('=== ADE min / avg / std ===' )
