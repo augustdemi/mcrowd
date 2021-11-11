@@ -1059,6 +1059,7 @@ class Solver(object):
         all_pred = []
         all_gt = []
         all_map = []
+        all_homo = []
         with torch.no_grad():
             b=0
             for batch in data_loader:
@@ -1171,31 +1172,12 @@ class Solver(object):
                 pred = []
                 for dist in fut_rel_pos_dists:
                     pred_fut_traj = integrate_samples(dist.rsample(), obs_traj[-1, :, :2],  dt=self.dt)
-                    # pred.append(pred_fut_traj)
-                    idx= -1
-                    batch_ic_pred = []
-                    for wc in pred_fut_traj.transpose(1,0):
-                        idx +=1
-                        wc = wc.detach().cpu().numpy()
-                        all_pixel_local = np.matmul(np.concatenate([wc, np.ones((len(wc), 1))], axis=1),
-                                                    np.linalg.pinv(np.transpose(local_homo[idx])))
-                        all_pixel_local /= np.expand_dims(all_pixel_local[:, 2], 1)
-                        all_pixel_local = np.round(all_pixel_local).astype(int)[:, :2]
-                        batch_ic_pred.append(all_pixel_local)
-                    pred.append(np.stack(batch_ic_pred))
+                    pred.append(pred_fut_traj)
 
-                # all_pred.append(np.stack(pred))
-                # all_gt.append(
-                #     fut_traj[:, :, :2].unsqueeze(0).repeat((traj_num * lg_num, 1, 1, 1)).detach().cpu().numpy())
-                all_pred.append(np.stack(pred).transpose(1,0,2,3))
-                # plt.imshow(local_map[0][0])
-                # plt.scatter(np.stack(pred).transpose(1,0,2,3)[0,0,:,1], np.stack(pred).transpose(1,0,2,3)[0,0,:,0])
-                # k=0
-                # local_map[0][0][np.stack(pred).transpose(1,0,2,3)[0,0,k,1], np.stack(pred).transpose(1,0,2,3)[0,0,k,1]]
-                all_gt.append(local_ic[:,8:])
+                all_pred.append(np.stack(pred).transpose(2,0,1,3))
+                all_gt.append(fut_traj[:, :, :2].transpose(1,0).detach().cpu().numpy())
                 all_map.append(1-local_map.squeeze(1))
-
-
+                all_homo.append(local_homo)
 
         import pickle
         # data = [np.concatenate(all_pred, -2).transpose(0, 2, 1, 3),
@@ -1203,10 +1185,9 @@ class Solver(object):
         # with open('path_' + str(traj_num * lg_num) + '.pkl', 'wb') as handle:
         #     pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
         data = [np.concatenate(all_pred, 0),
-                np.concatenate(all_gt, 0), np.concatenate(all_map, 0)]
+                np.concatenate(all_gt, 0), np.concatenate(all_map, 0), np.concatenate(all_homo, 0)]
         with open('path_c_' + str(traj_num * lg_num) + '.pkl', 'wb') as handle:
             pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
-        print()
 
 
 
