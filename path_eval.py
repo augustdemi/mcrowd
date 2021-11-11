@@ -1172,7 +1172,7 @@ class Solver(object):
                 pred = []
                 for dist in fut_rel_pos_dists:
                     pred_fut_traj = integrate_samples(dist.rsample(), obs_traj[-1, :, :2],  dt=self.dt)
-                    pred.append(pred_fut_traj)
+                    pred.append(pred_fut_traj.detach().cpu().numpy())
 
                 all_pred.append(np.stack(pred).transpose(2,0,1,3))
                 all_gt.append(fut_traj[:, :, :2].transpose(1,0).detach().cpu().numpy())
