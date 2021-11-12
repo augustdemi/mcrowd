@@ -42,7 +42,7 @@ def compute_ECFL(output_traj, binary_navmaps):
                 if pos[1] < 0 or pos[1] >= binary_navmaps[i].shape[1] or pos[0] < 0 or pos[0] >= binary_navmaps[i].shape[0]:
                     collided = True
                     break
-                if binary_navmaps[i, pos[0], pos[1]] == 0:
+                if binary_navmaps[i][pos[0], pos[1]] == 0:
                     collided = True
                     break
 
@@ -1218,8 +1218,8 @@ class Solver(object):
                 for o, (s,e) in enumerate(seq_start_end):
                     m = 1 - maps[o].data / 255
                     m = 1 - m[0] * m[1] * m[2]
-                    all_maps.append(np.repeat(np.expand_dims(m,0), e-s, 0))
-                all_maps =  np.concatenate(all_maps)
+                    for _ in range(s,e):
+                        all_maps.append(m)
 
                 pred_c.append(compute_ECFL(pred,all_maps))
 
