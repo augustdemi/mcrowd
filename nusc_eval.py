@@ -25,6 +25,30 @@ import torch.nn.functional as nnf
 
 ###############################################################################
 
+def compute_ECFL(output_traj, binary_navmaps):
+    '''
+    :param output_traj: (# scenes, # samples, # frames, # coordinates) # all sample number, 20, 12, 2
+    :param binary_navmaps: (# scenes, # height/y, # width/x)
+        1 indicates navigable; 0 indicates non-navigable
+    :return: avgECFL
+    '''
+
+    ecfl = 0.0
+    for i in range(output_traj.shape[0]):
+        for k in range(output_traj.shape[1]):
+            collided = False
+            for t in range(output_traj.shape[2]):
+                pos = output_traj[i, k, t]
+                if binary_navmaps[i, pos[0], pos[1]] == 0:
+                    collided = True
+                    break
+
+            if not collided:
+                ecfl += 1.0 / output_traj.shape[1]
+
+    return ecfl / output_traj.shape[0]
+
+
 def integrate_samples(v, p_0, dt=1):
     """
     Integrates deterministic samples of velocity.
@@ -39,6 +63,12 @@ def integrate_samples(v, p_0, dt=1):
 # def recon_loss_with_logit(input, target):
 #     nn.BCEWithLogitsLoss(size_average = False, reduce=False, reduction=None)
 
+
+def set_seed(seed):
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
 
 
 class Solver(object):
@@ -268,18 +298,27 @@ class Solver(object):
         tensor = tensor.view(-1, col_len)
         return tensor
 
-
     def check_feat(self, data_loader):
         self.set_mode(train=False)
 
         with torch.no_grad():
             b = 0
-            for batch in data_loader:
-                b += 1
-                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-                 obs_frames, pred_frames, map_path, inv_h_t,
-                 local_map, local_ic, local_homo) = batch
+            while not data_loader.is_epoch_end():
+                data = data_loader.next_sample()
+                if data is None:
+                    continue
+                b+=1
 
+                idx = 412
+                data_loader.index = idx
+                data = data_loader.next_sample()
+
+                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
+                 maps, local_map, local_ic, local_homo) = data
+                plt.imshow(local_map[0])
+                plt.scatter(local_ic[0,:,1], local_ic[0,:,0], s=1, c='r')
+                plt.show()
+                #
                 # batch = data_loader.dataset.__getitem__(143)
                 # (obs_traj, fut_traj,
                 #  obs_frames, pred_frames, map_path, inv_h_t,
@@ -288,39 +327,21 @@ class Solver(object):
                 obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
-                recon_lg_heat = self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
 
                 ###################################################
                 i = 0
-                plt.imshow(local_map[i, 0])
 
-                # ----------- 12 traj
-                # heat_map_traj = np.zeros((160, 160))
-                heat_map_traj = local_map[i, 0].detach().cpu().numpy().copy()
-                # for t in range(self.obs_len):
-                for t in [0, 1, 2, 3, 4, 5, 6, 7, 11, 15, 19]:
-                    heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 100
-                    # as Y-net used variance 4 for the GT heatmap representation.
-                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-                plt.imshow(heat_map_traj)
-                # plt.imshow(np.stack([heat_map_traj, local_map[i,0]],axis=2))
+                # ori_map = maps[0].data.transpose(1,2,0)
+                # plt.imshow(ori_map)
+                # fig, ax = maps[0].render_map_patch(my_patch, layers, figsize=(10, 10), alpha=0.1,
+                #                                     render_egoposes_range=False)
+                #
+                # fig, ax = maps[0].render_map_patch([0,0,ori_map.shape[0],ori_map.shape[1]], layers=None, figsize=(10, 10), alpha=0.1,
+                #                                     render_egoposes_range=False)
+                #
+                # plt.imshow()
 
-
-                # ----------- feature map
-                fig = plt.figure(figsize=(5, 5))
-                k = 0
-                for m in self.lg_cvae.unet_features[i]:
-                    k += 1
-                    ax = fig.add_subplot(4, 8, k)
-                    ax.imshow(m)
-                    ax.axis('off')
-
-                ###################################################
-                # -------- long term goal --------
-                # ---------- prior
-
-#4444444444444444444t
-                self.lg_cvae.forward(obs_heat_map, None, training=False)
+                ####################### LG ############################
 
                 zs = []
                 for _ in range(10):
@@ -332,22 +353,21 @@ class Solver(object):
                 # mm.append(F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, self.lg_cvae.posterior_latent_space.rsample())))
 
                 mmm = []
-                for k in range(5,10):
+                for k in range(5, 10):
                     mmm.append(F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, zs[k])))
                 # mm.append(F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, self.lg_cvae.posterior_latent_space.rsample())))
 
-
-                #------- plot -----------
-                env = local_map[i][0]
+                # ------- plot -----------
+                env = local_map[i]
                 # env = cv2.resize(env, (256,256))
                 # for t in [0, 1, 2, 3, 4, 5, 6, 7, 11, 15, 19]:
                 #     env[local_ic[i, t, 0], local_ic[i, t, 1]] = 0
 
                 heat_map_traj = np.zeros_like(env)
-                for t in [0, 1, 2, 3, 4, 5, 6, 7, 11, 15, 19]:
+                for t in [0, 1, 2, 3, 7, 11, 15]:
                     heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 50
-                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=8)
-                heat_map_traj = 1-heat_map_traj / heat_map_traj.max()
+                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=1)
+                heat_map_traj = 1 - heat_map_traj * 3 / heat_map_traj.max()
 
                 # plt.imshow(np.stack([heat_map_traj, heat_map_traj, heat_map_traj], axis=2))
 
@@ -355,16 +375,15 @@ class Solver(object):
                 for k in range(5):
                     a = mm[k][i, 0]
                     a = nnf.interpolate(torch.tensor(a).unsqueeze(0).unsqueeze(0),
-                                        size=local_map[i][0].shape, mode='bicubic',
+                                        size=local_map[i].shape, mode='bicubic',
                                         align_corners=False).squeeze(0).squeeze(0).detach().cpu().numpy().copy()
                     all_pred.append(1 - a / a.max())
                 for k in range(5):
                     a = mmm[k][i, 0].detach().cpu().numpy().copy()
                     a = nnf.interpolate(torch.tensor(a).unsqueeze(0).unsqueeze(0),
-                                        size=local_map[i][0].shape, mode='bicubic',
+                                        size=local_map[i].shape, mode='bicubic',
                                         align_corners=False).squeeze(0).squeeze(0).detach().cpu().numpy().copy()
                     all_pred.append(1 - a / a.max())
-
 
                 fig = plt.figure(figsize=(12, 10))
                 fig.tight_layout()
@@ -374,7 +393,7 @@ class Solver(object):
                     if k < 5:
                         # ax.imshow(np.stack([env * (1 - heat_map_traj), env * (1 - a * 5), env], axis=2))
                         # ax.imshow(np.stack([(1 - heat_map_traj*1000), (1 - all_pred[k]*1000), env/env.max()], axis=2))
-                        ax.imshow(np.stack([heat_map_traj, all_pred[k], 1 - env/5], axis=2))
+                        ax.imshow(np.stack([heat_map_traj, all_pred[k], 1 - env], axis=2))
                     else:
                         ax.imshow(mm[k % 5][i, 0])
 
@@ -382,21 +401,21 @@ class Solver(object):
                     ax = fig.add_subplot(4, 5, k + 11)
                     ax.set_title('prior' + str(k % 5 + 6))
                     if k < 5:
-                        ax.imshow(np.stack([heat_map_traj, all_pred[k+5], 1 - env/5], axis=2))
+                        ax.imshow(np.stack([heat_map_traj, all_pred[k + 5], 1 - env], axis=2))
                     else:
                         ax.imshow(mmm[k % 5][i, 0])
 
                 plt.imshow(env)
+
+
                 tmp_idx = i
-
-
                 ####################### SG ############################
 
-                pred_lg_heat = mm[2]
+                pred_lg_heat = mm[3]
                 pred_lg_ics = []
                 pred_lg_wc = []
                 for i in range(len(obs_heat_map)):
-                    map_size = local_map[i][0].shape
+                    map_size = local_map[i].shape
                     pred_lg_ic = []
                     for heat_map in pred_lg_heat[i]:
                         # heat_map = nnf.interpolate(heat_map.unsqueeze(0), size=map_size, mode='nearest')
@@ -421,25 +440,17 @@ class Solver(object):
 
                 # -------- short term goal --------
                 pred_lg_heat_from_ic = []
-                for i in range(len(pred_lg_ics)):
-                    pred_lg_heat_from_ic.append(self.make_one_heatmap(local_map[i][0], pred_lg_ics[i][
-                        0].detach().cpu().numpy().astype(int)))
+                for lg_idx in range(len(pred_lg_ics)):
+                    pred_lg_heat_from_ic.append(self.make_one_heatmap(local_map[lg_idx], pred_lg_ics[lg_idx].detach().cpu().numpy().astype(int)[0]))
                 pred_lg_heat_from_ic = torch.tensor(np.stack(pred_lg_heat_from_ic)).unsqueeze(1).float().to(
                     self.device)
                 pred_sg = F.sigmoid(
                     self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1)))
 
-                # env = local_map[i][0]
-                # heat_map_traj = np.zeros_like(env)
-                # for t in [0, 1, 2, 3, 4, 5, 6, 7, 11, 15, 19]:
-                #     heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 50
-                # heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=8)
-                # heat_map_traj = 1-heat_map_traj / heat_map_traj.max()
-
                 i =tmp_idx
                 m = pred_sg.detach().cpu().numpy().copy()[i]
                 m = nnf.interpolate(torch.tensor(m).unsqueeze(0),
-                                    size=local_map[i][0].shape, mode='bicubic',
+                                    size=local_map[i].shape, mode='bicubic',
                                     align_corners=False).squeeze(0).detach().cpu().numpy().copy()
 
                 fig = plt.figure(figsize=(10, 5))
@@ -449,7 +460,9 @@ class Solver(object):
                     ax.set_title('sg' + str(k+1))
                     if k <3:
                         # ax.imshow(np.stack([env * (1 - heat_map_traj), env * (1 - m * 5), env], axis=2))
-                        ax.imshow(np.stack([heat_map_traj, m[k], 1 - env / 5], axis=2))
+                        ax.imshow(np.stack([heat_map_traj, 1-m[k] / m[k].max(), 1 - env], axis=2))
+                        # ax.imshow(np.stack([heat_map_traj,1 - a / a.max(), 1 - env], axis=2))
+
 
                     else:
                         ax.imshow(m[k%3])
@@ -459,14 +472,18 @@ class Solver(object):
                 pred_lg_wcs = []
                 pred_sg_wcs = []
                 traj_num=1
-                lg_num=20
-                for _ in range(lg_num):
+                lg_num=10
+                pred_lg_heats= []
+                pred_sg_heats= []
+                for j in range(lg_num):
+                    # set_seed(j)
                     # -------- long term goal --------
                     pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True))
+                    pred_lg_heats.append(pred_lg_heat)
                     pred_lg_ics = []
                     pred_lg_wc = []
                     for i in range(len(obs_heat_map)):
-                        map_size = local_map[i][0].shape
+                        map_size = local_map[i].shape
                         pred_lg_ic = []
                         for heat_map in pred_lg_heat[i]:
                             # heat_map = nnf.interpolate(heat_map.unsqueeze(0), size=map_size, mode='nearest')
@@ -493,17 +510,18 @@ class Solver(object):
                     # -------- short term goal --------
                     pred_lg_heat_from_ic = []
                     for i in range(len(pred_lg_ics)):
-                        pred_lg_heat_from_ic.append(self.make_one_heatmap(local_map[i][0], pred_lg_ics[i][
+                        pred_lg_heat_from_ic.append(self.make_one_heatmap(local_map[i], pred_lg_ics[i][
                             0].detach().cpu().numpy().astype(int)))
                     pred_lg_heat_from_ic = torch.tensor(np.stack(pred_lg_heat_from_ic)).unsqueeze(1).float().to(
                         self.device)
                     pred_sg_heat = F.sigmoid(
                         self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1)))
+                    pred_sg_heats.append(pred_sg_heat)
 
 
                     pred_sg_wc = []
                     for i in range(len(obs_heat_map)):
-                        map_size = local_map[i][0].shape
+                        map_size = local_map[i].shape
                         pred_sg_ic = []
                         for heat_map in pred_sg_heat[i]:
                             heat_map = nnf.interpolate(heat_map.unsqueeze(0).unsqueeze(0),
@@ -531,7 +549,7 @@ class Solver(object):
                 multi_sample_pred = []
 
                 (hx, mux, log_varx) \
-                    = self.encoderMx(obs_traj_st, seq_start_end)
+                    = self.encoderMx(obs_traj_st, seq_start_end, self.lg_cvae.unet_enc_feat, local_homo)
 
                 p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
                 z_priors = []
@@ -548,7 +566,7 @@ class Solver(object):
                             hx,
                             z_prior,
                             pred_sg_wc,  # goal
-                            self.sg_idx - 3
+                            self.sg_idx
                         )
                         multi_sample_pred.append(fut_rel_pos_dist_prior.rsample())
 
@@ -566,15 +584,15 @@ class Solver(object):
 
                     pred_pixel = np.matmul(pred_pixel, np.linalg.inv(np.transpose(local_homo[one_ped])))
                     pred_pixel /= np.expand_dims(pred_pixel[:, 2], 1)
-                    pred_data.append(np.concatenate([local_ic[i,:8], pred_pixel[:,:2]], 0))
+                    pred_data.append(np.concatenate([local_ic[i,:4], pred_pixel[:,:2]], 0))
 
-                pred_data = np.expand_dims(np.stack(pred_data),1)
-
+                pred_data = np.expand_dims(np.stack(pred_data),1) #  (20, 1, 16, 2)
 
                 #---------- plot gif
+                '''
                 i = tmp_idx
 
-                env = local_map[i][0]
+                env = local_map[i]
                 # env = np.stack([env, env, env], axis=2)
 
                 def init():
@@ -605,13 +623,283 @@ class Solver(object):
 
 
 
-                ani = FuncAnimation(fig, update_dot, frames=20, interval=1, init_func=init())
+                ani = FuncAnimation(fig, update_dot, frames=16, interval=1, init_func=init())
 
                 # writer = PillowWriter(fps=3000)
                 gif_path = 'D:\crowd\datasets\Trajectories'
                 ani.save(gif_path + "/" "path_find_agent" + str(i) + ".gif", fps=4)
+                '''
+                #====================================================================================================
+                #==================================================for report ==================================================
+                #====================================================================================================
 
 
+                ######################
+
+
+                import matplotlib.patheffects as pe
+                import seaborn as sns
+                from matplotlib.offsetbox import OffsetImage, AnnotationBbox
+                ####### plot 20 trajs ############
+                i = tmp_idx
+                env = np.expand_dims((1-local_map[i]), 2).repeat(3,2)
+                # env = 1-local_map[i]
+
+                # env= np.eye(256,256)
+                fig = plt.figure(figsize=(5, 5))
+                ax = fig.add_subplot(1, 1, 1)
+                plt.tight_layout()
+
+                # env = OffsetImage(env, zoom=0.06)
+                # env = AnnotationBbox(env, (0.5, 0.5),
+                #                      bboxprops=dict(edgecolor='red'))
+                #
+                # ax.add_artist(env)
+                ax.imshow(env)
+                ax.axis('off')
+
+                for t in range(self.obs_len,self.obs_len+self.pred_len):
+                    # sns.kdeplot(pred_data[:, 0, t, 1], pred_data[:, 0, t, 0],shade=True)
+                    sns.kdeplot(pred_data[:, 0, t, 1], pred_data[:, 0, t, 0],
+                                ax=ax, shade=True, shade_lowest=False, bw=None,
+                                color='r', zorder=600, alpha=0.3, legend=True)
+
+                # ax.scatter(local_ic[0,:,1], local_ic[0,:,0], s=5, c='b')
+
+                for t in range(10):
+                    if t ==0:
+                        ax.plot(pred_data[t, 0, 4:, 1], pred_data[t, 0, 4:, 0], 'r--', linewidth=2,
+                                zorder=650, c='firebrick',
+                                path_effects=[pe.Stroke(linewidth=2, foreground='k'), pe.Normal()], label='Predicted future')
+                    else:
+                        ax.plot(pred_data[t, 0, 4:, 1], pred_data[t, 0, 4:, 0], 'r--', linewidth=2,
+                                zorder=650, c='firebrick',
+                                path_effects=[pe.Stroke(linewidth=2, foreground='k'), pe.Normal()])
+
+                ax.plot(local_ic[0,4:,1], local_ic[0,4:,0],
+                        'r--o',
+                        c='darkorange',
+                        linewidth=2,
+                        markersize=2,
+                        zorder=650,
+                        path_effects=[pe.Stroke(linewidth=2, foreground='k'), pe.Normal()], label='GT future')
+                ax.plot(local_ic[0,:4,1], local_ic[0,:4,0],
+                        'b--o',
+                        c='royalblue',
+                        linewidth=2,
+                        markersize=2,
+                        zorder=650,
+                        path_effects=[pe.Stroke(linewidth=2, foreground='k'), pe.Normal()], label='GT past')
+
+                ax.legend(loc='upper left')
+
+
+                ################### LG ##############################
+                # ------- plot -----------
+                env = np.expand_dims((1 - local_map[i]), 2).repeat(3, 2)
+
+                fig = plt.figure(figsize=(12, 10))
+                idx_list = [2,3,5]
+                # idx_list = [7,8,9]
+                # idx_list = [4,5,6]
+                for h in range(3):
+                    idx = idx_list[h]
+                    ax = fig.add_subplot(3, 4, 4*h+1)
+                    plt.tight_layout()
+                    ax.imshow(env)
+                    ax.axis('off')
+                    # ax.scatter(local_ic[0,:4,1], local_ic[0,:4,0], c='b', s=2, alpha=0.7)
+                    # ax.scatter(local_ic[0,4:,1], local_ic[0,4:,0], c='r', s=2, alpha=0.7)
+                    # ax.scatter(local_ic[0,-1,1], local_ic[0,-1,0], c='r', s=18, marker='x', alpha=0.7)
+
+                    ax.plot(local_ic[0, :4, 1], local_ic[0, :4, 0],
+                            'b--o',
+                            c='royalblue',
+                            linewidth=1,
+                            markersize=1.5,
+                            zorder=500,
+                            path_effects=[pe.Stroke(linewidth=1, foreground='k'), pe.Normal()], label='GT past')
+                    ax.plot(local_ic[0, 4:, 1], local_ic[0, 4:, 0],
+                            'r--o',
+                            c='darkorange',
+                            linewidth=1,
+                            markersize=1.5,
+                            zorder=500,
+                            path_effects=[pe.Stroke(linewidth=1, foreground='k'), pe.Normal()], label='GT future')
+
+                    ax.plot(local_ic[0, -1, 1], local_ic[0, -1, 0],
+                            'r--x',
+                            c='darkorange',
+                            linewidth=1,
+                            markersize=5,
+                            zorder=500,
+                            path_effects=[pe.Stroke(linewidth=2, foreground='k'), pe.Normal()], label='GT past')
+
+                    a = pred_lg_heats[idx][i, 0]
+                    a = nnf.interpolate(torch.tensor(a).unsqueeze(0).unsqueeze(0),
+                                        size=local_map[i].shape, mode='bicubic',
+                                        align_corners=False).squeeze(0).squeeze(0).detach().cpu().numpy().copy()
+
+                    # b = a / a.max()
+                    # b = np.expand_dims((1 - b), 2).repeat(3, 2)
+                    c = a / a.max()
+                    # env = np.expand_dims((1 - local_map[i]), 2).repeat(3, 2)
+                    # env[:,:,0][np.where(c>0.1)] = 1-c[np.where(c>0.1)]
+                    # plt.imshow(env)
+                    d=np.stack([1-c, np.ones_like(c), np.ones_like(c)]).transpose(1,2,0)
+                    ax.imshow(d, alpha=0.7)
+
+                    # -------- short term goal --------
+
+                    pred_lg_heat = pred_lg_heats[idx]
+                    pred_lg_ics = []
+                    for j in range(len(obs_heat_map)):
+                        map_size = local_map[j].shape
+                        pred_lg_ic = []
+                        for heat_map in pred_lg_heat[j]:
+                            # heat_map = nnf.interpolate(heat_map.unsqueeze(0), size=map_size, mode='nearest')
+                            heat_map = nnf.interpolate(heat_map.unsqueeze(0).unsqueeze(0),
+                                                       size=map_size, mode='bicubic',
+                                                       align_corners=False).squeeze(0).squeeze(0)
+                            argmax_idx = heat_map.argmax()
+                            argmax_idx = [argmax_idx // map_size[0], argmax_idx % map_size[0]]
+                            pred_lg_ic.append(argmax_idx)
+
+                        pred_lg_ic = torch.tensor(pred_lg_ic).float().to(self.device)
+                        pred_lg_ics.append(pred_lg_ic)
+
+                    pred_lg_heat_from_ic = []
+                    for lg_idx in range(len(pred_lg_ics)):
+                        pred_lg_heat_from_ic.append(self.make_one_heatmap(local_map[lg_idx], pred_lg_ics[lg_idx].detach().cpu().numpy().astype(int)[0]))
+                    pred_lg_heat_from_ic = torch.tensor(np.stack(pred_lg_heat_from_ic)).unsqueeze(1).float().to(
+                        self.device)
+                    pred_sg = F.sigmoid(
+                        self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1)))
+
+                    m = pred_sg.detach().cpu().numpy().copy()[i]
+                    m = nnf.interpolate(torch.tensor(m).unsqueeze(0),
+                                        size=local_map[i].shape, mode='bicubic',
+                                        align_corners=False).squeeze(0).detach().cpu().numpy().copy()
+
+
+
+                    for jj in range(3):
+                        ax = fig.add_subplot(3, 4, 4*h+2+jj)
+                        plt.tight_layout()
+                        ax.imshow(env)
+                        ax.axis('off')
+                        # ax.scatter(local_ic[0, :4, 1], local_ic[0, :4, 0], c='b', s=2, alpha=0.7)
+                        # ax.scatter(local_ic[0, 4:, 1], local_ic[0, 4:, 0], c='r', s=2, alpha=0.7)
+                        # ax.scatter(local_ic[0, self.sg_idx[jj] + self.obs_len, 1], local_ic[0,  self.sg_idx[jj] + self.obs_len, 0], c='r', s=18, marker='x', alpha=0.7)
+                        ax.plot(local_ic[0, :4, 1], local_ic[0, :4, 0],
+                                'b--o',
+                                c='royalblue',
+                                linewidth=1,
+                                markersize=1.5,
+                                zorder=500,
+                                path_effects=[pe.Stroke(linewidth=1, foreground='k'), pe.Normal()], label='GT past')
+                        ax.plot(local_ic[0, 4:, 1], local_ic[0, 4:, 0],
+                                'r--o',
+                                c='darkorange',
+                                linewidth=1,
+                                markersize=1.5,
+                                zorder=500,
+                                path_effects=[pe.Stroke(linewidth=1, foreground='k'), pe.Normal()], label='GT future')
+
+                        ax.plot(local_ic[0, self.sg_idx[jj] + self.obs_len, 1], local_ic[0, self.sg_idx[jj] + self.obs_len, 0],
+                                'r--x',
+                                c='darkorange',
+                                linewidth=1,
+                                markersize=5,
+                                zorder=500,
+                                path_effects=[pe.Stroke(linewidth=2, foreground='k'), pe.Normal()], label='GT past')
+
+                        c = m[jj] / m[jj].max()
+                        d = np.stack([1 - c, np.ones_like(c), np.ones_like(c)]).transpose(1, 2, 0)
+                        ax.imshow(d, alpha=0.7)
+
+
+
+                    ######################
+                    # AF
+                    import pickle5
+                    # with open('C:\dataset\AgentFormer nuscenes k=10\AgentFormer nuscenes k=10/nuscenes_10.pkl', 'rb') as f:
+                    with open('D:\crowd/modified_ynet_nu_k102.pkl', 'rb') as f:
+                    # with open('C:\dataset/t++\experiments/nuScenes/t_nu10.pkl', 'rb') as f:
+                        aa = pickle5.load(f)
+                    # gt = aa[1][0, 818]
+                    # af_pred = aa[0][:, 818]
+                    # our_gt = fut_traj[:, 0, :2]
+
+
+                    our_gt = fut_traj[:, 0, :2].numpy()
+                    idx = np.where(((aa[1][0, :, 0] - our_gt[0]) ** 2).sum(1) < 1)[0][0]
+                    gt = aa[1][0, idx]
+                    gt - our_gt
+                    af_pred = aa[0][:, idx]
+
+
+
+                    ## pixel data
+                    af_pred_data = []
+                    for pred_real in af_pred:
+                        pred_pixel = np.concatenate([pred_real, np.ones((self.pred_len, 1))],
+                                                    axis=1)
+
+                        pred_pixel = np.matmul(pred_pixel, np.linalg.inv(np.transpose(local_homo[tmp_idx])))
+                        pred_pixel /= np.expand_dims(pred_pixel[:, 2], 1)
+                        af_pred_data.append(np.concatenate([local_ic[i, :4], pred_pixel[:, :2]], 0))
+
+                    af_pred_data = np.expand_dims(np.stack(af_pred_data), 1)  # (20, 1, 16, 2)
+
+                    import matplotlib.patheffects as pe
+                    import seaborn as sns
+                    from matplotlib.offsetbox import OffsetImage, AnnotationBbox
+                    ####### plot 20 trajs ############
+                    i = tmp_idx
+                    env = np.expand_dims((1 - local_map[i]), 2).repeat(3, 2)
+                    # env = 1-local_map[i]
+
+                    fig = plt.figure(figsize=(5, 5))
+                    ax = fig.add_subplot(1, 1, 1)
+                    plt.tight_layout()
+                    # env = OffsetImage(env, zoom=0.06)
+                    # env = AnnotationBbox(env, (0.5, 0.5),
+                    #                      bboxprops=dict(edgecolor='red'))
+                    #
+                    # ax.add_artist(env)
+                    ax.imshow(env)
+                    ax.axis('off')
+
+                    for t in range(self.obs_len, self.obs_len + self.pred_len):
+                        # sns.kdeplot(pred_data[:, 0, t, 1], pred_data[:, 0, t, 0],shade=True)
+                        sns.kdeplot(af_pred_data[:, 0, t, 1], af_pred_data[:, 0, t, 0], bw=None,
+                                    ax=ax, shade=True, shade_lowest=False,
+                                    color='r', zorder=600, alpha=0.3, legend=True)
+
+                    # ax.scatter(local_ic[0,:,1], local_ic[0,:,0], s=5, c='b')
+
+                    for t in range(10):
+                        ax.plot(af_pred_data[t, 0, 4:, 1], af_pred_data[t, 0, 4:, 0], 'r--', linewidth=2,
+                                zorder=650, c='firebrick',
+                                path_effects=[pe.Stroke(linewidth=2, foreground='k'), pe.Normal()])
+
+                    ax.plot(local_ic[0, 4:, 1], local_ic[0, 4:, 0],
+                            'r--o',
+                            c='darkorange',
+                            linewidth=2,
+                            markersize=2,
+                            zorder=650,
+                            path_effects=[pe.Stroke(linewidth=2, foreground='k'), pe.Normal()], label='GT future')
+                    ax.plot(local_ic[0, :4, 1], local_ic[0, :4, 0],
+                            'b--o',
+                            c='royalblue',
+                            linewidth=2,
+                            markersize=2,
+                            zorder=650,
+                            path_effects=[pe.Stroke(linewidth=2, foreground='k'), pe.Normal()], label='GT past')
+
+                    ax.legend()
 
     def all_evaluation(self, data_loader, lg_num=5, traj_num=4, generate_heat=True):
         self.set_mode(train=False)
@@ -783,11 +1071,12 @@ class Solver(object):
 
 
 
-    def make_pred(self, data_loader, lg_num=5, traj_num=4, generate_heat=True):
+    def make_ecfl(self, data_loader, lg_num=5, traj_num=4, generate_heat=True):
         self.set_mode(train=False)
 
-        all_gt=[]
-        all_pred = []
+        pred_c = []
+        gt_c = []
+        n_sample = 0
         with torch.no_grad():
             b=0
             while not data_loader.is_epoch_end():
@@ -799,6 +1088,7 @@ class Solver(object):
                  maps, local_map, local_ic, local_homo) = data
                 batch_size = obs_traj.size(1)
                 obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
+
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 fut_rel_pos_dists = []
@@ -905,30 +1195,55 @@ class Solver(object):
                 pred = []
                 for dist in fut_rel_pos_dists:
                     pred_fut_traj=integrate_samples(dist.rsample() * self.scale, obs_traj[-1, :, :2], dt=self.dt)
-                    pred.append(pred_fut_traj)
-                all_pred.append(torch.stack(pred).detach().cpu().numpy())
-                all_gt.append(fut_traj[:,:,:2].unsqueeze(0).repeat((traj_num*lg_num,1,1,1)).detach().cpu().numpy())
 
-        import pickle
-        data = [np.concatenate(all_pred, -2).transpose(0,2,1,3), np.concatenate(all_gt, -2).transpose(0,2,1,3)]
-        with open('./nu_' + str(traj_num*lg_num) + '.pkl', 'wb') as handle:
-            pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
-        # with open('sdd.pkl', 'rb') as f:
-        #     a= pickle.load(f)
+                    # idx = 1
+                    # pixel = maps[0].to_map_points(pred_fut_traj[:,idx])
+                    # plt.imshow(maps[0].data.transpose(1, 2, 0))
+                    # map_traj = maps[0].to_map_points(fut_traj[:, idx, :2])
+                    # plt.scatter(map_traj[:, 1], map_traj[:, 0], s=1, c='w')
+                    # plt.scatter(pixel[:, 1], pixel[:, 0], s=1, c='b')
 
+                    batch_seq_pix = []
+                    for o, (s,e) in enumerate(seq_start_end):
+                        for idx in range(s,e):
+                            wc = pred_fut_traj.transpose(1, 0)[idx].transpose(1,0).unsqueeze(1).detach().cpu().numpy()
+                            batch_seq_pix.append(maps[o].to_map_points(wc).astype(int))
+                    pred.append(np.expand_dims(np.stack(batch_seq_pix), 1))
+                pred = np.concatenate(pred, 1)
 
+                all_maps=[]
+                for o, (s,e) in enumerate(seq_start_end):
+                    m = 1 - maps[o].data / 255
+                    m = 1 - m[0] * m[1] * m[2]
+                    all_maps.append(np.repeat(np.expand_dims(m,0), e-s, 0))
+                all_maps =  np.concatenate(all_maps)
 
+                pred_c.append(compute_ECFL(pred,all_maps))
 
+                gt_map_pt = []
+                gt = fut_traj[:,:,:2].transpose(1,0).unsqueeze(1).detach().cpu().numpy()
+                for o, (s, e) in enumerate(seq_start_end):
+                    for idx in range(s, e):
+                        gt_map_pt.append(maps[o].to_map_points(gt[idx]).astype(int))
 
+                gt_c.append(compute_ECFL(np.stack(gt_map_pt).astype(int), all_maps))
+                n_sample += gt.shape[0]
+
+        print('N SAMPLE: ', n_sample)
+        print("GT ECFLS: ", np.array(gt_c).mean())
+        print("PRED ECFLS: ", np.array(pred_c).mean())
 
 
     def pretrain_load_checkpoint(self, traj, lg, sg):
+        sg['iter']=30000
+        lg['iter']=39000
+        traj['ckpt_dir']='ckpts/nu.traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_0.07_scale_1.0_num_sg_3_run_5'
+        traj['iter'] = 45000
+
         sg_unet_path = os.path.join(
-            sg['ckpt_dir'],
+            'ckpts/nu.sg_lr_0.001_a_0.25_r_2.0_aug_1_num_sg_3_run_4',
             'iter_%s_sg_unet.pt' % sg['iter']
         )
-
-
         encoderMx_path = os.path.join(
             traj['ckpt_dir'],
             'iter_%s_encoderMx.pt' % traj['iter']
@@ -942,7 +1257,7 @@ class Solver(object):
             'iter_%s_decoderMy.pt' %  traj['iter']
         )
         lg_cvae_path = os.path.join(
-            lg['ckpt_dir'],
+            'ckpts/nu.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_3.0_anneal_e_10_aug_1_llprior_0.0_run_4',
             'iter_%s_lg_cvae.pt' %  lg['iter']
         )
 
