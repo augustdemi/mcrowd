@@ -251,8 +251,8 @@ class TrajectoryDataset(Dataset):
                         np.ones((num_peds_considered, self.pred_len)) * frames[idx + self.obs_len:idx + self.seq_len])
                     scene_names.append([s] * num_peds_considered)
                     # inv_h_ts.append(inv_h_t)
-                if data_split == 'test' and np.concatenate(this_scene_seq).shape[0] > 10:
-                    break
+                # if data_split == 'test' and np.concatenate(this_scene_seq).shape[0] > 10:
+                #     break
 
 
             this_scene_seq = np.concatenate(this_scene_seq)
@@ -339,7 +339,7 @@ class TrajectoryDataset(Dataset):
         out = [
             self.obs_traj[index].to(self.device).unsqueeze(0), self.pred_traj[index].to(self.device).unsqueeze(0),
             self.obs_frame_num[index], self.fut_frame_num[index],
-            np.expand_dims(global_map, axis=0), inv_h_t,
+            self.map_file_name[index] + '_mask', inv_h_t,
             np.expand_dims(local_map, axis=0), np.expand_dims(local_ic, axis=0), local_homo, self.scale
         ]
         return out
