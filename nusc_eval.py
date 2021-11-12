@@ -39,6 +39,9 @@ def compute_ECFL(output_traj, binary_navmaps):
             collided = False
             for t in range(output_traj.shape[2]):
                 pos = output_traj[i, k, t]
+                if pos[1] < 0 or pos[1] >= binary_navmaps[i].shape[1] or pos[0] < 0 or pos[0] >= binary_navmaps[i].shape[0]:
+                    collided = True
+                    break
                 if binary_navmaps[i, pos[0], pos[1]] == 0:
                     collided = True
                     break
@@ -1206,7 +1209,7 @@ class Solver(object):
                     batch_seq_pix = []
                     for o, (s,e) in enumerate(seq_start_end):
                         for idx in range(s,e):
-                            wc = pred_fut_traj.transpose(1, 0)[idx].transpose(1,0).unsqueeze(1).detach().cpu().numpy()
+                            wc = pred_fut_traj.transpose(1, 0)[idx].detach().cpu().numpy()
                             batch_seq_pix.append(maps[o].to_map_points(wc).astype(int))
                     pred.append(np.expand_dims(np.stack(batch_seq_pix), 1))
                 pred = np.concatenate(pred, 1)
