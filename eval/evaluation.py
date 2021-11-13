@@ -280,7 +280,7 @@ if __name__ == '__main__':
     print("gt: ", compute_ECFL(np.expand_dims(all_data[1], 1), all_data[2], all_data[3]))
 
     all_data[0] = all_data[0].transpose(1,0,2,3)
-    all_data[1] = np.expand_dims(all_data[1], 0).repeat(5, 0)
+    all_data[1] = np.expand_dims(all_data[1], 0).repeat(all_data[0].shape[0], 0)
 
     print('>>> file name: ', args.file_name)
     print('=== ADE min / avg / std ===' )
