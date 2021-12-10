@@ -225,7 +225,7 @@ class Decoder(nn.Module):
         pred_vel = self.to_vel(last_obs_st)
 
         ### make six states
-        dt = self.dt * (12/len(sg_update_idx))
+        dt = self.dt * (self.seq_len/len(sg_update_idx))
         last_ob_sg = torch.cat([last_obs_pos.unsqueeze(1), sg], dim=1).detach().cpu().numpy()
         last_ob_sg = (last_ob_sg - last_ob_sg[:,:1])/self.scale # bs, 4(last obs + # sg), 2
 

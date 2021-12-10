@@ -1,5 +1,4 @@
 import os
-from matplotlib.animation import FuncAnimation
 
 import torch.optim as optim
 # -----------------------------------------------------------------------------#
@@ -12,15 +11,16 @@ from scipy import ndimage
 
 import matplotlib.pyplot as plt
 from torch.distributions import RelaxedOneHotCategorical as concrete
-import cv2
+from torch.distributions import OneHotCategorical as discrete
+from torch.distributions import kl_divergence
+from scipy.interpolate import RectBivariateSpline
+from scipy.ndimage import binary_dilation
+# from model_map_ae import Decoder as Map_Decoder
 from data.nuscenes.config import Config
 from data.nuscenes_dataloader import data_generator
-from unet.unet import Unet
 import numpy as np
 import visdom
-import torch.nn.functional as F
-import torch.nn.functional as nnf
-
+import cv2
 
 ###############################################################################
 
@@ -46,20 +46,15 @@ class Solver(object):
     def __init__(self, args):
 
         self.args = args
+        args.num_sg = args.load_e
+        self.name = '%s_zD_%s_dr_mlp_%s_dr_rnn_%s_enc_hD_%s_dec_hD_%s_mlpD_%s_map_featD_%s_map_mlpD_%s_lr_%s_klw_%s_ll_prior_w_%s_zfb_%s_scale_%s_num_sg_%s' % \
+                    (args.dataset_name, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
+                     args.decoder_h_dim, args.mlp_dim, args.map_feat_dim , args.map_mlp_dim, args.lr_VAE, args.kl_weight, args.ll_prior_w, args.fb, args.scale, args.num_sg)
 
-        self.name = '%s_lr_%s_a_%s_r_%s_aug_%s_num_sg_%s' % \
-                    (args.dataset_name, args.lr_VAE, args.alpha, args.gamma, args.aug, args.load_e)
 
         # to be appended by run_id
 
-        # self.use_cuda = args.cuda and torch.cuda.is_available()
-        self.fb = args.fb
-        self.anneal_epoch = args.anneal_epoch
-        self.alpha = args.alpha
-        self.gamma = args.gamma
-        self.aug = args.aug
         self.device = args.device
-        self.temp=1.99
         self.dt=0.1
         self.eps=1e-9
         self.ll_prior_w =args.ll_prior_w
@@ -68,9 +63,8 @@ class Solver(object):
         self.sg_idx = np.flip(39-self.sg_idx[::(40//num_sg)])
         print('>>>>> sg location: ', self.sg_idx + 1)
 
-
-        self.no_convs_fcomb = args.no_convs_fcomb
-        self.no_convs_per_block = args.no_convs_per_block
+        self.z_fb = args.fb
+        self.scale = args.scale
 
         self.kl_weight=args.kl_weight
         self.lg_kl_weight=args.lg_kl_weight
@@ -103,17 +97,16 @@ class Solver(object):
         self.viz_on = args.viz_on
         if self.viz_on:
             self.win_id = dict(
-                recon='win_recon', test_total_loss='win_test_total_loss',
-                lg_fde_min='win_lg_fde_min', lg_fde_avg='win_lg_fde_avg', lg_fde_std='win_lg_fde_std',
-                sg_recon='win_sg_recon', test_sg_recon='win_test_sg_recon',
-                sg_ade_min='win_sg_ade_min', sg_ade_avg='win_sg_ade_avg', sg_ade_std='win_sg_ade_std',
+                recon='win_recon', loss_kl='win_loss_kl', loss_recon='win_loss_recon',
+                ade_min='win_ade_min', fde_min='win_fde_min', ade_avg='win_ade_avg', fde_avg='win_fde_avg',
+                ade_std='win_ade_std', fde_std='win_fde_std',
+                test_loss_recon='win_test_loss_recon', test_loss_kl='win_test_loss_kl',
+                loss_recon_prior='win_loss_recon_prior',
             )
             self.line_gather = DataGather(
-                'iter',
-                'test_total_loss',
-                'lg_fde_min', 'lg_fde_avg', 'lg_fde_std',
-                'sg_recon', 'test_sg_recon',
-                'sg_ade_min', 'sg_ade_avg', 'sg_ade_std',
+                'iter', 'loss_recon', 'loss_kl',  'loss_recon_prior',
+                'ade_min', 'fde_min', 'ade_avg', 'fde_avg', 'ade_std', 'fde_std',
+                'test_loss_recon', 'test_loss_kl'
             )
 
 
@@ -149,44 +142,76 @@ class Solver(object):
         # checkpoints
         self.ckpt_dir = os.path.join("ckpts", self.name)
 
+        # outputs
+        self.output_dir_recon = os.path.join("outputs", self.name + '_recon')
+        # dir for reconstructed images
+        self.output_dir_synth = os.path.join("outputs", self.name + '_synth')
+        # dir for synthesized images
+        self.output_dir_trvsl = os.path.join("outputs", self.name + '_trvsl')
 
         #### create a new model or load a previously saved model
 
         self.ckpt_load_iter = args.ckpt_load_iter
 
         self.obs_len = 20
-        self.pred_len = args.pred_len
+        self.pred_len = 40
         self.num_layers = args.num_layers
         self.decoder_h_dim = args.decoder_h_dim
 
-
-        lg_cvae_path = 'ki.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_2.5_anneal_e_10_aug_1_llprior_1.0_run_0'
-        lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_20250_lg_cvae.pt')
-
-        if self.device == 'cuda':
-            self.lg_cvae = torch.load(lg_cvae_path)
-        else:
-            self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
-        print(">>>>>>>>> Init: ", lg_cvae_path)
-
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
-            num_filters = [32, 32, 64, 64, 64]
-            # input = env + 8 past + lg / output = env + sg(including lg)
-            self.sg_unet = Unet(input_channels=3, num_classes=len(self.sg_idx), num_filters=num_filters,
-                             apply_last_layer=True, padding=True).to(self.device)
 
+            lg_cvae_path = 'ki.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_2.5_anneal_e_10_aug_1_llprior_1.0_run_0'
+            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_20250_lg_cvae.pt')
+
+            if self.device == 'cuda':
+                self.lg_cvae = torch.load(lg_cvae_path)
+            else:
+                self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
+            print(">>>>>>>>> Init: ", lg_cvae_path)
+
+
+
+            self.encoderMx = EncoderX(
+                args.zS_dim,
+                enc_h_dim=args.encoder_h_dim,
+                mlp_dim=args.mlp_dim,
+                map_mlp_dim=args.map_mlp_dim,
+                map_feat_dim=args.map_feat_dim,
+                num_layers=args.num_layers,
+                dropout_mlp=args.dropout_mlp,
+                dropout_rnn=args.dropout_rnn,
+                device=self.device).to(self.device)
+            self.encoderMy = EncoderY(
+                args.zS_dim,
+                enc_h_dim=args.encoder_h_dim,
+                mlp_dim=args.mlp_dim,
+                num_layers=args.num_layers,
+                dropout_mlp=args.dropout_mlp,
+                dropout_rnn=args.dropout_rnn,
+                device=self.device).to(self.device)
+            self.decoderMy = Decoder(
+                self.pred_len,
+                dec_h_dim=self.decoder_h_dim,
+                enc_h_dim=args.encoder_h_dim,
+                mlp_dim=args.mlp_dim,
+                z_dim=args.zS_dim,
+                num_layers=args.num_layers,
+                device=args.device,
+                dropout_rnn=args.dropout_rnn,
+                scale=args.scale,
+                dt=self.dt).to(self.device)
 
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
             self.load_checkpoint()
-
             print('...done')
 
 
         # get VAE parameters
         vae_params = \
-            list(self.sg_unet.parameters())
-
+            list(self.encoderMx.parameters()) + \
+            list(self.encoderMy.parameters()) + \
+            list(self.decoderMy.parameters())
         # create optimizers
         self.optim_vae = optim.Adam(
             vae_params,
@@ -197,6 +222,8 @@ class Solver(object):
 
         # prepare dataloader (iterable)
         print('Start loading data...')
+
+
 
         if self.ckpt_load_iter != self.max_iter:
             print("Initializing train dataset")
@@ -214,9 +241,9 @@ class Solver(object):
 
 
 
-    def make_heatmap(self, local_ic, local_map, aug=False):
-        heat_maps=[]
-        down_size=256
+    def make_heatmap(self, local_ic, local_map, aug=False, only_obs=False):
+        heat_maps = []
+        down_size = 256
         for i in range(len(local_ic)):
             '''
             plt.imshow(local_map[i])
@@ -225,7 +252,7 @@ class Solver(object):
             '''
             map_size = local_map[i].shape[0]
             env = cv2.resize(local_map[i], dsize=(down_size, down_size))
-            ohm = [env/3]
+            ohm = [env / 3]
             heat_map_traj = np.zeros_like(local_map[i])
             heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 100
 
@@ -249,17 +276,18 @@ class Solver(object):
                                        size=local_map[i].shape,  mode='bicubic',
                                               align_corners = False).squeeze(0).squeeze(0)
             '''
-            for j in (self.sg_idx + self.obs_len):
-                heat_map_traj = np.zeros_like(local_map[i])
-                heat_map_traj[local_ic[i, j, 0], local_ic[i, j, 1]] = 1000
-                if map_size > 1000:
+            if not only_obs:
+                for j in (self.sg_idx + self.obs_len):
+                    heat_map_traj = np.zeros_like(local_map[i])
+                    heat_map_traj[local_ic[i, j, 0], local_ic[i, j, 1]] = 1000
+                    if map_size > 1000:
+                        heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2),
+                                                   dsize=((map_size + down_size) // 2, (map_size + down_size) // 2))
                     heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2),
-                                               dsize=((map_size + down_size) // 2, (map_size + down_size) // 2))
-                heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2),
-                                           dsize=(down_size, down_size))
-                heat_map_traj = heat_map_traj / heat_map_traj.sum()
-                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-                ohm.append(heat_map_traj)
+                                               dsize=(down_size, down_size))
+                    heat_map_traj = heat_map_traj / heat_map_traj.sum()
+                    heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+                    ohm.append(heat_map_traj)
             heat_maps.append(np.stack(ohm))
         heat_maps = torch.tensor(np.stack(heat_maps)).float().to(self.device)
 
@@ -268,27 +296,16 @@ class Solver(object):
             heat_maps = transforms.Compose([
                 transforms.RandomRotation(degrees=(degree, degree))
             ])(heat_maps)
-        return heat_maps[:,:2], heat_maps[:,2:], heat_maps[:,-1].unsqueeze(1)
+        if not only_obs:
+            return heat_maps[:,:2], heat_maps[:,2:]
+        else:
+            return heat_maps
 
-    def make_one_heatmap(self, local_map, local_ic):
-        map_size = local_map.shape[0]
-        down_size=256
-        heat_map_traj = np.zeros_like(local_map)
-        heat_map_traj[local_ic[0], local_ic[1]] = 1000
-        if map_size > 1000:
-            heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2),
-                                       dsize=((map_size + down_size) // 2, (map_size + down_size) // 2))
-        heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2),
-                                   dsize=(down_size, down_size))
-        heat_map_traj = heat_map_traj / heat_map_traj.sum()
-        heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-        return heat_map_traj
 
     ####
     def train(self):
         self.set_mode(train=True)
         data_loader = self.train_loader
-
         self.N = len(data_loader.dataset)
         iterator = iter(data_loader)
 
@@ -307,40 +324,62 @@ class Solver(object):
             # ============================================
             #          TRAIN THE VAE (ENC & DEC)
             # ============================================
-
-            (obs_traj, fut_traj, obs_traj_st, fut_traj_st, seq_start_end,
+            (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
              videos, classes, global_map, homo,
              local_map, local_ic, local_homo) = next(iterator)
             batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
-            '''
-            map_idx = np.where([i in range(elt[0], elt[1]) for elt in seq_start_end])[0][0]
-            plt.imshow(maps[map_idx].data.transpose(2,1,0))
-            all_traj = torch.cat([obs_traj[:,i,:2], fut_traj[:,i,:2]], dim=0)
-            all_traj = maps[map_idx].to_map_points(all_traj*cfg['traj_scale'])
-            plt.scatter(all_traj[:4,0], all_traj[:4,1], s=1, c='b')
-            plt.scatter(all_traj[4:,0], all_traj[4:,1], s=1, c='g')
-            '''
-            obs_heat_map, sg_heat_map, lg_heat_map =  self.make_heatmap(local_ic, local_map, aug=self.aug)
+            obs_heat_map =  self.make_heatmap(local_ic, local_map, aug=False, only_obs=True)
 
-            # -------- short term goal --------
-            # obs_lg_heat = torch.cat([obs_heat_map, lg_heat_map[:,-1].unsqueeze(1)], dim=1)
-            recon_sg_heat = self.sg_unet.forward(torch.cat([obs_heat_map, lg_heat_map], dim=1))
-            recon_sg_heat = F.sigmoid(recon_sg_heat)
-            normalized_recon_sg_heat = []
-            for i in range(len(self.sg_idx)):
-                sg_map = recon_sg_heat[:,i]
-                normalized_recon_sg_heat.append(F.normalize(sg_map.view((sg_map.shape[0], -1)), p=1))
-            recon_sg_heat = torch.stack(normalized_recon_sg_heat, dim=1)
-            sg_heat_map= sg_heat_map.view(sg_heat_map.shape[0], len(self.sg_idx), -1)
+            #-------- map encoding from lgvae --------
+            unet_enc_feat = self.lg_cvae.unet.down_forward(obs_heat_map)
+
+            #-------- trajectories --------
+            (hx, mux, log_varx) \
+                = self.encoderMx(obs_traj_st, seq_start_end, unet_enc_feat, local_homo, train=True)
 
 
-            sg_recon_loss = - (
-            self.alpha * sg_heat_map * torch.log(recon_sg_heat + self.eps) * ((1 - recon_sg_heat) ** self.gamma) \
-            + (1 - self.alpha) * (1 - sg_heat_map) * torch.log(1 - recon_sg_heat + self.eps) * (
-                recon_sg_heat ** self.gamma)).sum().div(batch_size)
+            (muy, log_vary) \
+                = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, hx, train=True)
 
-            loss = sg_recon_loss
+            p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
+            q_dist = Normal(muy, torch.sqrt(torch.exp(log_vary)))
+
+
+            # TF, goals, z~posterior
+            fut_rel_pos_dist_tf_post = self.decoderMy(
+                obs_traj_st[-1],
+                obs_traj[-1, :, :2],
+                hx,
+                q_dist.rsample(),
+                fut_traj[list(self.sg_idx), :, :2].permute(1,0,2), # goal
+                self.sg_idx,
+                fut_vel_st # TF
+            )
+
+
+            # NO TF, predicted goals, z~prior
+            fut_rel_pos_dist_prior = self.decoderMy(
+                obs_traj_st[-1],
+                obs_traj[-1, :, :2],
+                hx,
+                p_dist.rsample(),
+                fut_traj[list(self.sg_idx), :, :2].permute(1, 0, 2),  # goal
+                self.sg_idx,
+            )
+
+
+            ll_tf_post = fut_rel_pos_dist_tf_post.log_prob(fut_vel_st).sum().div(batch_size)
+            ll_prior = fut_rel_pos_dist_prior.log_prob(fut_vel_st).sum().div(batch_size)
+
+            loss_kl = kl_divergence(q_dist, p_dist)
+            loss_kl = torch.clamp(loss_kl, min=self.z_fb).sum().div(batch_size)
+            # print('log_likelihood:', loglikelihood.item(), ' kl:', loss_kl.item())
+
+            loglikelihood= ll_tf_post + self.ll_prior_w * ll_prior
+            traj_elbo = loglikelihood - self.kl_weight * loss_kl
+
+            loss = - traj_elbo
 
             self.optim_vae.zero_grad()
             loss.backward()
@@ -349,149 +388,132 @@ class Solver(object):
 
             # save model parameters
             if iteration % self.ckpt_save_iter == 0:
-                self.save_checkpoint(iteration)
+                    self.save_checkpoint(iteration)
 
             # (visdom) insert current line stats
-            if self.viz_on and (iteration % self.viz_ll_iter == 0):
-                lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon, test_lg_kl, \
-                        test_sg_recon_loss, sg_ade_min, sg_ade_avg, sg_ade_std = self.evaluate_dist(self.val_loader, loss=True)
-                test_total_loss = test_sg_recon_loss
-                self.line_gather.insert(iter=iteration,
-                                        lg_fde_min=lg_fde_min,
-                                        lg_fde_avg=lg_fde_avg,
-                                        lg_fde_std=lg_fde_std,
-                                        test_total_loss=test_total_loss.item(),
-                                        sg_recon=sg_recon_loss.item(),
-                                        test_sg_recon=test_sg_recon_loss.item(),
-                                        sg_ade_min=sg_ade_min,
-                                        sg_ade_avg=sg_ade_avg,
-                                        sg_ade_std=sg_ade_std,
-                                        )
+            if iteration >10000:
+                if self.viz_on and (iteration % self.viz_ll_iter == 0):
+                    ade_min, fde_min, \
+                    ade_avg, fde_avg, \
+                    ade_std, fde_std, \
+                    test_loss_recon, test_loss_kl, = self.evaluate_dist(self.val_loader, loss=True)
+                    self.line_gather.insert(iter=iteration,
+                                            ade_min=ade_min,
+                                            fde_min=fde_min,
+                                            ade_avg=ade_avg,
+                                            fde_avg=fde_avg,
+                                            ade_std=ade_std,
+                                            fde_std=fde_std,
+                                            loss_recon=-ll_tf_post.item(),
+                                            loss_recon_prior=-ll_prior.item(),
+                                            loss_kl=loss_kl.item(),
+                                            test_loss_recon=test_loss_recon.item(),
+                                            test_loss_kl=test_loss_kl.item(),
 
-                prn_str = ('[iter_%d (epoch_%d)] VAE Loss: %.3f '
-                          ) % \
-                          (iteration, epoch,
-                           loss.item(),
-                           )
+                                            )
+                    prn_str = ('[iter_%d (epoch_%d)] vae_loss: %.3f ' + \
+                                  '(recon: %.3f, kl: %.3f)\n' + \
+                                  'ADE min: %.2f, FDE min: %.2f, ADE avg: %.2f, FDE avg: %.2f\n'
+                              ) % \
+                              (iteration, epoch,
+                               loss.item(), -loglikelihood.item(), loss_kl.item(),
+                               ade_min, fde_min, ade_avg, fde_avg
+                               )
 
-                print(prn_str)
+                    print(prn_str)
 
-
-                if self.record_file:
-                    record = open(self.record_file, 'a')
-                    record.write('%s\n' % (prn_str,))
-                    record.close()
-
-
-            # (visdom) visualize line stats (then flush out)
-            if self.viz_on and (iteration % self.viz_la_iter == 0):
-                self.visualize_line()
-                self.line_gather.flush()
-
+                # (visdom) visualize line stats (then flush out)
+                if self.viz_on and (iteration % self.viz_la_iter == 0):
+                    self.visualize_line()
+                    self.line_gather.flush()
 
 
     def evaluate_dist(self, data_loader, loss=False):
         self.set_mode(train=False)
         total_traj = 0
 
-        sg_recon=0
-        sg_ade = []
+        loss_recon = loss_kl = 0
+
+
+        all_ade =[]
+        all_fde =[]
+
         with torch.no_grad():
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, obs_traj_st, fut_traj_st, seq_start_end,
+                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
                  videos, classes, global_map, homo,
                  local_map, local_ic, local_homo) = batch
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
-                obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
+                obs_heat_map = self.make_heatmap(local_ic, local_map, aug=False, only_obs=True)
 
-                self.lg_cvae.forward(obs_heat_map, None, training=False)
-                pred_sg_wcs = []
+                # -------- map encoding from lgvae --------
+                unet_enc_feat = self.lg_cvae.unet.down_forward(obs_heat_map)
+
+                # -------- trajectories --------
+                (hx, mux, log_varx) \
+                    = self.encoderMx(obs_traj_st, seq_start_end, unet_enc_feat, local_homo)
+                p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
+
+                fut_rel_pos_dist20 = []
                 for _ in range(5):
-                    # -------- long term goal --------
-                    pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True))
-
-                    pred_lg_wc = []
-                    pred_lg_ics = []
-                    for i in range(batch_size):
-                        map_size = local_map[i].shape
-                        pred_lg_ic = []
-                        for heat_map in pred_lg_heat[i]:
-                            # heat_map = nnf.interpolate(heat_map.unsqueeze(0), size=map_size, mode='nearest')
-                            heat_map = nnf.interpolate(heat_map.unsqueeze(0).unsqueeze(0),
-                                                       size=map_size, mode='bicubic',
-                                                       align_corners=False).squeeze(0).squeeze(0)
-                            argmax_idx = heat_map.argmax()
-                            argmax_idx = [argmax_idx//map_size[0], argmax_idx%map_size[0]]
-                            pred_lg_ic.append(argmax_idx)
-
-                        pred_lg_ic = torch.tensor(pred_lg_ic).float().to(self.device)
-                        pred_lg_ics.append(pred_lg_ic)
-
-                    # -------- short term goal --------
-                    pred_lg_heat_from_ic = []
-                    for i in range(len(pred_lg_ics)):
-                        pred_lg_heat_from_ic.append(self.make_one_heatmap(local_map[i], pred_lg_ics[i][0].detach().cpu().numpy().astype(int)))
-                    pred_lg_heat_from_ic = torch.tensor(np.stack(pred_lg_heat_from_ic)).unsqueeze(1).float().to(self.device)
-
-                    pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1)))
-
-                    pred_sg_wc = []
-                    for i in range(batch_size):
-                        map_size = local_map[i].shape
-                        pred_sg_ic = []
-                        for heat_map in pred_sg_heat[i]:
-                            heat_map = nnf.interpolate(heat_map.unsqueeze(0).unsqueeze(0),
-                                                       size=map_size, mode='bicubic',
-                                                       align_corners=False).squeeze(0).squeeze(0)
-                            argmax_idx = heat_map.argmax()
-                            argmax_idx = [argmax_idx//map_size[0], argmax_idx%map_size[0]]
-                            pred_sg_ic.append(argmax_idx)
-                        pred_sg_ic = torch.tensor(pred_sg_ic).float().to(self.device)
-                        # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
-                        back_wc = torch.matmul(
-                            torch.cat([pred_sg_ic, torch.ones((len(pred_sg_ic), 1)).to(self.device)], dim=1),
-                            torch.transpose(torch.tensor(local_homo[i]).float().to(self.device), 1, 0))
-                        back_wc /= back_wc[:, 2].clone().unsqueeze(1)
-                        pred_sg_wc.append(back_wc[:, :2])
-                        # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
-                    pred_sg_wc = torch.stack(pred_sg_wc)
-                    pred_sg_wcs.append(pred_sg_wc)
-
+                    # NO TF, pred_goals, z~prior
+                    fut_rel_pos_dist_prior = self.decoderMy(
+                        obs_traj_st[-1],
+                        obs_traj[-1,:,:2],
+                        hx,
+                        p_dist.rsample(),
+                        fut_traj[list(self.sg_idx), :, :2].permute(1, 0, 2),  # goal
+                        self.sg_idx,
+                    )
+                    fut_rel_pos_dist20.append(fut_rel_pos_dist_prior)
 
                 if loss:
-                    normalized_recon_sg_heat = []
-                    for i in range(len(self.sg_idx)):
-                        sg_map = pred_sg_heat[:, i]
-                        normalized_recon_sg_heat.append(F.normalize(sg_map.view((sg_map.shape[0], -1)), p=1))
-                    pred_sg_heat = torch.stack(normalized_recon_sg_heat, dim=1)
-                    sg_heat_map = sg_heat_map.view(sg_heat_map.shape[0], len(self.sg_idx), -1)
 
-                    sg_recon += - (self.alpha * sg_heat_map * torch.log(pred_sg_heat + self.eps) * ((1 - pred_sg_heat) ** self.gamma) \
-                                    + (1 - self.alpha) * (1 - sg_heat_map) * torch.log(1 - pred_sg_heat + self.eps) * (
-                                       pred_sg_heat ** self.gamma)).sum().div(batch_size)
+                    (muy, log_vary) \
+                        = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, hx, train=False)
+                    q_dist = Normal(muy, torch.sqrt(torch.exp(log_vary)))
 
-                sg_ade.append(torch.sqrt(((torch.stack(pred_sg_wcs).permute(0, 2, 1, 3)
-                                           - fut_traj[list(self.sg_idx), :, :2].unsqueeze(0).repeat((5, 1, 1, 1))) ** 2).sum(-1)).sum(1))
+                    loss_recon -= fut_rel_pos_dist_prior.log_prob(fut_vel_st).sum().div(batch_size)
+                    kld = kl_divergence(q_dist, p_dist).sum().div(batch_size)
+                    loss_kl += kld
 
-            sg_ade=torch.cat(sg_ade, dim=1).cpu().numpy()
+                ade, fde = [], []
+                for dist in fut_rel_pos_dist20:
+                    pred_fut_traj=integrate_samples(dist.rsample() * self.scale, obs_traj[-1, :, :2], dt=self.dt)
+                    ade.append(displacement_error(
+                        pred_fut_traj, fut_traj[:,:,:2], mode='raw'
+                    ))
+                    fde.append(final_displacement_error(
+                        pred_fut_traj[-1], fut_traj[-1,:,:2], mode='raw'
+                    ))
+                all_ade.append(torch.stack(ade))
+                all_fde.append(torch.stack(fde))
 
+            all_ade=torch.cat(all_ade, dim=1).cpu().numpy()
+            all_fde=torch.cat(all_fde, dim=1).cpu().numpy()
 
-            sg_ade_min = np.min(sg_ade, axis=0).mean()/len(self.sg_idx)
-            sg_ade_avg = np.mean(sg_ade, axis=0).mean()/len(self.sg_idx)
-            sg_ade_std = np.std(sg_ade, axis=0).mean()/len(self.sg_idx)
+            ade_min = np.min(all_ade, axis=0).mean()/self.pred_len
+            fde_min = np.min(all_fde, axis=0).mean()
+            ade_avg = np.mean(all_ade, axis=0).mean()/self.pred_len
+            fde_avg = np.mean(all_fde, axis=0).mean()
+            ade_std = np.std(all_ade, axis=0).mean()/self.pred_len
+            fde_std = np.std(all_fde, axis=0).mean()
+
 
         self.set_mode(train=True)
         if loss:
-            return 0, 0, 0, 0, 0,\
-                   sg_recon/b, sg_ade_min, sg_ade_avg, sg_ade_std
+            return ade_min, fde_min, \
+                   ade_avg, fde_avg, \
+                   ade_std, fde_std, \
+                   loss_recon/b, loss_kl/b,
         else:
-            return 0, 0, 0, \
-                   sg_ade_min, sg_ade_avg, sg_ade_std
-
+            return ade_min, fde_min, \
+                   ade_avg, fde_avg, \
+                   ade_std, fde_std,
 
     def check_feat(self, data_loader):
         self.set_mode(train=False)
@@ -500,24 +522,19 @@ class Solver(object):
             b = 0
             for batch in data_loader:
                 b += 1
-                (obs_traj, fut_traj, obs_traj_st, fut_traj_st, seq_start_end,
-                 videos, classes, global_map, homo,
+                (obs_traj, fut_traj, seq_start_end,
+                 obs_frames, pred_frames, map_path, inv_h_t,
                  local_map, local_ic, local_homo) = batch
 
-                batch = data_loader.dataset.__getitem__(143)
-                (obs_traj, fut_traj,
-                 videos, classes, global_map, homo,
-                 local_map, local_ic, local_homo, scale) = batch
-                local_map = np.expand_dims(local_map, 0)
-
-                obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
+                obs_heat_map, fut_heat_map = self.make_heatmap(local_ic, local_map)
+                lg_heat_map = torch.tensor(fut_heat_map[:, 11]).float().to(self.device).unsqueeze(1)
+                sg_heat_map = torch.tensor(fut_heat_map[:, self.sg_idx]).float().to(self.device)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
-                recon_lg_heat = self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
 
                 ###################################################
                 i = 0
-                plt.imshow(local_map[i,0])
+                plt.imshow(local_map[i, 0])
 
                 # ----------- 12 traj
                 # heat_map_traj = np.zeros((160, 160))
@@ -542,146 +559,107 @@ class Solver(object):
 
                 ###################################################
                 # -------- long term goal --------
+                # ---------- prior
+                z_prior = self.lg_cvae.prior_latent_space.rsample()
+                pred_lg_prior = F.sigmoid(self.lg_cvae.fcomb.forward(self.lg_cvae.unet_features, z_prior))
+                # -----------all zeros
+                z = torch.zeros_like(z_prior)
+                pred_lg_zeros = F.sigmoid(self.lg_cvae.fcomb.forward(self.lg_cvae.unet_features, z))
+                # ---------- min/max
+                z[:, :32] = 2
+                z[:, 32:] = -2
+                pred_lg_mm = F.sigmoid(self.lg_cvae.fcomb.forward(self.lg_cvae.unet_features, z))
+                # ---------- posterior
+                posterior_latent_space = self.lg_cvae.posterior.forward(obs_heat_map, lg_heat_map)
+                z_post = posterior_latent_space.rsample()
+                pred_lg_post = F.sigmoid(self.lg_cvae.fcomb.forward(self.lg_cvae.unet_features, z_post))
+                # ---------- without latetn, only feature map
+                pred_lg_path = self.lg_cvae.fcomb.last_layer(self.lg_cvae.unet_features, False)
 
-                zs = []
-                for _ in range(10):
-                    zs.append(self.lg_cvae.prior_latent_space.rsample())
+                ###### =============== plot LG ==================#######
+                fig = plt.figure(figsize=(8, 8))
+                k = 0
+                title = ['prior', 'post', '0', 'min/max']
 
-                mm = []
-                for k in range(5):
-                    mm.append(F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, zs[k])))
-                # mm.append(F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, self.lg_cvae.posterior_latent_space.rsample())))
+                env = local_map[i,0].detach().cpu().numpy()
+                heat_map_traj = np.zeros_like(env)
+                for t in [0, 1, 2, 3, 4, 5, 6, 7, 11, 15, 19]:
+                    heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 20
+                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
 
-                mmm = []
-                for k in range(5,10):
-                    mmm.append(F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, zs[k])))
-                # mm.append(F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, self.lg_cvae.posterior_latent_space.rsample())))
+                for m in [pred_lg_prior, pred_lg_post, pred_lg_zeros, pred_lg_mm]:
+                    ax = fig.add_subplot(2, 2, k + 1)
+                    ax.set_title(title[k])
+                    ax.imshow(m[i, 0])
+                    # ax.imshow(np.stack([m[i, 0] / m[i, 0].max(), env, heat_map_traj],axis=2))
+                    k += 1
 
 
-                #------- plot -----------
-                env = local_map[0]
-                # env = cv2.resize(env, (256,256))
-                # for t in [0, 1, 2, 3, 4, 5, 6, 7, 11, 15, 19]:
-                #     env[local_ic[i, t, 0], local_ic[i, t, 1]] = 0
+                ###################################################
+                # ---------- SG
+                pred_sg_heat = F.sigmoid(
+                    self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_prior], dim=1), training=False))
+
+                pred_sg_gt = F.sigmoid(
+                    self.sg_unet.forward(torch.cat([obs_heat_map, lg_heat_map], dim=1), training=False))
+
+                ###### =============== plot SG ==================#######
+                fig = plt.figure(figsize=(10, 5))
+                k = 0
+                env = local_map[i,0].detach().cpu().numpy()
 
                 heat_map_traj = np.zeros_like(env)
                 for t in [0, 1, 2, 3, 4, 5, 6, 7, 11, 15, 19]:
-                    heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 50
-                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=8)
-                heat_map_traj = 1-heat_map_traj / heat_map_traj.max()
+                    heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 20
+                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
 
-                # plt.imshow(np.stack([heat_map_traj, heat_map_traj, heat_map_traj], axis=2))
-
-                all_pred = []
-                for k in range(5):
-                    a = mm[k][i, 0]
-                    a = nnf.interpolate(torch.tensor(a).unsqueeze(0).unsqueeze(0),
-                                        size=local_map[0].shape, mode='bicubic',
-                                        align_corners=False).squeeze(0).squeeze(0).detach().cpu().numpy().copy()
-                    all_pred.append(1 - a / a.max())
-                for k in range(5):
-                    a = mmm[k][i, 0].detach().cpu().numpy().copy()
-                    a = nnf.interpolate(torch.tensor(a).unsqueeze(0).unsqueeze(0),
-                                        size=local_map[0].shape, mode='bicubic',
-                                        align_corners=False).squeeze(0).squeeze(0).detach().cpu().numpy().copy()
-                    all_pred.append(1 - a / a.max())
-
-
-                fig = plt.figure(figsize=(12, 10))
-                fig.tight_layout()
-                for k in range(10):
-                    ax = fig.add_subplot(4, 5, k + 1)
-                    ax.set_title('prior' + str(k % 5 + 1))
-                    if k < 5:
-                        # ax.imshow(np.stack([env * (1 - heat_map_traj), env * (1 - a * 5), env], axis=2))
-                        # ax.imshow(np.stack([(1 - heat_map_traj*1000), (1 - all_pred[k]*1000), env/env.max()], axis=2))
-                        ax.imshow(np.stack([heat_map_traj, all_pred[k], 1 - env/5], axis=2))
-                    else:
-                        ax.imshow(mm[k % 5][i, 0])
-
-                for k in range(10):
-                    ax = fig.add_subplot(4, 5, k + 11)
-                    ax.set_title('prior' + str(k % 5 + 6))
-                    if k < 5:
-                        ax.imshow(np.stack([heat_map_traj, all_pred[k+5], 1 - env/5], axis=2))
-                    else:
-                        ax.imshow(mmm[k % 5][i, 0])
-
-                plt.imshow(env)
-                tmp_idx = i
-
-
-                ####################### SG ############################
-
-                pred_lg_heat = mm[2]
-                pred_lg_ics = []
-                pred_lg_wc = []
-                for i in range(len(obs_heat_map)):
-                    map_size = local_map[0].shape
-                    pred_lg_ic = []
-                    for heat_map in pred_lg_heat[i]:
-                        # heat_map = nnf.interpolate(heat_map.unsqueeze(0), size=map_size, mode='nearest')
-                        heat_map = nnf.interpolate(heat_map.unsqueeze(0).unsqueeze(0),
-                                                   size=map_size, mode='bicubic',
-                                                   align_corners=False).squeeze(0).squeeze(0)
-                        argmax_idx = heat_map.argmax()
-                        argmax_idx = [argmax_idx // map_size[0], argmax_idx % map_size[0]]
-                        pred_lg_ic.append(argmax_idx)
-
-                    pred_lg_ic = torch.tensor(pred_lg_ic).float().to(self.device)
-
-                    pred_lg_ics.append(pred_lg_ic)
-
-                    # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
-
-
-                    back_wc = torch.matmul(
-                        torch.cat([pred_lg_ic, torch.ones((len(pred_lg_ic), 1)).to(self.device)], dim=1),
-                        torch.transpose(torch.from_numpy(local_homo).float(), 1, 0))
-                    pred_lg_wc.append(back_wc[0, :2] / back_wc[0, 2])
-                    # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
-                pred_lg_wc = torch.stack(pred_lg_wc)
-
-                # -------- short term goal --------
-                pred_lg_heat_from_ic = []
-                for i in range(len(pred_lg_ics)):
-                    pred_lg_heat_from_ic.append(self.make_one_heatmap(local_map[0], pred_lg_ics[i][
-                        0].detach().cpu().numpy().astype(int)))
-                pred_lg_heat_from_ic = torch.tensor(np.stack(pred_lg_heat_from_ic)).unsqueeze(1).float().to(
-                    self.device)
-                pred_sg = F.sigmoid(
-                    self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1)))
-
-                # env = local_map[i][0]
-                # heat_map_traj = np.zeros_like(env)
-                # for t in [0, 1, 2, 3, 4, 5, 6, 7, 11, 15, 19]:
-                #     heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 50
-                # heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=8)
-                # heat_map_traj = 1-heat_map_traj / heat_map_traj.max()
-
-                i =tmp_idx
-                m = pred_sg.detach().cpu().numpy().copy()[i]
-                m = nnf.interpolate(torch.tensor(m).unsqueeze(0),
-                                    size=local_map[0].shape, mode='bicubic',
-                                    align_corners=False).squeeze(0).detach().cpu().numpy().copy()
-
-                fig = plt.figure(figsize=(10, 5))
-
-                for k in range(len(m)):
-                    ax = fig.add_subplot(2,5,k+1)
-                    ax.set_title('sg' + str(k+1))
-                    ax.imshow(m[k])
+                for m in pred_sg_gt[i]:
+                    k += 1
+                    ax = fig.add_subplot(1, 3, k)
+                    ax.set_title('sg' + str(k))
+                    ax.imshow(np.stack([m / m.max(), env, heat_map_traj],axis=2))
 
 
 
-    def all_evaluation(self, data_loader, lg_num=5, traj_num=4, generate_heat=True):
+                ###################################################
+                # ----------- LG ic & wc
+                pred_lg_ic = []
+                for heat_map in pred_lg_prior[i]:
+                    pred_lg_ic.append((heat_map == torch.max(heat_map)).nonzero()[0])
+                pred_lg_ic = torch.stack(pred_lg_ic).float()
+
+                # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
+                back_wc = torch.matmul(
+                    torch.cat([pred_lg_ic, torch.ones((len(pred_lg_ic), 1)).to(self.device)], dim=1),
+                    torch.transpose(local_homo[i], 1, 0))
+                pred_lg_wc = back_wc[0, :2] / back_wc[0, 2]
+                # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
+
+
+                # ----------- SG ic & wc
+                pred_sg_ic = []
+                for heat_map in pred_sg_heat[i]:
+                    pred_sg_ic.append((heat_map == torch.max(heat_map)).nonzero()[0])
+                pred_sg_ic = torch.stack(pred_sg_ic).float()
+
+                # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
+                back_wc = torch.matmul(
+                    torch.cat([pred_sg_ic, torch.ones((len(pred_sg_ic), 1)).to(self.device)], dim=1),
+                    torch.transpose(local_homo[i], 1, 0))
+                back_wc /= back_wc[:, 2].unsqueeze(1)
+                pred_sg_wc = back_wc[:, :2]
+                # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
+
+
+
+
+
+    def evaluate_dist_gt_goal(self, data_loader):
         self.set_mode(train=False)
         total_traj = 0
 
         all_ade =[]
         all_fde =[]
-        sg_ade=[]
-        lg_fde=[]
         with torch.no_grad():
             b=0
             for batch in data_loader:
@@ -689,123 +667,47 @@ class Solver(object):
                 (obs_traj, fut_traj, seq_start_end,
                  obs_frames, pred_frames, map_path, inv_h_t,
                  local_map, local_ic, local_homo) = batch
-                batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
-                obs_heat_map, _ = self.make_heatmap(local_ic, local_map)
+                obs_heat_map, fut_heat_map = self.make_heatmap(local_ic, local_map)
+                lg_heat_map = torch.tensor(fut_heat_map[:, 1]).float().to(self.device).unsqueeze(1)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
-                fut_rel_pos_dists = []
-                pred_lg_wcs = []
-                pred_sg_wcs = []
-
-                ####### long term goals and the corresponding (deterministic) short term goals ########
-                w_priors = []
-                for _ in range(lg_num):
-                    w_priors.append(self.lg_cvae.prior_latent_space.sample())
-
-                for w_prior in w_priors:
-                    # -------- long term goal --------
-                    pred_lg_heat = F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, w_prior))
-
-                    pred_lg_wc = []
-                    pred_lg_ics = []
-                    for i in range(batch_size):
-                        pred_lg_ic = []
-                        for heat_map in pred_lg_heat[i]:
-                            pred_lg_ic.append((heat_map == torch.max(heat_map)).nonzero()[0])
-                        pred_lg_ic = torch.stack(pred_lg_ic).float()
-                        pred_lg_ics.append(pred_lg_ic)
-
-                        # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
-                        back_wc = torch.matmul(
-                            torch.cat([pred_lg_ic, torch.ones((len(pred_lg_ic), 1)).to(self.device)], dim=1),
-                            torch.transpose(local_homo[i], 1, 0))
-                        pred_lg_wc.append(back_wc[0,:2] / back_wc[0,2])
-                        # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
-                    pred_lg_wc = torch.stack(pred_lg_wc)
-                    pred_lg_wcs.append(pred_lg_wc)
-
-                    # -------- short term goal --------
-                    # obs_lg_heat = torch.cat([obs_heat_map, pred_lg_heat[:, -1].unsqueeze(1)], dim=1)
-
-                    if generate_heat:
-                        pred_lg_heat_from_ic = []
-                        for coord in pred_lg_ics:
-                            heat_map_traj = np.zeros((160, 160))
-                            heat_map_traj[int(coord[0, 0]), int(coord[0, 1])] = 1
-                            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-                            pred_lg_heat_from_ic.append(heat_map_traj)
-                        pred_lg_heat_from_ic = torch.tensor(np.stack(pred_lg_heat_from_ic)).unsqueeze(1).float().to(
-                            self.device)
-                        pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1)))
-                    else:
-                        pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat], dim=1)))
-
-
-                    pred_sg_wc = []
-                    for i in range(batch_size):
-                        pred_sg_ic = []
-                        for heat_map in pred_sg_heat[i]:
-                            pred_sg_ic.append((heat_map == torch.max(heat_map)).nonzero()[0])
-                        pred_sg_ic = torch.stack(pred_sg_ic).float()
-
-                        # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
-                        back_wc = torch.matmul(
-                            torch.cat([pred_sg_ic, torch.ones((len(pred_sg_ic), 1)).to(self.device)], dim=1),
-                            torch.transpose(local_homo[i], 1, 0))
-                        back_wc /= back_wc[:, 2].unsqueeze(1)
-                        pred_sg_wc.append(back_wc[:, :2])
-                        # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
-                    pred_sg_wc = torch.stack(pred_sg_wc)
-                    pred_sg_wcs.append(pred_sg_wc)
-
-
-                ##### trajectories per long&short goal ####
 
                 # -------- trajectories --------
+                self.sg_unet.forward(torch.cat([obs_heat_map, lg_heat_map], dim=1), training=False)
+
                 (hx, mux, log_varx) \
-                    = self.encoderMx(obs_traj, seq_start_end, self.lg_cvae.unet_enc_feat, local_homo)
-
+                    = self.encoderMx(obs_traj, seq_start_end, self.sg_unet.enc_feat, local_homo)
                 p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
-                z_priors = []
-                for _ in range(traj_num):
-                    z_priors.append(p_dist.sample())
 
-                for pred_sg_wc in pred_sg_wcs:
-                    for z_prior in z_priors:
-                        # -------- trajectories --------
-                        # NO TF, pred_goals, z~prior
-                        fut_rel_pos_dist_prior = self.decoderMy(
-                            obs_traj[-1],
-                            hx,
-                            z_prior,
-                            pred_sg_wc,  # goal
-                            self.sg_idx-3
-                        )
-                        fut_rel_pos_dists.append(fut_rel_pos_dist_prior)
+
+                # TF, goals, z~posterior
 
 
                 ade, fde = [], []
-                for dist in fut_rel_pos_dists:
-                    pred_fut_traj=integrate_samples(dist.rsample(), obs_traj[-1, :, :2], dt=self.dt)
+                for _ in range(20):
+                    fut_rel_pos_dist_prior = self.decoderMy(
+                        obs_traj[-1],
+                        hx,
+                        p_dist.rsample(),
+                        fut_traj[list(self.sg_idx), :, :2].permute(1, 0, 2),  # goal
+                    )
+
+                    pred_fut_traj = integrate_samples(fut_rel_pos_dist_prior.rsample(), obs_traj[-1, :, :2], dt=self.dt)
                     ade.append(displacement_error(
                         pred_fut_traj, fut_traj[:,:,:2], mode='raw'
                     ))
                     fde.append(final_displacement_error(
                         pred_fut_traj[-1], fut_traj[-1,:,:2], mode='raw'
                     ))
+
                 all_ade.append(torch.stack(ade))
                 all_fde.append(torch.stack(fde))
-                sg_ade.append(torch.sqrt(((torch.stack(pred_sg_wcs).permute(0, 2, 1, 3)
-                                           - fut_traj[self.sg_idx,:,:2].unsqueeze(0).repeat((lg_num,1,1,1)))**2).sum(-1)).sum(1)) # 20, 3, 4, 2
-                lg_fde.append(torch.sqrt(((torch.stack(pred_lg_wcs)
-                                           - fut_traj[-1,:,:2].unsqueeze(0).repeat((lg_num,1,1)))**2).sum(-1))) # 20, 3, 4, 2
+
 
             all_ade=torch.cat(all_ade, dim=1).cpu().numpy()
             all_fde=torch.cat(all_fde, dim=1).cpu().numpy()
-            sg_ade=torch.cat(sg_ade, dim=1).cpu().numpy()
-            lg_fde=torch.cat(lg_fde, dim=1).cpu().numpy() # all batches are concatenated
 
             ade_min = np.min(all_ade, axis=0).mean()/self.pred_len
             fde_min = np.min(all_fde, axis=0).mean()
@@ -814,190 +716,198 @@ class Solver(object):
             ade_std = np.std(all_ade, axis=0).mean()/self.pred_len
             fde_std = np.std(all_fde, axis=0).mean()
 
-            sg_ade_min = np.min(sg_ade, axis=0).mean()/len(self.sg_idx)
-            sg_ade_avg = np.mean(sg_ade, axis=0).mean()/len(self.sg_idx)
-            sg_ade_std = np.std(sg_ade, axis=0).mean()/len(self.sg_idx)
-
-            lg_fde_min = np.min(lg_fde, axis=0).mean()
-            lg_fde_avg = np.mean(lg_fde, axis=0).mean()
-            lg_fde_std = np.std(lg_fde, axis=0).mean()
-
-        self.set_mode(train=True)
-        return ade_min, fde_min, \
-               ade_avg, fde_avg, \
-               ade_std, fde_std, \
-               sg_ade_min, sg_ade_avg, sg_ade_std, \
-               lg_fde_min, lg_fde_avg, lg_fde_std
-
-
-
+            print('ade min: ', ade_min)
+            print('ade avg: ', ade_avg)
+            print('ade std: ', ade_std)
+            print('fde min: ', fde_min)
+            print('fde avg: ', fde_avg)
+            print('fde std: ', fde_std)
 
 
     ####
     def viz_init(self):
-        self.viz.close(env=self.name + '/lines', win=self.win_id['test_total_loss'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['lg_fde_min'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['lg_fde_avg'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['lg_fde_std'])
+        self.viz.close(env=self.name + '/lines', win=self.win_id['loss_recon'])
+        self.viz.close(env=self.name + '/lines', win=self.win_id['loss_recon_prior'])
+        self.viz.close(env=self.name + '/lines', win=self.win_id['loss_kl'])
+        self.viz.close(env=self.name + '/lines', win=self.win_id['test_loss_recon'])
+        self.viz.close(env=self.name + '/lines', win=self.win_id['test_loss_kl'])
 
-        self.viz.close(env=self.name + '/lines', win=self.win_id['sg_recon'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['test_sg_recon'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['sg_ade_min'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['sg_ade_avg'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['sg_ade_std'])
-
+        self.viz.close(env=self.name + '/lines', win=self.win_id['ade_min'])
+        self.viz.close(env=self.name + '/lines', win=self.win_id['fde_min'])
+        self.viz.close(env=self.name + '/lines', win=self.win_id['ade_avg'])
+        self.viz.close(env=self.name + '/lines', win=self.win_id['fde_avg'])
+        self.viz.close(env=self.name + '/lines', win=self.win_id['ade_std'])
+        self.viz.close(env=self.name + '/lines', win=self.win_id['fde_std'])
     ####
     def visualize_line(self):
 
         # prepare data to plot
         data = self.line_gather.data
         iters = torch.Tensor(data['iter'])
-        test_total_loss = torch.Tensor(data['test_total_loss'])
+        loss_recon = torch.Tensor(data['loss_recon'])
+        loss_recon_prior = torch.Tensor(data['loss_recon_prior'])
+        loss_kl = torch.Tensor(data['loss_kl'])
+        ade_min = torch.Tensor(data['ade_min'])
+        fde_min = torch.Tensor(data['fde_min'])
+        ade_avg = torch.Tensor(data['ade_avg'])
+        fde_avg = torch.Tensor(data['fde_avg'])
+        ade_std = torch.Tensor(data['ade_std'])
+        fde_std = torch.Tensor(data['fde_std'])
+        test_loss_recon = torch.Tensor(data['test_loss_recon'])
+        test_loss_kl = torch.Tensor(data['test_loss_kl'])
 
-        sg_ade_min = torch.Tensor(data['sg_ade_min'])
-        sg_ade_avg = torch.Tensor(data['sg_ade_avg'])
-        sg_ade_std = torch.Tensor(data['sg_ade_std'])
-        sg_recon = torch.Tensor(data['sg_recon'])
-        test_sg_recon = torch.Tensor(data['test_sg_recon'])
 
-        lg_fde_min = torch.Tensor(data['lg_fde_min'])
-        lg_fde_avg = torch.Tensor(data['lg_fde_avg'])
-        lg_fde_std = torch.Tensor(data['lg_fde_std'])
+
 
 
         self.viz.line(
-            X=iters, Y=lg_fde_min, env=self.name + '/lines',
-            win=self.win_id['lg_fde_min'], update='append',
-            opts=dict(xlabel='iter', ylabel='lg_fde_min',
-                      title='lg_fde_min'),
-        )
-        self.viz.line(
-            X=iters, Y=lg_fde_avg, env=self.name + '/lines',
-            win=self.win_id['lg_fde_avg'], update='append',
-            opts=dict(xlabel='iter', ylabel='lg_fde_avg',
-                      title='lg_fde_avg'),
-        )
-        self.viz.line(
-            X=iters, Y=lg_fde_std, env=self.name + '/lines',
-            win=self.win_id['lg_fde_std'], update='append',
-            opts=dict(xlabel='iter', ylabel='lg_fde_std',
-                      title='lg_fde_std'),
+            X=iters, Y=loss_recon, env=self.name + '/lines',
+            win=self.win_id['loss_recon'], update='append',
+            opts=dict(xlabel='iter', ylabel='-loglikelihood',
+                      title='Recon. loss of predicted future traj')
         )
 
         self.viz.line(
-            X=iters, Y=sg_ade_std, env=self.name + '/lines',
-            win=self.win_id['sg_ade_std'], update='append',
-            opts=dict(xlabel='iter', ylabel='sg_ade_std',
-                      title='sg_ade_std')
-        )
-
-        self.viz.line(
-            X=iters, Y=sg_ade_avg, env=self.name + '/lines',
-            win=self.win_id['sg_ade_avg'], update='append',
-            opts=dict(xlabel='iter', ylabel='sg_ade_avg',
-                      title='sg_ade_avg')
-        )
-
-        self.viz.line(
-            X=iters, Y=sg_ade_min, env=self.name + '/lines',
-            win=self.win_id['sg_ade_min'], update='append',
-            opts=dict(xlabel='iter', ylabel='sg_ade_min',
-                      title='sg_ade_min')
-        )
-
-        self.viz.line(
-            X=iters, Y=sg_recon, env=self.name + '/lines',
-            win=self.win_id['sg_recon'], update='append',
-            opts=dict(xlabel='iter', ylabel='sg_recon',
-                      title='sg_recon')
-        )
-
-        self.viz.line(
-            X=iters, Y=test_sg_recon, env=self.name + '/lines',
-            win=self.win_id['test_sg_recon'], update='append',
-            opts=dict(xlabel='iter', ylabel='test_sg_recon',
-                      title='test_sg_recon')
+            X=iters, Y=loss_recon_prior, env=self.name + '/lines',
+            win=self.win_id['loss_recon_prior'], update='append',
+            opts=dict(xlabel='iter', ylabel='-loglikelihood',
+                      title='Recon. loss - prior')
         )
 
 
         self.viz.line(
-            X=iters, Y=test_total_loss, env=self.name + '/lines',
-            win=self.win_id['test_total_loss'], update='append',
-            opts=dict(xlabel='iter', ylabel='elbo',
-                      title='test_elbo')
+            X=iters, Y=loss_kl, env=self.name + '/lines',
+            win=self.win_id['loss_kl'], update='append',
+            opts=dict(xlabel='iter', ylabel='kl divergence',
+                      title='KL div. btw posterior and c. prior'),
         )
 
+
+        self.viz.line(
+            X=iters, Y=test_loss_recon, env=self.name + '/lines',
+            win=self.win_id['test_loss_recon'], update='append',
+            opts=dict(xlabel='iter', ylabel='-loglikelihood',
+                      title='Test Recon. loss of predicted future traj')
+        )
+
+        self.viz.line(
+            X=iters, Y=test_loss_kl, env=self.name + '/lines',
+            win=self.win_id['test_loss_kl'], update='append',
+            opts=dict(xlabel='iter', ylabel='kl divergence',
+                      title='Test KL div. btw posterior and c. prior'),
+        )
+
+
+        self.viz.line(
+            X=iters, Y=ade_min, env=self.name + '/lines',
+            win=self.win_id['ade_min'], update='append',
+            opts=dict(xlabel='iter', ylabel='ade',
+                      title='ADE min'),
+        )
+        self.viz.line(
+            X=iters, Y=fde_min, env=self.name + '/lines',
+            win=self.win_id['fde_min'], update='append',
+            opts=dict(xlabel='iter', ylabel='fde',
+                      title='FDE min'),
+        )
+        self.viz.line(
+            X=iters, Y=ade_avg, env=self.name + '/lines',
+            win=self.win_id['ade_avg'], update='append',
+            opts=dict(xlabel='iter', ylabel='ade',
+                      title='ADE avg'),
+        )
+
+        self.viz.line(
+            X=iters, Y=fde_avg, env=self.name + '/lines',
+            win=self.win_id['fde_avg'], update='append',
+            opts=dict(xlabel='iter', ylabel='fde',
+                      title='FDE avg'),
+        )
+        self.viz.line(
+            X=iters, Y=ade_std, env=self.name + '/lines',
+            win=self.win_id['ade_std'], update='append',
+            opts=dict(xlabel='iter', ylabel='ade std',
+                      title='ADE std'),
+        )
+
+        self.viz.line(
+            X=iters, Y=fde_std, env=self.name + '/lines',
+            win=self.win_id['fde_std'], update='append',
+            opts=dict(xlabel='iter', ylabel='fde std',
+                      title='FDE std'),
+        )
 
 
     def set_mode(self, train=True):
 
         if train:
-            self.sg_unet.train()
+            self.encoderMx.train()
+            self.encoderMy.train()
+            self.decoderMy.train()
         else:
-            self.sg_unet.eval()
+            self.encoderMx.eval()
+            self.encoderMy.eval()
+            self.decoderMy.eval()
 
     ####
     def save_checkpoint(self, iteration):
+
+        encoderMx_path = os.path.join(
+            self.ckpt_dir,
+            'iter_%s_encoderMx.pt' % iteration
+        )
+        encoderMy_path = os.path.join(
+            self.ckpt_dir,
+            'iter_%s_encoderMy.pt' % iteration
+        )
+        decoderMy_path = os.path.join(
+            self.ckpt_dir,
+            'iter_%s_decoderMy.pt' % iteration
+        )
+        lg_cvae_path = os.path.join(
+            self.ckpt_dir,
+            'iter_%s_lg_cvae.pt' % iteration
+        )
         sg_unet_path = os.path.join(
             self.ckpt_dir,
             'iter_%s_sg_unet.pt' % iteration
         )
         mkdirs(self.ckpt_dir)
-        torch.save(self.sg_unet, sg_unet_path)
 
-
+        torch.save(self.encoderMx, encoderMx_path)
+        torch.save(self.encoderMy, encoderMy_path)
+        torch.save(self.decoderMy, decoderMy_path)
     ####
     def load_checkpoint(self):
 
+        encoderMx_path = os.path.join(
+            self.ckpt_dir,
+            'iter_%s_encoderMx.pt' % self.ckpt_load_iter
+        )
+        encoderMy_path = os.path.join(
+            self.ckpt_dir,
+            'iter_%s_encoderMy.pt' % self.ckpt_load_iter
+        )
+        decoderMy_path = os.path.join(
+            self.ckpt_dir,
+            'iter_%s_decoderMy.pt' % self.ckpt_load_iter
+        )
+        lg_cvae_path = os.path.join(
+            self.ckpt_dir,
+            'iter_%s_lg_cvae.pt' % self.ckpt_load_iter
+        )
         sg_unet_path = os.path.join(
             self.ckpt_dir,
             'iter_%s_sg_unet.pt' % self.ckpt_load_iter
         )
 
 
-        if self.device == 'cuda':
-            # self.encoderMx = torch.load(encoderMx_path)
-            # self.encoderMy = torch.load(encoderMy_path)
-            # self.decoderMy = torch.load(decoderMy_path)
-            # self.lg_cvae = torch.load(lg_cvae_path)
-            self.sg_unet = torch.load(sg_unet_path)
-        else:
-            # self.encoderMx = torch.load(encoderMx_path, map_location='cpu')
-            # self.encoderMy = torch.load(encoderMy_path, map_location='cpu')
-            # self.decoderMy = torch.load(decoderMy_path, map_location='cpu')
-            # self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
-            # sg_unet_path = 'ckpts/ki.sg_lr_0.001_a_0.25_r_2.0_aug_1_num_sg_10_run_0/iter_5400_sg_unet.pt'
-            sg_unet_path = 'ckpts/ki.sg_lr_0.001_a_0.25_r_2.0_aug_1_num_sg_2_run_0/iter_10800_sg_unet.pt'
-            self.sg_unet = torch.load(sg_unet_path, map_location='cpu')
-         ####
-
-    def pretrain_load_checkpoint(self, traj, lg):
-
-        encoderMx_path = os.path.join(
-            traj['ckpt_dir'],
-            'iter_%s_encoderMx.pt' % traj['iter']
-        )
-        encoderMy_path = os.path.join(
-            traj['ckpt_dir'],
-            'iter_%s_encoderMy.pt' % traj['iter']
-        )
-        decoderMy_path = os.path.join(
-            traj['ckpt_dir'],
-            'iter_%s_decoderMy.pt' %  traj['iter']
-        )
-        lg_cvae_path = os.path.join(
-            lg['ckpt_dir'],
-            'iter_%s_lg_cvae.pt' %  lg['iter']
-        )
-
 
         if self.device == 'cuda':
             self.encoderMx = torch.load(encoderMx_path)
             self.encoderMy = torch.load(encoderMy_path)
             self.decoderMy = torch.load(decoderMy_path)
-            self.lg_cvae = torch.load(lg_cvae_path)
         else:
             self.encoderMx = torch.load(encoderMx_path, map_location='cpu')
             self.encoderMy = torch.load(encoderMy_path, map_location='cpu')
             self.decoderMy = torch.load(decoderMy_path, map_location='cpu')
-            self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
