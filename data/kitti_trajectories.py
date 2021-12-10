@@ -91,7 +91,9 @@ class TrackDataset(data.Dataset):
             video = map_file.split('drive_')[1].split('_sync')[0]
             scene_track = cv2.imread(os.path.join(data_dir, 'maps', map_file), 0)
             scene_track[np.where(scene_track == 3)] = 0
-            scene_track[np.where(scene_track == 4)] -= 1
+            scene_track[np.where(scene_track == 0)] = 3
+            scene_track[np.where(scene_track == 1)] = 0
+            scene_track[np.where(scene_track == 4)] = 1
             scene_tracks.update({video: scene_track})
 
 
