@@ -52,7 +52,7 @@ def create_parser():
                         help='cpu/cuda')
 
     # training hyperparameters
-    parser.add_argument('--batch_size', default=8, type=int,
+    parser.add_argument('--batch_size', default=5, type=int,
                         help='batch size')
     parser.add_argument('--lr_VAE', default=1e-3, type=float,
                         help='learning rate of the VAE')
@@ -65,7 +65,7 @@ def create_parser():
     parser.add_argument('--ckpt_load_iter', default=0, type=int,
                         help='iter# to load the previously saved model ' +
                              '(default=0 to start from the scratch)')
-    parser.add_argument('--max_iter', default=10, type=float,
+    parser.add_argument('--max_iter', default=0, type=float,
                         help='maximum number of batch iterations')
     parser.add_argument('--ckpt_save_iter', default=100, type=int,
                         help='checkpoint saved every # iters')
@@ -98,8 +98,8 @@ def create_parser():
     parser.add_argument('--pred_len', default=12, type=int)
     parser.add_argument('--skip', default=1, type=int)
     # dataset
-    parser.add_argument('--dataset_dir', default='../datasets/Trajectories', type=str,
-                        help='dataset directory')
+    # parser.add_argument('--dataset_dir', default='../datasets/SDD', type=str, help='dataset directory')
+    parser.add_argument('--dataset_dir', default='C:/dataset/KITTI-trajectory-prediction', type=str, help='dataset directory')
     parser.add_argument('--dataset_name', default='sdd.lgcvae', type=str,
                         help='dataset name')
     parser.add_argument('--model_name', default='', type=str,
@@ -137,8 +137,8 @@ def create_parser():
     parser.add_argument('--fb', default=0.5, type=float)
     parser.add_argument('--anneal_epoch', default=20, type=int)
     parser.add_argument('--aug', default=1, type=int)
-    parser.add_argument('--load_e', default=0, type=int)
-    parser.add_argument('--scale', default=100.0, type=float)
+    parser.add_argument('--load_e', default=2, type=int)
+    parser.add_argument('--scale', default=1.0, type=float)
 
     parser.add_argument('--desc', default='data', type=str,
                         help='run description')
@@ -154,15 +154,15 @@ def main(args):
         solver = Solver(args)
 
         print('--------------------', args.dataset_name, '----------------------')
-        args.batch_size = 15
+        args.batch_size = 1
 
-        # _, test_loader = data_loader(args, args.dataset_dir, 'test', shuffle=False)
+        _, test_loader = data_loader(args, args.dataset_dir, 'test', shuffle=False)
 
-        cfg = Config('nuscenes', False, create_dirs=True)
-        torch.set_default_dtype(torch.float32)
-        log = open('log.txt', 'a+')
-        test_loader = data_generator(cfg, log, split='test', phase='testing',
-                                         batch_size=args.batch_size, device=args.device, scale=args.scale, shuffle=False)
+        # cfg = Config('nuscenes', False, create_dirs=True)
+        # torch.set_default_dtype(torch.float32)
+        # log = open('log.txt', 'a+')
+        # test_loader = data_generator(cfg, log, split='test', phase='testing',
+        #                                  batch_size=args.batch_size, device=args.device, scale=args.scale, shuffle=False)
 
         # solver.check_feat(test_loader)
 
@@ -177,9 +177,9 @@ def main(args):
         gh = True
         print("GEN HEAT MAP: ", gh)
 
-        traj_path = 'sdd.traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_0.07_run_4'
+        traj_path = 'sdd.traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_0.07_scale_100.0_num_sg_3_run_200'
 
-        traj_iter = '25000'
+        traj_iter = '15000'
         traj_ckpt = {'ckpt_dir': os.path.join('ckpts', traj_path), 'iter': traj_iter}
         print('===== TRAJECTORY:', traj_ckpt)
 
