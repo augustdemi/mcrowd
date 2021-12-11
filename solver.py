@@ -525,6 +525,7 @@ class Solver(object):
 
         all_ade =[]
         all_fde =[]
+        lg_fde = []
         with torch.no_grad():
             b=0
             for batch in data_loader:
@@ -548,6 +549,7 @@ class Solver(object):
                 p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
 
                 fut_rel_pos_dist20 = []
+                pred_lg_wc20 = []
                 for _ in range(num_gen):
 
                     pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True))
@@ -571,6 +573,7 @@ class Solver(object):
                             torch.cat([pred_lg_ic, torch.ones((len(pred_lg_ic), 1)).to(self.device)], dim=1),
                             torch.transpose(h, 1, 0))
                         pred_lg_wc.append(back_wc[0,:2] / back_wc[0,2])
+                    pred_lg_wc20.append(torch.stack(pred_lg_wc).squeeze(1))
                     pred_lg_wc = torch.stack(pred_lg_wc).unsqueeze(1)
 
                     # print(fut_traj[list(self.sg_idx), :, :2].permute(1, 0, 2).shape)
@@ -598,6 +601,15 @@ class Solver(object):
                 all_ade.append(torch.stack(ade))
                 all_fde.append(torch.stack(fde))
 
+                lg_fde.append(torch.sqrt(((torch.stack(pred_lg_wc20)
+                                           - fut_traj[-1, :, :2].unsqueeze(0).repeat((num_gen, 1, 1))) ** 2).sum(
+                    -1)))  # 20, 3, 4, 2
+
+            lg_fde = torch.cat(lg_fde, dim=1).cpu().numpy()  # all batches are concatenated
+            lg_fde_min = np.min(lg_fde, axis=0).mean()
+            lg_fde_avg = np.mean(lg_fde, axis=0).mean()
+            lg_fde_std = np.std(lg_fde, axis=0).mean()
+
             all_ade=torch.cat(all_ade, dim=1).cpu().numpy()
             all_fde=torch.cat(all_fde, dim=1).cpu().numpy()
 
@@ -609,7 +621,9 @@ class Solver(object):
             fde_std = np.std(all_fde, axis=0).mean()
         return ade_min, fde_min, \
                ade_avg, fde_avg, \
-               ade_std, fde_std,
+               ade_std, fde_std, \
+               lg_fde_min, lg_fde_avg, lg_fde_std
+
 
 
 
