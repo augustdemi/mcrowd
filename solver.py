@@ -601,9 +601,8 @@ class Solver(object):
                 obs_heat_map = self.make_heatmap(local_ic, local_map, aug=False, only_obs=True)
 
                 # -------- map encoding from lgvae --------
-                unet_enc_feat = self.lg_cvae.unet.down_forward(obs_heat_map)
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
-
+                unet_enc_feat = self.lg_cvae.unet_enc_feat
 
                 # -------- trajectories --------
                 (hx, mux, log_varx) \
