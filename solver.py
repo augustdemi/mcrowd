@@ -517,6 +517,68 @@ class Solver(object):
 
 
 
+    def evaluate(self, data_loader, num_gen=5):
+        self.set_mode(train=False)
+        total_traj = 0
+
+        lg_kl = 0
+        lg_recon = 0
+        lg_fde=[]
+        with torch.no_grad():
+            b=0
+            for batch in data_loader:
+                b+=1
+                (obs_traj, fut_traj, obs_traj_st, fut_traj_st, seq_start_end,
+                 videos, classes, global_map, homo,
+                 local_map, local_ic, local_homo) = batch
+                batch_size = obs_traj.size(1)
+                total_traj += fut_traj.size(1)
+
+                obs_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
+
+                self.lg_cvae.forward(obs_heat_map, None, training=False)
+                pred_lg_wc20 = []
+                for _ in range(num_gen):
+                    # -------- long term goal --------
+                    pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True))
+
+                    pred_lg_wc = []
+                    for i in range(batch_size):
+                        map_size = local_map[i].shape
+                        h = local_homo[i]
+                        pred_lg_ic = []
+                        for heat_map in pred_lg_heat[i]:
+                            # heat_map = nnf.interpolate(heat_map.unsqueeze(0), size=map_size, mode='nearest')
+                            heat_map = nnf.interpolate(heat_map.unsqueeze(0).unsqueeze(0),
+                                                       size=map_size, mode='bicubic',
+                                                       align_corners=False).squeeze(0).squeeze(0)
+                            argmax_idx = heat_map.argmax()
+                            argmax_idx = [argmax_idx//map_size[0], argmax_idx%map_size[0]]
+                            pred_lg_ic.append(argmax_idx)
+
+                        pred_lg_ic = torch.tensor(pred_lg_ic).float().to(self.device)
+
+                        back_wc = torch.matmul(
+                            torch.cat([pred_lg_ic, torch.ones((len(pred_lg_ic), 1)).to(self.device)], dim=1),
+                            torch.transpose(h, 1, 0))
+                        pred_lg_wc.append(back_wc[0,:2] / back_wc[0,2])
+
+                    pred_lg_wc = torch.stack(pred_lg_wc).squeeze(1)
+                    pred_lg_wc20.append(pred_lg_wc)
+
+                lg_fde.append(torch.sqrt(((torch.stack(pred_lg_wc20)
+                                           - fut_traj[-1,:,:2].unsqueeze(0).repeat((num_gen,1,1)))**2).sum(-1))) # 20, 3, 4, 2
+
+            lg_fde=torch.cat(lg_fde, dim=1).cpu().numpy() # all batches are concatenated
+
+            lg_fde_min = np.min(lg_fde, axis=0).mean()
+            lg_fde_avg = np.mean(lg_fde, axis=0).mean()
+            lg_fde_std = np.std(lg_fde, axis=0).mean()
+
+        return lg_fde_min, lg_fde_avg, lg_fde_std
+
+
+
     def evaluate_lg(self, data_loader, num_gen=5):
         self.set_mode(train=False)
         total_traj = 0
