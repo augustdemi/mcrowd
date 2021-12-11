@@ -160,17 +160,17 @@ class Solver(object):
         self.decoder_h_dim = args.decoder_h_dim
 
 
-        # lg_cvae_path = 'ki.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_2.5_anneal_e_10_aug_1_llprior_1.0_run_0'
-        # lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_20250_lg_cvae.pt')
-        #
-        # if self.device == 'cuda':
-        #     self.lg_cvae = torch.load(lg_cvae_path)
-        # else:
-        #     self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
-        # print(">>>>>>>>> Init: ", lg_cvae_path)
+        lg_cvae_path = 'ki.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_2.5_anneal_e_10_aug_1_llprior_1.0_run_0'
+        lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_29160_lg_cvae.pt')
+
+        if self.device == 'cuda':
+            self.lg_cvae = torch.load(lg_cvae_path)
+        else:
+            self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
+        print(">>>>>>>>> Init: ", lg_cvae_path)
 
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
-            num_filters = [32, 32, 64, 64, 64, 128]
+            num_filters = [32, 32, 64, 64, 64]
             # input = env + 8 past + lg / output = env + sg(including lg)
             self.sg_unet = Unet(input_channels=3, num_classes=len(self.sg_idx), num_filters=num_filters,
                              apply_last_layer=True, padding=True).to(self.device)
@@ -352,41 +352,36 @@ class Solver(object):
                 self.save_checkpoint(iteration)
 
             # (visdom) insert current line stats
-            if self.viz_on and (iteration % self.viz_ll_iter == 0):
-                lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon, test_lg_kl, \
-                        test_sg_recon_loss, sg_ade_min, sg_ade_avg, sg_ade_std = self.evaluate_dist(self.val_loader, loss=True)
-                test_total_loss = test_sg_recon_loss
-                self.line_gather.insert(iter=iteration,
-                                        lg_fde_min=lg_fde_min,
-                                        lg_fde_avg=lg_fde_avg,
-                                        lg_fde_std=lg_fde_std,
-                                        test_total_loss=test_total_loss.item(),
-                                        sg_recon=sg_recon_loss.item(),
-                                        test_sg_recon=test_sg_recon_loss.item(),
-                                        sg_ade_min=sg_ade_min,
-                                        sg_ade_avg=sg_ade_avg,
-                                        sg_ade_std=sg_ade_std,
-                                        )
+            if iteration > 5400 or iteration==2700:
+                if self.viz_on and (iteration % self.viz_ll_iter == 0):
+                    lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon, test_lg_kl, \
+                            test_sg_recon_loss, sg_ade_min, sg_ade_avg, sg_ade_std = self.evaluate_dist(self.val_loader, loss=True)
+                    test_total_loss = test_sg_recon_loss
+                    self.line_gather.insert(iter=iteration,
+                                            lg_fde_min=lg_fde_min,
+                                            lg_fde_avg=lg_fde_avg,
+                                            lg_fde_std=lg_fde_std,
+                                            test_total_loss=test_total_loss.item(),
+                                            sg_recon=sg_recon_loss.item(),
+                                            test_sg_recon=test_sg_recon_loss.item(),
+                                            sg_ade_min=sg_ade_min,
+                                            sg_ade_avg=sg_ade_avg,
+                                            sg_ade_std=sg_ade_std,
+                                            )
 
-                prn_str = ('[iter_%d (epoch_%d)] VAE Loss: %.3f '
-                          ) % \
-                          (iteration, epoch,
-                           loss.item(),
-                           )
+                    prn_str = ('[iter_%d (epoch_%d)] VAE Loss: %.3f '
+                              ) % \
+                              (iteration, epoch,
+                               loss.item(),
+                               )
 
-                print(prn_str)
-
-
-                if self.record_file:
-                    record = open(self.record_file, 'a')
-                    record.write('%s\n' % (prn_str,))
-                    record.close()
+                    print(prn_str)
 
 
-            # (visdom) visualize line stats (then flush out)
-            if self.viz_on and (iteration % self.viz_la_iter == 0):
-                self.visualize_line()
-                self.line_gather.flush()
+                # (visdom) visualize line stats (then flush out)
+                if self.viz_on and (iteration % self.viz_la_iter == 0):
+                    self.visualize_line()
+                    self.line_gather.flush()
 
 
 
@@ -408,12 +403,11 @@ class Solver(object):
 
                 obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
 
-                # self.lg_cvae.forward(obs_heat_map, None, training=False)
+                self.lg_cvae.forward(obs_heat_map, None, training=False)
                 pred_sg_wcs = []
-                for _ in range(5):
+                for _ in range(1):
                     # -------- long term goal --------
-                    # pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True))
-                    pred_lg_heat = lg_heat_map
+                    pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True))
 
                     pred_lg_wc = []
                     pred_lg_ics = []
@@ -505,8 +499,7 @@ class Solver(object):
                  videos, classes, global_map, homo,
                  local_map, local_ic, local_homo) = batch
 
-                idx=398
-                batch = data_loader.dataset.__getitem__(idx)
+                batch = data_loader.dataset.__getitem__(143)
                 (obs_traj, fut_traj,
                  videos, classes, global_map, homo,
                  local_map, local_ic, local_homo, scale) = batch
@@ -519,14 +512,13 @@ class Solver(object):
 
                 ###################################################
                 i = 0
-                plt.imshow(local_map[0])
+                plt.imshow(local_map[i,0])
 
                 # ----------- 12 traj
                 # heat_map_traj = np.zeros((160, 160))
-                heat_map_traj = local_map[0]
+                heat_map_traj = local_map[i, 0].detach().cpu().numpy().copy()
                 # for t in range(self.obs_len):
-                # for t in [0, 1, 2, 3, 4, 5, 6, 7, 11, 15, 19]:
-                for t in range(60):
+                for t in [0, 1, 2, 3, 4, 5, 6, 7, 11, 15, 19]:
                     heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 100
                     # as Y-net used variance 4 for the GT heatmap representation.
                 heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
@@ -970,7 +962,7 @@ class Solver(object):
             # self.decoderMy = torch.load(decoderMy_path, map_location='cpu')
             # self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
             # sg_unet_path = 'ckpts/ki.sg_lr_0.001_a_0.25_r_2.0_aug_1_num_sg_10_run_0/iter_5400_sg_unet.pt'
-            sg_unet_path = 'ckpts/ki.sg_lr_0.001_a_0.25_r_2.0_aug_1_num_sg_2_run_1/iter_1080_sg_unet.pt'
+            sg_unet_path = 'ckpts/ki.sg_lr_0.001_a_0.25_r_2.0_aug_1_num_sg_2_run_0/iter_10800_sg_unet.pt'
             self.sg_unet = torch.load(sg_unet_path, map_location='cpu')
          ####
 
