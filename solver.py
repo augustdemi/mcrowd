@@ -21,6 +21,7 @@ from data.nuscenes_dataloader import data_generator
 import numpy as np
 import visdom
 import cv2
+import torch.nn.functional as nnf
 
 ###############################################################################
 
@@ -158,18 +159,16 @@ class Solver(object):
         self.num_layers = args.num_layers
         self.decoder_h_dim = args.decoder_h_dim
 
+        lg_cvae_path = 'ki.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_2.5_anneal_e_10_aug_1_llprior_1.0_run_0'
+        lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_20250_lg_cvae.pt')
+
+        if self.device == 'cuda':
+            self.lg_cvae = torch.load(lg_cvae_path)
+        else:
+            self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
+        print(">>>>>>>>> Init: ", lg_cvae_path)
+
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
-
-            lg_cvae_path = 'ki.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_2.5_anneal_e_10_aug_1_llprior_1.0_run_0'
-            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_20250_lg_cvae.pt')
-
-            if self.device == 'cuda':
-                self.lg_cvae = torch.load(lg_cvae_path)
-            else:
-                self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
-            print(">>>>>>>>> Init: ", lg_cvae_path)
-
-
 
             self.encoderMx = EncoderX(
                 args.zS_dim,
@@ -428,7 +427,7 @@ class Solver(object):
                     self.line_gather.flush()
 
 
-    def evaluate_dist(self, data_loader, loss=False):
+    def evaluate_dist(self, data_loader, num_gen=5, loss=False):
         self.set_mode(train=False)
         total_traj = 0
 
@@ -459,7 +458,7 @@ class Solver(object):
                 p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
 
                 fut_rel_pos_dist20 = []
-                for _ in range(5):
+                for _ in range(num_gen):
                     # NO TF, pred_goals, z~prior
                     fut_rel_pos_dist_prior = self.decoderMy(
                         obs_traj_st[-1],
@@ -514,6 +513,105 @@ class Solver(object):
             return ade_min, fde_min, \
                    ade_avg, fde_avg, \
                    ade_std, fde_std,
+
+
+
+
+    def evaluate_lg(self, data_loader, num_gen=5):
+        self.set_mode(train=False)
+        total_traj = 0
+
+        loss_recon = loss_kl = 0
+
+        all_ade =[]
+        all_fde =[]
+        with torch.no_grad():
+            b=0
+            for batch in data_loader:
+                b+=1
+                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
+                 videos, classes, global_map, homo,
+                 local_map, local_ic, local_homo) = batch
+                batch_size = obs_traj.size(1)
+                total_traj += fut_traj.size(1)
+
+                obs_heat_map = self.make_heatmap(local_ic, local_map, aug=False, only_obs=True)
+
+                # -------- map encoding from lgvae --------
+                unet_enc_feat = self.lg_cvae.unet.down_forward(obs_heat_map)
+                self.lg_cvae.forward(obs_heat_map, None, training=False)
+
+
+                # -------- trajectories --------
+                (hx, mux, log_varx) \
+                    = self.encoderMx(obs_traj_st, seq_start_end, unet_enc_feat, local_homo)
+                p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
+
+                fut_rel_pos_dist20 = []
+                for _ in range(num_gen):
+
+                    pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True))
+
+                    pred_lg_wc = []
+                    for i in range(batch_size):
+                        map_size = local_map[i].shape
+                        h = local_homo[i]
+                        pred_lg_ic = []
+                        for heat_map in pred_lg_heat[i]:
+                            heat_map = nnf.interpolate(heat_map.unsqueeze(0).unsqueeze(0),
+                                                       size=map_size, mode='bicubic',
+                                                       align_corners=False).squeeze(0).squeeze(0)
+                            argmax_idx = heat_map.argmax()
+                            argmax_idx = [argmax_idx//map_size[0], argmax_idx%map_size[0]]
+                            pred_lg_ic.append(argmax_idx)
+
+                        pred_lg_ic = torch.tensor(pred_lg_ic).float().to(self.device)
+
+                        back_wc = torch.matmul(
+                            torch.cat([pred_lg_ic, torch.ones((len(pred_lg_ic), 1)).to(self.device)], dim=1),
+                            torch.transpose(h, 1, 0))
+                        pred_lg_wc.append(back_wc[0,:2] / back_wc[0,2])
+                    pred_lg_wc = torch.stack(pred_lg_wc).unsqueeze(1)
+
+                    # print(fut_traj[list(self.sg_idx), :, :2].permute(1, 0, 2).shape)
+                    # print(pred_lg_wc.shape)
+                    # NO TF, pred_goals, z~prior
+                    fut_rel_pos_dist_prior = self.decoderMy(
+                        obs_traj_st[-1],
+                        obs_traj[-1,:,:2],
+                        hx,
+                        p_dist.rsample(),
+                        pred_lg_wc,  # goal
+                        self.sg_idx,
+                    )
+                    fut_rel_pos_dist20.append(fut_rel_pos_dist_prior)
+
+                ade, fde = [], []
+                for dist in fut_rel_pos_dist20:
+                    pred_fut_traj=integrate_samples(dist.rsample() * self.scale, obs_traj[-1, :, :2], dt=self.dt)
+                    ade.append(displacement_error(
+                        pred_fut_traj, fut_traj[:,:,:2], mode='raw'
+                    ))
+                    fde.append(final_displacement_error(
+                        pred_fut_traj[-1], fut_traj[-1,:,:2], mode='raw'
+                    ))
+                all_ade.append(torch.stack(ade))
+                all_fde.append(torch.stack(fde))
+
+            all_ade=torch.cat(all_ade, dim=1).cpu().numpy()
+            all_fde=torch.cat(all_fde, dim=1).cpu().numpy()
+
+            ade_min = np.min(all_ade, axis=0).mean()/self.pred_len
+            fde_min = np.min(all_fde, axis=0).mean()
+            ade_avg = np.mean(all_ade, axis=0).mean()/self.pred_len
+            fde_avg = np.mean(all_fde, axis=0).mean()
+            ade_std = np.std(all_ade, axis=0).mean()/self.pred_len
+            fde_std = np.std(all_fde, axis=0).mean()
+        return ade_min, fde_min, \
+               ade_avg, fde_avg, \
+               ade_std, fde_std,
+
+
 
     def check_feat(self, data_loader):
         self.set_mode(train=False)
