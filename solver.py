@@ -364,7 +364,7 @@ class Solver(object):
                 self.save_checkpoint(iteration)
 
             # (visdom) insert current line stats
-            if iteration > 0:
+            if iteration > 13500:
                 if self.viz_on and (iteration % self.viz_ll_iter == 0):
                     lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon, test_lg_kl = self.evaluate_dist(self.val_loader,
                                                                                                        loss=True)
@@ -772,4 +772,5 @@ class Solver(object):
             self.lg_cvae = torch.load(lg_cvae_path)
 
         else:
+            lg_cvae_path = 'D:\crowd\mcrowd\ckpts\ki.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_2.5_anneal_e_10_aug_1_llprior_1.0_run_0/iter_20250_lg_cvae.pt'
             self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
