@@ -397,7 +397,7 @@ class Solver(object):
 
 
 
-    def evaluate_dist(self, data_loader, num_ped=5, loss=False):
+    def evaluate_dist(self, data_loader, num_pred=5, loss=False):
         self.set_mode(train=False)
         total_traj = 0
 
