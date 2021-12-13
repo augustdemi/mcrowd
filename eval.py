@@ -138,7 +138,7 @@ def create_parser():
     parser.add_argument('--fb', default=0.5, type=float)
     parser.add_argument('--anneal_epoch', default=20, type=int)
     parser.add_argument('--aug', default=1, type=int)
-    parser.add_argument('--load_e', default=1, type=int)
+    parser.add_argument('--load_e', default=5, type=int)
     parser.add_argument('--scale', default=1.0, type=float)
 
     parser.add_argument('--desc', default='data', type=str,
@@ -173,16 +173,18 @@ def main(args):
         print("GEN HEAT MAP: ", gh)
 
         ############## kitti
-        traj_path = 'ki.traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_2.0_scale_1.0_num_sg_1_run_1'
-        traj_path = 'ki.traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_2.0_scale_1.0_num_sg_5_run_1'
-        traj_iter = '25110'
-        traj_iter = '18090'
+        # traj_path = 'ki.traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_2.0_scale_1.0_num_sg_1_run_1'
+        # traj_path = 'ki.traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_2.0_scale_1.0_num_sg_5_run_1'
+        traj_path = 'ki.lgcvae_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.0001_klw_50.0_ll_prior_w_1.0_zfb_0.07_scale_1.0_num_sg_1_run_2'
+        # traj_iter = '25110'
+        # traj_iter = '18090'
+        traj_iter = '5940'
         traj_ckpt = {'ckpt_dir': os.path.join('ckpts', traj_path), 'iter': traj_iter}
         print('===== TRAJECTORY:', traj_ckpt)
 
 
-        lg_path = 'ki.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_2.5_anneal_e_10_aug_1_llprior_1.0_run_0'
-        lg_iter = '20250'
+        lg_path = 'ki.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_3.0_anneal_e_10_aug_1_llprior_1.0_run_0'
+        lg_iter = '19440'
         lg_ckpt = {'ckpt_dir': os.path.join('ckpts', lg_path), 'iter': lg_iter}
         print('===== LG CVAE:', lg_ckpt)
 
@@ -239,7 +241,7 @@ def main(args):
         # solver.evaluate_dist_gt_goal(test_loader)
         # solver.check_feat(test_loader)
 
-        lg_num=5
+        lg_num=4
         traj_num=1
 
         ade_min, fde_min, \
