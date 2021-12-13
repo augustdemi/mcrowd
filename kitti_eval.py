@@ -1038,6 +1038,7 @@ class Solver(object):
 
                     pred_sg_wc = []
                     for i in range(batch_size):
+                        map_size = local_map[i].shape
                         pred_sg_ic = []
                         for heat_map in pred_sg_heat[i]:
                             heat_map = nnf.interpolate(heat_map.unsqueeze(0).unsqueeze(0),
