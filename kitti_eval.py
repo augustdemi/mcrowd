@@ -1099,7 +1099,8 @@ class Solver(object):
                 # sg_ade.append(torch.sqrt(((pred_sg_wcs.permute(0, 2, 1, 3)
                 sg_ade.append(torch.sqrt(((torch.stack(pred_sg_wcs).permute(0, 2, 1, 3)
                                            - fut_traj[list(self.sg_idx),:,:2].unsqueeze(0).repeat((lg_num,1,1,1)))**2).sum(-1)).sum(1)) # 20, 3, 4, 2
-                lg_fde.append(torch.sqrt(((torch.stack(pred_lg_wcs)
+                # lg_fde.append(torch.sqrt(((torch.stack(pred_lg_wcs)
+                lg_fde.append(torch.sqrt(((torch.stack(pred_sg_wcs).permute(0, 2, 1, 3)[:,-1]
                                            - fut_traj[-1,:,:2].unsqueeze(0).repeat((lg_num,1,1)))**2).sum(-1))) # 20, 3, 4, 2
 
             all_ade=torch.cat(all_ade, dim=1).cpu().numpy()
