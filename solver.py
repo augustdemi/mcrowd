@@ -499,7 +499,10 @@ class Solver(object):
                  videos, classes, global_map, homo,
                  local_map, local_ic, local_homo) = batch
 
-                batch = data_loader.dataset.__getitem__(143)
+                idx=908
+                idx=1130
+                idx=200
+                batch = data_loader.dataset.__getitem__(idx)
                 (obs_traj, fut_traj,
                  videos, classes, global_map, homo,
                  local_map, local_ic, local_homo, scale) = batch
@@ -512,28 +515,23 @@ class Solver(object):
 
                 ###################################################
                 i = 0
-                plt.imshow(local_map[i,0])
+                plt.imshow(local_map[0])
+                plt.scatter(local_ic[i,:20,1], local_ic[i,:20,0], s=1, c='b')
+                plt.scatter(local_ic[i,20:,1], local_ic[i,20:,0], s=1, c='r')
+                plt.axis('off')
 
                 # ----------- 12 traj
                 # heat_map_traj = np.zeros((160, 160))
-                heat_map_traj = local_map[i, 0].detach().cpu().numpy().copy()
+                heat_map_traj = local_map[0].copy()
                 # for t in range(self.obs_len):
-                for t in [0, 1, 2, 3, 4, 5, 6, 7, 11, 15, 19]:
+                # for t in [0, 1, 2, 3, 4, 5, 6, 7, 11, 15, 19]:
+                for t in range(60):
                     heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 100
                     # as Y-net used variance 4 for the GT heatmap representation.
                 heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
                 plt.imshow(heat_map_traj)
                 # plt.imshow(np.stack([heat_map_traj, local_map[i,0]],axis=2))
 
-
-                # ----------- feature map
-                fig = plt.figure(figsize=(5, 5))
-                k = 0
-                for m in self.lg_cvae.unet_features[i]:
-                    k += 1
-                    ax = fig.add_subplot(4, 8, k)
-                    ax.imshow(m)
-                    ax.axis('off')
 
                 ###################################################
                 # -------- long term goal --------
@@ -660,12 +658,29 @@ class Solver(object):
                                     size=local_map[0].shape, mode='bicubic',
                                     align_corners=False).squeeze(0).detach().cpu().numpy().copy()
 
-                fig = plt.figure(figsize=(10, 5))
+
+                heat_map = heat_map.detach().cpu().numpy().copy()
+                heat_map = nnf.interpolate(torch.tensor(heat_map).unsqueeze(0).unsqueeze(0),
+                                    size=local_map[0].shape, mode='bicubic',
+                                    align_corners=False).squeeze(0).detach().cpu().numpy().copy()
+
+                fig = plt.figure(figsize=(12, 3))
+
+                ax = fig.add_subplot(1, 2 + len(self.sg_idx), 1)
+                ax.set_title('lg')
+                ax.imshow(local_map[i])
+
+                ax.imshow(heat_map[0], alpha=0.6)
+                ax.axis('off')
 
                 for k in range(len(m)):
-                    ax = fig.add_subplot(2,5,k+1)
-                    ax.set_title('sg' + str(k+1))
-                    ax.imshow(m[k])
+                    ax = fig.add_subplot(1, 2 + len(self.sg_idx),k+3)
+                    ax.set_title('sg at ' + str(self.sg_idx[k]+1))
+                    ax.imshow(local_map[i])
+                    ax.imshow(m[k], alpha=0.6)
+                    ax.axis('off')
+                    # ax.imshow(np.stack([1-m[k], 1-m[k],1-m[k]]).transpose(1,2,0), alpha=0.1)
+
 
 
 
@@ -963,6 +978,8 @@ class Solver(object):
             # self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
             # sg_unet_path = 'ckpts/ki.sg_lr_0.001_a_0.25_r_2.0_aug_1_num_sg_10_run_0/iter_5400_sg_unet.pt'
             sg_unet_path = 'ckpts/ki.sg_lr_0.001_a_0.25_r_2.0_aug_1_num_sg_2_run_0/iter_10800_sg_unet.pt'
+            sg_unet_path = 'ckpts/ki.sg_lr_0.0001_a_0.25_r_2.0_aug_1_num_sg_5_run_1/iter_15120_sg_unet.pt'
+            print('>>>> sg_unet_path: ', sg_unet_path)
             self.sg_unet = torch.load(sg_unet_path, map_location='cpu')
          ####
 
