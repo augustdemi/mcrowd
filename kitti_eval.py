@@ -1020,21 +1020,17 @@ class Solver(object):
                     pred_lg_wcs.append(pred_lg_wc)
 
 
-                    '''
+
                     # -------- short term goal --------
                     # obs_lg_heat = torch.cat([obs_heat_map, pred_lg_heat[:, -1].unsqueeze(1)], dim=1)
 
                     if generate_heat:
                         # -------- short term goal --------
                         pred_lg_heat_from_ic = []
-                        for coord in pred_lg_ics:
-                            heat_map_traj = np.zeros((160, 160))
-                            heat_map_traj[int(coord[0, 0]), int(coord[0, 1])] = 1
-                            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-                            pred_lg_heat_from_ic.append(heat_map_traj)
+                        for i in range(len(pred_lg_ics)):
+                            pred_lg_heat_from_ic.append(self.make_one_heatmap(local_map[i], pred_lg_ics[i][0].detach().cpu().numpy().astype(int)))
                         pred_lg_heat_from_ic = torch.tensor(np.stack(pred_lg_heat_from_ic)).unsqueeze(1).float().to(
                             self.device)
-
                         pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1)))
                     else:
                         pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat], dim=1)))
@@ -1044,6 +1040,9 @@ class Solver(object):
                     for i in range(batch_size):
                         pred_sg_ic = []
                         for heat_map in pred_sg_heat[i]:
+                            heat_map = nnf.interpolate(heat_map.unsqueeze(0).unsqueeze(0),
+                                                       size=map_size, mode='bicubic',
+                                                       align_corners=False).squeeze(0).squeeze(0)
                             argmax_idx = heat_map.argmax()
                             argmax_idx = [argmax_idx//map_size[0], argmax_idx%map_size[0]]
                             pred_sg_ic.append(argmax_idx)
@@ -1058,8 +1057,8 @@ class Solver(object):
                         # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
                     pred_sg_wc = torch.stack(pred_sg_wc)
                     pred_sg_wcs.append(pred_sg_wc)
-'''
-                pred_sg_wcs = torch.stack(pred_lg_wcs).unsqueeze(2)
+
+                # pred_sg_wcs = torch.stack(pred_lg_wcs).unsqueeze(2)
                 ##### trajectories per long&short goal ####
 
                 # -------- trajectories --------
@@ -1097,7 +1096,8 @@ class Solver(object):
                     ))
                 all_ade.append(torch.stack(ade))
                 all_fde.append(torch.stack(fde))
-                sg_ade.append(torch.sqrt(((pred_sg_wcs.permute(0, 2, 1, 3)
+                # sg_ade.append(torch.sqrt(((pred_sg_wcs.permute(0, 2, 1, 3)
+                sg_ade.append(torch.sqrt(((torch.stack(pred_sg_wcs).permute(0, 2, 1, 3)
                                            - fut_traj[list(self.sg_idx),:,:2].unsqueeze(0).repeat((lg_num,1,1,1)))**2).sum(-1)).sum(1)) # 20, 3, 4, 2
                 lg_fde.append(torch.sqrt(((torch.stack(pred_lg_wcs)
                                            - fut_traj[-1,:,:2].unsqueeze(0).repeat((lg_num,1,1)))**2).sum(-1))) # 20, 3, 4, 2
