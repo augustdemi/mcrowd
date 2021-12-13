@@ -156,7 +156,7 @@ def main(args):
 
         print('--------------------', args.dataset_name, '----------------------')
 
-        args.batch_size=1
+        # args.batch_size=1
 
         # from data.nuscenes.config import Config
         # from data.nuscenes_dataloader import data_generator
@@ -174,7 +174,9 @@ def main(args):
 
         ############## kitti
         traj_path = 'ki.traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_2.0_scale_1.0_num_sg_1_run_1'
+        traj_path = 'ki.traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_2.0_scale_1.0_num_sg_5_run_1'
         traj_iter = '25110'
+        traj_iter = '18090'
         traj_ckpt = {'ckpt_dir': os.path.join('ckpts', traj_path), 'iter': traj_iter}
         print('===== TRAJECTORY:', traj_ckpt)
 
@@ -184,8 +186,8 @@ def main(args):
         lg_ckpt = {'ckpt_dir': os.path.join('ckpts', lg_path), 'iter': lg_iter}
         print('===== LG CVAE:', lg_ckpt)
 
-        sg_path = 'sdd.sg_lr_0.0001_a_0.25_r_2.0_aug_1_scale_1.0_num_sg_3_run_8'
-        sg_iter = '12500'
+        sg_path = 'ki.sg_lr_0.0001_a_0.25_r_2.0_aug_1_num_sg_5_run_1'
+        sg_iter = '15120'
         sg_ckpt = {'ckpt_dir': os.path.join('ckpts', sg_path), 'iter': sg_iter}
         print('===== SG CVAE:', sg_ckpt)
 
