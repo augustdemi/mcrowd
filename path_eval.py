@@ -188,14 +188,14 @@ class Solver(object):
             for t in range(self.obs_len):
                 heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
                 # as Y-net used variance 4 for the GT heatmap representation.
-            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=4)
+            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
             ohm.append( heat_map_traj/heat_map_traj.sum())
 
             for t in (self.sg_idx + 8):
                 heat_map_traj = np.zeros((160,160))
                 heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
                 # as Y-net used variance 4 for the GT heatmap representation.
-                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=4)
+                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
                 # plt.imshow(heat_map_traj)
                 ohm.append(heat_map_traj)
             heatmaps.append(np.stack(ohm))
