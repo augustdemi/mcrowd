@@ -1015,13 +1015,14 @@ class Solver(object):
                     back_wc = torch.matmul(
                         torch.cat([pred_lg_ic, torch.ones((len(pred_lg_ic), 1)).to(self.device)], dim=1),
                         torch.transpose(local_homo[0].float().to(self.device), 1, 0))
-                    pred_lg_wcs.append(back_wc[0, :2] / back_wc[0, 2])
+                    pred_lg_wcs.append((back_wc[0, :2] / back_wc[0, 2]).unsqueeze(0))
 
 
                     if generate_heat:
                         # -------- short term goal --------
                         heat_map_traj = np.zeros((160, 160))
                         heat_map_traj[int(pred_lg_ic[0,0].item()), int(pred_lg_ic[0,1].item())] = 1
+                        print(pred_lg_ic)
                         heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
                         pred_lg_heat_from_ic = torch.tensor(heat_map_traj).unsqueeze(0).unsqueeze(0).float().to(self.device)
 
