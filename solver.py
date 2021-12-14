@@ -475,9 +475,9 @@ class Solver(object):
                     lg_recon += (self.alpha * lg_heat_map * torch.log(pred_lg_heat + self.eps) * ((1 - pred_lg_heat) ** self.gamma) \
                          + (1 - self.alpha) * (1 - lg_heat_map) * torch.log(1 - pred_lg_heat + self.eps) * (pred_lg_heat ** self.gamma)).sum().div(batch_size)
 
-                    pred_lg_ics = torch.stack(pred_lg_ics)
+                    pred_lg_ics = torch.stack(pred_lg_ics).squeeze(1)
                     local_ic = torch.from_numpy(local_ic).float().to(self.device)
-                    l2_lg_pos_loss += ((pred_lg_ics.squeeze(1) - local_ic[:, -1]) ** 2).sum().div(batch_size)
+                    l2_lg_pos_loss += ((pred_lg_ics - local_ic[:, -1]) ** 2).sum().div(batch_size)
 
                     obs_vec = (local_ic[:, self.obs_len - 1] - local_ic[:, 0])
                     pred_vec = (local_ic[:, self.obs_len - 1] - pred_lg_ics)
