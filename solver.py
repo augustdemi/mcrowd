@@ -440,12 +440,13 @@ class Solver(object):
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 pred_lg_wc20 = []
-                pred_lg_ics = []
+
                 for _ in range(20):
                     # -------- long term goal --------
                     pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True))
 
                     pred_lg_wc = []
+                    pred_lg_ics = []
                     for i in range(batch_size):
                         map_size = local_map[i][0].shape
                         pred_lg_ic = []
@@ -480,7 +481,7 @@ class Solver(object):
 
                     obs_vec = (local_ic[:, self.obs_len - 1] - local_ic[:, 0])
                     pred_vec = (local_ic[:, self.obs_len - 1] - pred_lg_ics)
-                    cos_sim_vel_loss += torch.clamp(torch.cosine_similarity(obs_vec, pred_vec), min=0)
+                    cos_sim_vel_loss += torch.clamp(torch.cosine_similarity(obs_vec, pred_vec), min=0).sum().div(batch_size)
 
                 lg_fde.append(torch.sqrt(((torch.stack(pred_lg_wc20)
                                            - fut_traj[-1,:,:2].unsqueeze(0).repeat((20,1,1)))**2).sum(-1))) # 20, 3, 4, 2
