@@ -232,7 +232,7 @@ class Solver(object):
         print('...done')
 
 
-    def make_heatmap(self, local_ic, local_map):
+    def make_heatmap(self, local_ic, local_map, aug=False):
         heatmaps = []
         for i in range(len(local_ic)):
             ohm = [local_map[i, 0]]
@@ -261,7 +261,13 @@ class Solver(object):
             heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
             plt.imshow(heat_map_traj)
             '''
+
         heatmaps = torch.tensor(np.stack(heatmaps)).float().to(self.device)
+        if aug:
+            degree = np.random.choice([0, 90, 180, -90])
+            heatmaps = transforms.Compose([
+                transforms.RandomRotation(degrees=(degree, degree))
+            ])(heatmaps)
         return heatmaps[:,:2], heatmaps[:,2:]
 
 
@@ -304,7 +310,7 @@ class Solver(object):
              local_map, local_ic, local_homo) = next(iterator)
             batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
-            obs_heat_map, lg_heat_map =  self.make_heatmap(local_ic, local_map)
+            obs_heat_map, lg_heat_map =  self.make_heatmap(local_ic, local_map, aug=True)
 
             #-------- long term goal --------
             recon_lg_heat = self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
