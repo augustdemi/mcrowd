@@ -987,17 +987,19 @@ class Solver(object):
                 pred_lg_wcs = []
                 pred_sg_wcs = []
 
+
                 while len(pred_lg_wcs) < lg_num :
                     # -------- long term goal --------
-                    pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True))
+                    w_prior = self.lg_cvae.prior_latent_space.sample()
+                    pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True, z_prior=w_prior))
                 # for pred_lg_heat in mmm:
                     pred_lg_ics = []
                     pred_lg_ic = (pred_lg_heat[0,0] == torch.max(pred_lg_heat[0,0])).nonzero()[0].unsqueeze(0).float()
                     obs_vec = local_ic[0, self.obs_len - 1] - local_ic[0, self.obs_len - 2]
                     pred_vec = local_ic[0, self.obs_len - 1]- pred_lg_ic.detach().cpu().numpy().squeeze(0)
                     cos_sim = dot(obs_vec, pred_vec) / (norm(obs_vec) * norm(pred_vec))
-                    if cos_sim > 0:
-                        print(cos_sim)
+                    if cos_sim > 0.5:
+                        # print(cos_sim)
                         continue
                     pred_lg_ics.append(pred_lg_ic)
 
