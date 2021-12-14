@@ -1023,7 +1023,6 @@ class Solver(object):
                         pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat], dim=1)))
 
 
-                    pred_sg_wc = []
                     pred_sg_ic = []
                     for heat_map in pred_sg_heat[0]:
                         argmax_idx = heat_map.argmax()
@@ -1036,7 +1035,7 @@ class Solver(object):
                         torch.cat([pred_sg_ic, torch.ones((len(pred_sg_ic), 1)).to(self.device)], dim=1),
                         torch.transpose(local_homo[0].float().to(self.device), 1, 0))
                     back_wc /= back_wc[:, 2].unsqueeze(1)
-                    pred_sg_wcs.append(back_wc[:, :2])
+                    pred_sg_wcs.append(back_wc[:, :2].unsqueeze(0))
 
                 ##### trajectories per long&short goal ####
 
