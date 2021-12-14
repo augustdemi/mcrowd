@@ -221,7 +221,7 @@ class Solver(object):
 
         if self.ckpt_load_iter != self.max_iter:
             print("Initializing train dataset")
-            _, self.train_loader = data_loader(self.args, args.dataset_dir, 'train', shuffle=True)
+            _, self.train_loader = data_loader(self.args, args.dataset_dir, 'val', shuffle=True)
             print("Initializing val dataset")
             _, self.val_loader = data_loader(self.args, args.dataset_dir, 'val', shuffle=True)
 
@@ -332,13 +332,9 @@ class Solver(object):
             pred_lg_ics = []
             for i in range(batch_size):
                 ## soft argmax
-                x_goal_pixel = 0
-                y_goal_pixel = 0
                 exp_recon = torch.exp(recon_lg_heat[i] * (20 / recon_lg_heat[i].max()))
-                # exp_recon = torch.exp(heat_map)
-                for pixel_idx in range(len(recon_lg_heat[i])):
-                    x_goal_pixel += pixel_idx * exp_recon[pixel_idx, :].sum() / exp_recon.sum()
-                    y_goal_pixel += pixel_idx * exp_recon[:, pixel_idx].sum() / exp_recon.sum()
+                x_goal_pixel = (torch.tensor(range(160)).float().to(self.device) * exp_recon.sum(1)).sum() / exp_recon.sum()
+                y_goal_pixel = (torch.tensor(range(160)).float().to(self.device) * exp_recon.sum(0)).sum() / exp_recon.sum()
                 pred_lg_ics.append(torch.cat(
                     [torch.round(x_goal_pixel).unsqueeze(0), torch.round(y_goal_pixel).unsqueeze(0)]
                 ))
