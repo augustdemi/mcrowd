@@ -421,7 +421,7 @@ class Solver(object):
         return tensor
 
 
-    def evaluate_dist(self, data_loader, loss=False):
+    def evaluate_dist(self, data_loader, num_pred=20, loss=False):
         self.set_mode(train=False)
         total_traj = 0
 
@@ -443,7 +443,7 @@ class Solver(object):
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 pred_lg_wc20 = []
 
-                for _ in range(20):
+                for _ in range(num_pred):
                     # -------- long term goal --------
                     pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True))
 
@@ -486,7 +486,7 @@ class Solver(object):
                     cos_sim_vel_loss += torch.clamp(torch.cosine_similarity(obs_vec, pred_vec), min=0).sum().div(batch_size)
 
                 lg_fde.append(torch.sqrt(((torch.stack(pred_lg_wc20)
-                                           - fut_traj[-1,:,:2].unsqueeze(0).repeat((20,1,1)))**2).sum(-1))) # 20, 3, 4, 2
+                                           - fut_traj[-1,:,:2].unsqueeze(0).repeat((num_pred,1,1)))**2).sum(-1))) # 20, 3, 4, 2
 
             lg_fde=torch.cat(lg_fde, dim=1).cpu().numpy() # all batches are concatenated
 
