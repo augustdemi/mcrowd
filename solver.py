@@ -221,7 +221,7 @@ class Solver(object):
 
         if self.ckpt_load_iter != self.max_iter:
             print("Initializing train dataset")
-            _, self.train_loader = data_loader(self.args, args.dataset_dir, 'val', shuffle=True)
+            _, self.train_loader = data_loader(self.args, args.dataset_dir, 'train', shuffle=True)
             print("Initializing val dataset")
             _, self.val_loader = data_loader(self.args, args.dataset_dir, 'val', shuffle=True)
 
@@ -347,7 +347,7 @@ class Solver(object):
             # dist_loss = torch.norm(torch.stack(pred_lg_ics) - local_ic[:, -1]), p=2, dim=1).sum().div(batch_size)
             l2_lg_pos_loss = ((pred_lg_ics - local_ic[:, -1]) ** 2).sum().div(batch_size)
 
-            obs_vec = (local_ic[:, self.obs_len-1] - local_ic[:, 0])
+            obs_vec = (local_ic[:, self.obs_len-1] - local_ic[:, self.obs_len-2])
             pred_vec = (local_ic[:, self.obs_len-1] - pred_lg_ics)
 
             cos_sim_vel_loss = torch.clamp(torch.cosine_similarity(obs_vec, pred_vec), min=0).sum().div(batch_size)
@@ -366,7 +366,7 @@ class Solver(object):
                 self.save_checkpoint(iteration)
 
             # (visdom) insert current line stats
-            if (iteration > 12000) or (iteration < 4000):
+            if (iteration > 12000) or (iteration < 1400):
                 if self.viz_on and (iteration % self.viz_ll_iter == 0):
                     lg_fde_min, lg_fde_avg, lg_fde_std, \
                     test_ll, test_lg_kl, test_l2_lg_pos_loss, test_cos_sim_vel_loss = self.evaluate_dist(self.val_loader, loss=True)
@@ -475,7 +475,7 @@ class Solver(object):
                     local_ic = torch.from_numpy(local_ic).float().to(self.device)
                     l2_lg_pos_loss += ((pred_lg_ics - local_ic[:, -1]) ** 2).sum().div(batch_size)
 
-                    obs_vec = (local_ic[:, self.obs_len - 1] - local_ic[:, 0])
+                    obs_vec = (local_ic[:, self.obs_len - 1] - local_ic[:, self.obs_len-2])
                     pred_vec = (local_ic[:, self.obs_len - 1] - pred_lg_ics)
                     cos_sim_vel_loss += torch.clamp(torch.cosine_similarity(obs_vec, pred_vec), min=0).sum().div(batch_size)
 
