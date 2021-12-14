@@ -1004,7 +1004,6 @@ class Solver(object):
                     w_prior = self.lg_cvae.prior_latent_space.sample()
                     pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True, z_prior=w_prior))
                 # for pred_lg_heat in mmm:
-                    pred_lg_ics = []
                     pred_lg_ic = (pred_lg_heat[0,0] == torch.max(pred_lg_heat[0,0])).nonzero()[0].unsqueeze(0).float()
                     obs_vec = local_ic[0, self.obs_len - 1] - local_ic[0, self.obs_len - 2]
                     pred_vec = local_ic[0, self.obs_len - 1]- pred_lg_ic.detach().cpu().numpy().squeeze(0)
@@ -1012,7 +1011,6 @@ class Solver(object):
                     if cos_sim > 0.5:
                         # print(cos_sim)
                         continue
-                    pred_lg_ics.append(pred_lg_ic)
 
                     back_wc = torch.matmul(
                         torch.cat([pred_lg_ic, torch.ones((len(pred_lg_ic), 1)).to(self.device)], dim=1),
@@ -1022,14 +1020,10 @@ class Solver(object):
 
                     if generate_heat:
                         # -------- short term goal --------
-                        pred_lg_heat_from_ic = []
-                        for coord in pred_lg_ics:
-                            heat_map_traj = np.zeros((160, 160))
-                            heat_map_traj[int(coord[0, 0]), int(coord[0, 1])] = 1
-                            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-                            pred_lg_heat_from_ic.append(heat_map_traj)
-                        pred_lg_heat_from_ic = torch.tensor(np.stack(pred_lg_heat_from_ic)).unsqueeze(1).float().to(
-                            self.device)
+                        heat_map_traj = np.zeros((160, 160))
+                        heat_map_traj[int(pred_lg_ic[0,0].item()), int(pred_lg_ic[0,1].item())] = 1
+                        heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+                        pred_lg_heat_from_ic = torch.tensor(heat_map_traj).unsqueeze(0).unsqueeze(0).float().to(self.device)
 
                         pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1)))
                     else:
