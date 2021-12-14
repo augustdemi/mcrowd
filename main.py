@@ -52,7 +52,7 @@ def create_parser():
                         help='cpu/cuda')
 
     # training hyperparameters
-    parser.add_argument('--batch_size', default=5, type=int,
+    parser.add_argument('--batch_size', default=2, type=int,
                         help='batch size')
     parser.add_argument('--lr_VAE', default=1e-3, type=float,
                         help='learning rate of the VAE')
@@ -98,8 +98,8 @@ def create_parser():
     parser.add_argument('--pred_len', default=12, type=int)
     parser.add_argument('--skip', default=1, type=int)
     # dataset
-    # parser.add_argument('--dataset_dir', default='../datasets/SDD', type=str, help='dataset directory')
-    parser.add_argument('--dataset_dir', default='C:/dataset/KITTI-trajectory-prediction', type=str, help='dataset directory')
+    parser.add_argument('--dataset_dir', default='../datasets/Trajectories', type=str, help='dataset directory')
+    # parser.add_argument('--dataset_dir', default='C:/dataset/KITTI-trajectory-prediction', type=str, help='dataset directory')
     parser.add_argument('--dataset_name', default='sdd.lgcvae', type=str,
                         help='dataset name')
     parser.add_argument('--model_name', default='', type=str,
@@ -137,8 +137,11 @@ def create_parser():
     parser.add_argument('--fb', default=0.5, type=float)
     parser.add_argument('--anneal_epoch', default=20, type=int)
     parser.add_argument('--aug', default=1, type=int)
-    parser.add_argument('--load_e', default=2, type=int)
+    parser.add_argument('--load_e', default=1, type=int)
     parser.add_argument('--scale', default=1.0, type=float)
+    parser.add_argument('--pos', default=1.0, type=float)
+    parser.add_argument('--vel', default=1.0, type=float)
+
 
     parser.add_argument('--desc', default='data', type=str,
                         help='run description')
@@ -154,7 +157,7 @@ def main(args):
         solver = Solver(args)
 
         print('--------------------', args.dataset_name, '----------------------')
-        args.batch_size = 1
+        args.batch_size = 2
 
         _, test_loader = data_loader(args, args.dataset_dir, 'test', shuffle=False)
 
@@ -166,7 +169,8 @@ def main(args):
 
         # solver.check_feat(test_loader)
 
-        solver.evaluate_dist(test_loader, loss=True)
+        # solver.evaluate_lg(test_loader, num_gen=3)
+        solver.evaluate_dist(test_loader, loss=False)
         #
         # fde_min, fde_avg, fde_std = solver.evaluate_dist(test_loader, loss=False)
         # print(fde_min)
