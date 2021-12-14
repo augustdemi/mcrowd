@@ -28,6 +28,14 @@ from numpy.linalg import norm
 
 ###############################################################################
 
+
+def set_seed(seed):
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+
+
 def integrate_samples(v, p_0, dt=1):
     """
     Integrates deterministic samples of velocity.
@@ -987,9 +995,12 @@ class Solver(object):
                 pred_lg_wcs = []
                 pred_sg_wcs = []
 
+                j=0
 
                 while len(pred_lg_wcs) < lg_num :
+                    j+=1
                     # -------- long term goal --------
+                    set_seed(j)
                     w_prior = self.lg_cvae.prior_latent_space.sample()
                     pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True, z_prior=w_prior))
                 # for pred_lg_heat in mmm:
