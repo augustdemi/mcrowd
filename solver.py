@@ -353,27 +353,23 @@ class Solver(object):
 
             pred_lg_ics = torch.stack(pred_lg_ics)
             local_ic = torch.from_numpy(local_ic).float().to(self.device)
-            # dist_loss = torch.norm(torch.stack(pred_lg_ics) - local_ic[:, -1]), p=2, dim=1).sum().div(batch_size)
-            l2_lg_pos_loss = ((pred_lg_ics - local_ic[:, -1]) ** 2).sum().div(batch_size)
+            l2_lg_pos_loss = torch.norm(pred_lg_ics - local_ic[:, -1], p=2, dim=1).sum().div(batch_size)
+            # l2_lg_pos_loss = ((pred_lg_ics - local_ic[:, -1]) ** 2).sum().div(batch_size)
+            cum_l2_dist_loss.append(l2_lg_pos_loss.detach().cpu().numpy())
+
 
             obs_vec = (local_ic[:, self.obs_len-1] - local_ic[:, self.obs_len-2])
             pred_vec = (local_ic[:, self.obs_len-1] - pred_lg_ics)
             gt_vec = (local_ic[:, self.obs_len-1] - local_ic[:,-1])
 
-            cos_sim1 = torch.cosine_similarity(obs_vec, pred_vec)
-            cos_sim1[cos_sim1 <= self.v1_t] = 0
-            cos_sim1 = cos_sim1.sum().div(batch_size)
-
-            cos_sim2 = torch.cosine_similarity(gt_vec, pred_vec)
-            cos_sim2[cos_sim2 >= self.v2_t] = 0
-            cos_sim2 = cos_sim2.sum().div(batch_size)
+            cos_sim1 = torch.clamp(torch.cosine_similarity(obs_vec, pred_vec), min=self.v1_t).sum().div(batch_size)
+            cos_sim2 = torch.clamp(torch.cosine_similarity(gt_vec, pred_vec), max=self.v2_t).sum().div(batch_size)
 
             cum_cos_sim1.append(cos_sim1.detach().cpu().numpy())
             cum_cos_sim2.append(cos_sim2.detach().cpu().numpy())
-            cum_l2_dist_loss.append(l2_lg_pos_loss.detach().cpu().numpy())
 
 
-            loss = - lg_elbo + self.pos * l2_lg_pos_loss + self.vel1 * cos_sim1 + self.vel2 * cos_sim2
+            loss = - lg_elbo + self.pos * l2_lg_pos_loss + self.vel1 * cos_sim1 - self.vel2 * cos_sim2
 
             self.optim_vae.zero_grad()
             loss.backward()
@@ -386,15 +382,12 @@ class Solver(object):
                 self.save_checkpoint(iteration)
 
             # (visdom) insert current line stats
-            if self.viz_on and (iteration % self.viz_ll_iter == 0):
-                cum_cos_sim1 = []
-                cum_cos_sim2 = []
-                cum_l2_dist_loss = []
+
             if (iteration > 15000) or (iteration < 1400):
                 if self.viz_on and (iteration % self.viz_ll_iter == 0):
                     lg_fde_min, lg_fde_avg, lg_fde_std, \
                     test_ll, test_lg_kl, test_l2_lg_pos_loss, test_cos_sim1, test_cos_sim2 = self.evaluate_dist(self.val_loader, loss=True)
-                    test_total_loss = -(test_ll - lg_kl_weight * test_lg_kl) + self.pos * test_l2_lg_pos_loss + self.vel1 * test_cos_sim1 + self.vel2 * test_cos_sim2
+                    test_total_loss = -(test_ll - lg_kl_weight * test_lg_kl) + self.pos * test_l2_lg_pos_loss + self.vel1 * test_cos_sim1 - self.vel2 * test_cos_sim2
                     self.line_gather.insert(iter=iteration,
                                             lg_fde_min=lg_fde_min,
                                             lg_fde_avg=lg_fde_avg,
@@ -418,7 +411,7 @@ class Solver(object):
                     prn_str = ('[iter_%d (epoch_%d)] VAE Loss: %.3f '
                               ) % \
                               (iteration, epoch,
-                               loss.item(),
+                               np.array(cum_l2_dist_loss).mean(),
                                )
 
                     print(prn_str)
@@ -427,6 +420,11 @@ class Solver(object):
                 if self.viz_on and (iteration % self.viz_la_iter == 0):
                     self.visualize_line()
                     self.line_gather.flush()
+
+            if self.viz_on and (iteration % self.viz_ll_iter == 0):
+                cum_cos_sim1 = []
+                cum_cos_sim2 = []
+                cum_l2_dist_loss = []
 
 
     def repeat(self, tensor, num_reps):
@@ -501,18 +499,17 @@ class Solver(object):
 
                     pred_lg_ics = torch.stack(pred_lg_ics).squeeze(1)
                     local_ic = torch.from_numpy(local_ic).float().to(self.device)
-                    l2_lg_pos_loss += ((pred_lg_ics - local_ic[:, -1]) ** 2).sum().div(batch_size)
+                    l2_lg_pos_loss += torch.norm(pred_lg_ics - local_ic[:, -1], p=2, dim=1).sum().div(batch_size)
 
                     obs_vec = (local_ic[:, self.obs_len - 1] - local_ic[:, self.obs_len-2])
                     pred_vec = (local_ic[:, self.obs_len - 1] - pred_lg_ics)
                     gt_vec = (local_ic[:, self.obs_len - 1] - local_ic[:, -1])
 
-                    cos_sim1 = torch.cosine_similarity(obs_vec, pred_vec)
-                    cos_sim1[cos_sim1 <= self.v1_t] = 0
+                    cos_sim1 = torch.clamp(torch.cosine_similarity(obs_vec, pred_vec), min=self.v1_t).sum().div(
+                        batch_size)
+                    cos_sim2 = torch.clamp(torch.cosine_similarity(gt_vec, pred_vec), max=self.v2_t).sum().div(
+                        batch_size)
                     cum_cos_sim1 += cos_sim1.sum().div(batch_size)
-
-                    cos_sim2 = torch.cosine_similarity(gt_vec, pred_vec)
-                    cos_sim2[cos_sim2 >= self.v2_t] = 0
                     cum_cos_sim2 += cos_sim2.sum().div(batch_size)
 
                 lg_fde.append(torch.sqrt(((torch.stack(pred_lg_wc20)
