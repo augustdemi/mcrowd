@@ -159,16 +159,16 @@ class Solver(object):
         self.num_layers = args.num_layers
         self.decoder_h_dim = args.decoder_h_dim
 
+        lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1.0_a_0.25_r_2.0_fb_0.5_anneal_e_10_load_e_1_pos_0.0_vel_0.0_run_302'
+        lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_34840_lg_cvae.pt')
+
+        if self.device == 'cuda':
+            self.lg_cvae = torch.load(lg_cvae_path)
+        else:
+            self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
+        print('>>>> loaded: ', lg_cvae_path)
+
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
-
-            lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1.0_a_0.25_r_2.0_fb_0.5_anneal_e_10_load_e_1_pos_0.0_vel_0.0_run_302'
-            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_34840_lg_cvae.pt')
-
-            if self.device == 'cuda':
-                self.lg_cvae = torch.load(lg_cvae_path)
-            else:
-                self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
-            print('>>>> loaded: ', lg_cvae_path)
 
             self.encoderMx = EncoderX(
                 args.zS_dim,
