@@ -448,7 +448,7 @@ class Solver(object):
         total_traj = 0
 
         lg_recon = lg_kl = 0
-        l2_lg_pos_loss = cos_sim1 = cos_sim2= 0
+        l2_lg_pos_loss = cum_cos_sim1 = cum_cos_sim2= 0
         lg_fde=[]
         with torch.no_grad():
             b=0
@@ -506,10 +506,14 @@ class Solver(object):
                     obs_vec = (local_ic[:, self.obs_len - 1] - local_ic[:, self.obs_len-2])
                     pred_vec = (local_ic[:, self.obs_len - 1] - pred_lg_ics)
                     gt_vec = (local_ic[:, self.obs_len - 1] - local_ic[:, -1])
-                    cos_sim1 += torch.clamp(-torch.cosine_similarity(obs_vec, pred_vec), min=-self.v1_t).sum().div(
-                        batch_size)
-                    cos_sim2 += torch.clamp(torch.cosine_similarity(gt_vec, pred_vec), min=self.v2_t).sum().div(
-                        batch_size)
+
+                    cos_sim1 = torch.cosine_similarity(obs_vec, pred_vec)
+                    cos_sim1[cos_sim1 <= self.v1_t] = 0
+                    cum_cos_sim1 += cos_sim1.sum().div(batch_size)
+
+                    cos_sim2 = torch.cosine_similarity(gt_vec, pred_vec)
+                    cos_sim2[cos_sim2 >= self.v2_t] = 0
+                    cum_cos_sim2 += cos_sim2.sum().div(batch_size)
 
                 lg_fde.append(torch.sqrt(((torch.stack(pred_lg_wc20)
                                            - fut_traj[-1,:,:2].unsqueeze(0).repeat((num_pred,1,1)))**2).sum(-1))) # 20, 3, 4, 2
@@ -523,7 +527,7 @@ class Solver(object):
 
         self.set_mode(train=True)
         if loss:
-            return lg_fde_min, lg_fde_avg, lg_fde_std, lg_recon/b, lg_kl/b, l2_lg_pos_loss/b, cos_sim1/b, cos_sim2/b,
+            return lg_fde_min, lg_fde_avg, lg_fde_std, lg_recon/b, lg_kl/b, l2_lg_pos_loss/b, cum_cos_sim1/b, cum_cos_sim2/b,
         else:
             return lg_fde_min, lg_fde_avg, lg_fde_std
 
