@@ -220,7 +220,7 @@ class Solver(object):
 
         if self.ckpt_load_iter != self.max_iter:
             print("Initializing train dataset")
-            _, self.train_loader = data_loader(self.args, args.dataset_dir, 'train', shuffle=True)
+            _, self.train_loader = data_loader(self.args, args.dataset_dir, 'val', shuffle=True)
             print("Initializing val dataset")
             _, self.val_loader = data_loader(self.args, args.dataset_dir, 'val', shuffle=True)
 
@@ -360,8 +360,13 @@ class Solver(object):
             pred_vec = (local_ic[:, self.obs_len-1] - pred_lg_ics)
             gt_vec = (local_ic[:, self.obs_len-1] - local_ic[:,-1])
 
-            cos_sim1 = torch.clamp(-torch.cosine_similarity(obs_vec, pred_vec), min=-self.v1_t).sum().div(batch_size)
-            cos_sim2 = torch.clamp(torch.cosine_similarity(gt_vec, pred_vec), min=self.v2_t).sum().div(batch_size)
+            cos_sim1 = torch.cosine_similarity(obs_vec, pred_vec)
+            cos_sim1[cos_sim1 <= self.v1_t] = 0
+            cos_sim1 = cos_sim1.sum().div(batch_size)
+
+            cos_sim2 = torch.cosine_similarity(gt_vec, pred_vec)
+            cos_sim2[cos_sim2 >= self.v2_t] = 0
+            cos_sim2 = cos_sim2.sum().div(batch_size)
 
             cum_cos_sim1.append(cos_sim1.detach().cpu().numpy())
             cum_cos_sim2.append(cos_sim2.detach().cpu().numpy())
