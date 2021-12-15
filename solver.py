@@ -288,6 +288,9 @@ class Solver(object):
             lg_kl_weight = 0
         print('>>>>>>>> kl_w: ', lg_kl_weight)
 
+        cum_cos_sim_vel_loss = []
+        cum_l2_dist_loss = []
+
         for iteration in range(start_iter, self.max_iter + 1):
 
             # reset data iterators for each epoch
@@ -357,6 +360,8 @@ class Solver(object):
             pred_vec = (local_ic[:, self.obs_len-1] - pred_lg_ics)
 
             cos_sim_vel_loss = torch.clamp(torch.cosine_similarity(obs_vec, pred_vec), min=0).sum().div(batch_size)
+            cum_cos_sim_vel_loss.append(cos_sim_vel_loss.detach().cpu().numpy())
+            cum_l2_dist_loss.append(cum_l2_dist_loss.detach().cpu().numpy())
 
 
             loss = - lg_elbo + self.pos * l2_lg_pos_loss + self.vel * cos_sim_vel_loss
@@ -372,6 +377,9 @@ class Solver(object):
                 self.save_checkpoint(iteration)
 
             # (visdom) insert current line stats
+            if (iteration % self.viz_ll_iter == 0):
+                cum_cos_sim_vel_loss = []
+                cum_l2_dist_loss = []
             if (iteration > 12000) or (iteration < 1400):
                 if self.viz_on and (iteration % self.viz_ll_iter == 0):
                     lg_fde_min, lg_fde_avg, lg_fde_std, \
@@ -389,9 +397,11 @@ class Solver(object):
                                             test_lg_kl=test_lg_kl.item(),
                                             test_l2_lg_pos_loss=test_l2_lg_pos_loss.item(),
                                             test_cos_sim_vel_loss=test_cos_sim_vel_loss.item(),
-                                            l2_lg_pos_loss=l2_lg_pos_loss.item(),
-                                            cos_sim_vel_loss=cos_sim_vel_loss.item(),
+                                            l2_lg_pos_loss=np.array(cum_l2_dist_loss).mean(),
+                                            cos_sim_vel_loss=np.array(cum_cos_sim_vel_loss).mean(),
                                             )
+
+
 
                     prn_str = ('[iter_%d (epoch_%d)] VAE Loss: %.3f '
                               ) % \
