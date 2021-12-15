@@ -52,7 +52,7 @@ def create_parser():
                         help='cpu/cuda')
 
     # training hyperparameters
-    parser.add_argument('--batch_size', default=2, type=int,
+    parser.add_argument('--batch_size', default=3, type=int,
                         help='batch size')
     parser.add_argument('--lr_VAE', default=1e-3, type=float,
                         help='learning rate of the VAE')
@@ -65,7 +65,7 @@ def create_parser():
     parser.add_argument('--ckpt_load_iter', default=0, type=int,
                         help='iter# to load the previously saved model ' +
                              '(default=0 to start from the scratch)')
-    parser.add_argument('--max_iter', default=0, type=float,
+    parser.add_argument('--max_iter', default=10, type=float,
                         help='maximum number of batch iterations')
     parser.add_argument('--ckpt_save_iter', default=100, type=int,
                         help='checkpoint saved every # iters')
@@ -96,7 +96,6 @@ def create_parser():
     parser.add_argument('--loader_num_workers', default=0, type=int)
     parser.add_argument('--obs_len', default=8, type=int)
     parser.add_argument('--pred_len', default=12, type=int)
-    parser.add_argument('--skip', default=1, type=int)
     # dataset
     parser.add_argument('--dataset_dir', default='../datasets/Trajectories', type=str, help='dataset directory')
     # parser.add_argument('--dataset_dir', default='C:/dataset/KITTI-trajectory-prediction', type=str, help='dataset directory')
@@ -119,7 +118,6 @@ def create_parser():
     parser.add_argument('--dropout_mlp', default=0.3, type=float)
     parser.add_argument('--dropout_rnn', default=0.25, type=float)
     # Decoder
-    parser.add_argument('--pool_every_timestep', default=0, type=bool_flag)
     parser.add_argument('--mlp_dim', default=32, type=int)
     parser.add_argument('--map_mlp_dim', default=128, type=int)
     parser.add_argument('--batch_norm', default=0, type=bool_flag)
@@ -140,7 +138,10 @@ def create_parser():
     parser.add_argument('--load_e', default=1, type=int)
     parser.add_argument('--scale', default=1.0, type=float)
     parser.add_argument('--pos', default=1.0, type=float)
-    parser.add_argument('--vel', default=1.0, type=float)
+    parser.add_argument('--vel1', default=1.0, type=float)
+    parser.add_argument('--vel2', default=1.0, type=float)
+    parser.add_argument('--v1_t', default=0.7, type=float)
+    parser.add_argument('--v2_t', default=0.5, type=float)
 
 
     parser.add_argument('--desc', default='data', type=str,
@@ -157,7 +158,7 @@ def main(args):
         solver = Solver(args)
 
         print('--------------------', args.dataset_name, '----------------------')
-        args.batch_size = 2
+        args.batch_size = 3
 
         _, test_loader = data_loader(args, args.dataset_dir, 'test', shuffle=False)
 
@@ -170,7 +171,7 @@ def main(args):
         # solver.check_feat(test_loader)
 
         # solver.evaluate_lg(test_loader, num_gen=3)
-        solver.evaluate_dist(test_loader, loss=False)
+        solver.evaluate_dist(test_loader, loss=True)
         #
         # fde_min, fde_avg, fde_std = solver.evaluate_dist(test_loader, loss=False)
         # print(fde_min)
