@@ -60,7 +60,7 @@ class AxisAlignedConvGaussian(nn.Module):
     A convolutional net that parametrizes a Gaussian distribution with axis aligned covariance matrix.
     """
 
-    def __init__(self, input_channels, num_filters, no_convs_per_block, latent_dim, num_classes=2, posterior=False):
+    def __init__(self, input_channels, num_filters, no_convs_per_block, latent_dim, num_classes=2, enc_h_dim=64, posterior=False):
         super(AxisAlignedConvGaussian, self).__init__()
         self.input_channels = input_channels
         self.channel_axis = 1
@@ -68,6 +68,10 @@ class AxisAlignedConvGaussian(nn.Module):
         self.no_convs_per_block = no_convs_per_block
         self.latent_dim = latent_dim
         self.posterior = posterior
+        self.enc_h_dim = enc_h_dim
+        self.dropout_rnn=0.25
+        self.dropout_mlp=0.3
+
         if self.posterior:
             self.name = 'Posterior'
             self.encoder = Encoder(self.input_channels, self.num_filters, self.no_convs_per_block,
@@ -83,16 +87,22 @@ class AxisAlignedConvGaussian(nn.Module):
                 nn.ReLU(inplace=True),
             )
 
-        self.conv_layer = nn.Conv2d(num_filters[-1], 2 * self.latent_dim, (1, 1), stride=1)
+        # self.conv_layer = nn.Conv2d(num_filters[-1], 2 * self.latent_dim, (1, 1), stride=1)
+        self.lstm = nn.LSTM(
+            input_size=6, hidden_size=enc_h_dim
+        )
+        self.fc1 = nn.Linear(enc_h_dim, self.latent_dim)
+        self.fc2 = nn.Linear(num_filters[-1] + self.latent_dim, 2*self.latent_dim)
 
-        nn.init.kaiming_normal_(self.conv_layer.weight, mode='fan_in', nonlinearity='relu')
-        nn.init.normal_(self.conv_layer.bias)
 
-    def forward(self, input, segm=None):
+        # nn.init.kaiming_normal_(self.conv_layer.weight, mode='fan_in', nonlinearity='relu')
+        # nn.init.normal_(self.conv_layer.bias)
+
+    def forward(self, input, past_state, fut_heatmap=None, training=False):
 
         # If segmentation is not none, concatenate the mask to the channel axis of the input
-        if segm is not None:
-            input = torch.cat((input, segm), dim=1)
+        if fut_heatmap is not None:
+            input = torch.cat((input, fut_heatmap), dim=1)
 
         encoding = self.encoder(input)  # [4, 128, 10, 10]
         # self.show_enc = encoding
@@ -102,21 +112,26 @@ class AxisAlignedConvGaussian(nn.Module):
         encoding = torch.mean(encoding, dim=3, keepdim=True)
 
         # Convert encoding to 2 x latent dim and split up for mu and log_sigma
-        mu_log_sigma = self.conv_layer(encoding)
+        # mu_log_sigma = self.conv_layer(encoding)
 
         # We squeeze the second dimension twice, since otherwise it won't work when batch size is equal to 1
-        mu_log_sigma = torch.squeeze(mu_log_sigma, dim=2)
-        mu_log_sigma = torch.squeeze(mu_log_sigma, dim=2)
+        encoding = torch.squeeze(encoding, dim=2)
+        encoding = torch.squeeze(encoding, dim=2)
 
+        ##### VELOCITY
+        _, (final_encoder_h, _) = self.lstm(past_state)
+        final_encoder_h = F.dropout(final_encoder_h,
+                            p=self.dropout_rnn,
+                            training=training)  # [bs, max_time, enc_rnn_dim]
+        h = self.fc1(final_encoder_h.view(-1, self.enc_h_dim))
+        h = F.dropout(F.relu(h),
+                      p=self.dropout_mlp,
+                      training=training)
+
+        mu_log_sigma = self.fc2(torch.cat([encoding, h], dim=1))
         mu = mu_log_sigma[:, :self.latent_dim]
         log_var = mu_log_sigma[:, self.latent_dim:]
 
-        mu = torch.clamp(mu, min=1e-8, max=1e8)
-        log_var = torch.clamp(log_var, min=1e-8, max=8e1)
-
-        # This is a multivariate normal with diagonal covariance matrix sigma
-        # https://github.com/pytorch/pytorch/pull/11178
-        # dist = Independent(Normal(loc=mu, scale=torch.sqrt(torch.exp(log_var))), 1)
         dist = Normal(loc=mu, scale=torch.sqrt(torch.exp(log_var)))
         return dist
 
@@ -225,19 +240,17 @@ class ProbabilisticUnet(nn.Module):
         self.fcomb = Fcomb(self.num_filters, self.latent_dim, self.input_channels, self.num_classes,
                            self.no_convs_fcomb, {'w': 'orthogonal', 'b': 'normal'}, use_tile=True).to(device)
 
-    def forward(self, patch, segm, training=True):
-        """
-        Construct prior latent space for patch and run patch through UNet,
-        in case training is True also construct posterior latent space
-        """
+    def forward(self, past_heatmap, past_state, fut_heatmap, training=True):
         # unet encoder
-        self.unet_enc_feat = self.unet.down_forward(patch)
-
+        self.unet_enc_feat = self.unet.down_forward(past_heatmap)
 
         # latent dist
         if training:
-            self.posterior_latent_space = self.posterior.forward(patch, segm)
-        self.prior_latent_space = self.prior.forward(self.unet_enc_feat)
+            self.posterior_latent_space = self.posterior.forward(past_heatmap, past_state, fut_heatmap, training=True)
+            self.prior_latent_space = self.prior.forward(self.unet_enc_feat, past_state, training=True)
+        else:
+            self.prior_latent_space = self.prior.forward(self.unet_enc_feat, past_state, training=False)
+
 
         if training:
             z = self.posterior_latent_space.rsample()

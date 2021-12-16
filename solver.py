@@ -51,9 +51,10 @@ class Solver(object):
 
         self.args = args
 
-        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_lg_klw_%s_a_%s_r_%s_fb_%s_anneal_e_%s_load_e_%s' % \
+
+        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_a_%s_r_%s' % \
                     (args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE,
-                     args.lg_kl_weight, args.alpha, args.gamma, args.fb, args.anneal_epoch, args.load_e)
+                     args.alpha, args.gamma)
 
         # to be appended by run_id
 
@@ -157,44 +158,19 @@ class Solver(object):
         self.pred_len = args.pred_len
         self.num_layers = args.num_layers
         self.decoder_h_dim = args.decoder_h_dim
-
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
 
-            #
-            # # input = env + 8 past / output = env + lg
-
-            if args.load_e > 0:
-                lg_cvae_path = 'lgcvae.ae_enc_block_1_fcomb_block_2_wD_10_lr_0.001_a_0.25_r_2.0_run_101'
-                # lg_cvae_path = 'lgcvae.ae_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_a_%s_r_%s_run_%s' % \
-                #                (
-                #                args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, str(0.001),
-                #                args.alpha, args.gamma, args.run_id)
-                lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_3400_lg_cvae.pt')
-
-                if self.device == 'cuda':
-                    self.lg_cvae = torch.load(lg_cvae_path)
-                else:
-                    self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
-
-                print(">>>>>>>>> Init: ", lg_cvae_path)
-
-                ## random init after latent space
-                for m in self.lg_cvae.unet.upsampling_path:
-                    m.apply(init_weights)
-                self.lg_cvae.fcomb.apply(init_weights)
-                # kl weight
-                self.lg_cvae.beta = args.lg_kl_weight
-
-            else:
-                num_filters = [32,32,64,64,64]
-                self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
-                                        no_convs_fcomb=self.no_convs_fcomb, no_convs_per_block=self.no_convs_per_block, beta=self.lg_kl_weight).to(self.device)
+            # input = env + 8 past / output = env + lg
+            num_filters = [32,32,64,64,64]
+            self.lg_cvae = ProbabilisticUnet(input_channels=3, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
+                                    no_convs_fcomb=self.no_convs_fcomb, no_convs_per_block=self.no_convs_per_block, beta=self.lg_kl_weight).to(self.device)
 
 
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
             self.load_checkpoint()
             print('...done')
+
 
 
         # get VAE parameters
@@ -217,7 +193,7 @@ class Solver(object):
 
         if self.ckpt_load_iter != self.max_iter:
             print("Initializing train dataset")
-            _, self.train_loader = data_loader(self.args, args.dataset_dir, 'val', shuffle=True)
+            _, self.train_loader = data_loader(self.args, args.dataset_dir, 'train', shuffle=True)
             print("Initializing val dataset")
             _, self.val_loader = data_loader(self.args, args.dataset_dir, 'val', shuffle=True)
 
@@ -270,7 +246,6 @@ class Solver(object):
     ####
     def train(self):
         self.set_mode(train=True)
-        torch.autograd.set_detect_anomaly(True)
         data_loader = self.train_loader
         self.N = len(data_loader.dataset)
         iterator = iter(data_loader)
@@ -278,11 +253,8 @@ class Solver(object):
         iter_per_epoch = len(iterator)
         start_iter = self.ckpt_load_iter + 1
         epoch = int(start_iter / iter_per_epoch)
-
-        lg_kl_weight = self.lg_kl_weight
-        if self.anneal_epoch > 0:
-            lg_kl_weight = 0
-        print('>>>>>>>> kl_w: ', lg_kl_weight)
+        lg_kl_weight = 0
+        print('kl_w: ', lg_kl_weight)
 
         for iteration in range(start_iter, self.max_iter + 1):
 
@@ -290,12 +262,8 @@ class Solver(object):
             if iteration % iter_per_epoch == 0:
                 print('==== epoch %d done ====' % epoch)
                 epoch +=1
-                if self.anneal_epoch > 0:
-                    lg_kl_weight = min(self.lg_kl_weight * (epoch / self.anneal_epoch), self.lg_kl_weight)
-                    print('>>>>>>>> kl_w: ', lg_kl_weight)
-
-
                 iterator = iter(data_loader)
+
 
             # ============================================
             #          TRAIN THE VAE (ENC & DEC)
@@ -325,7 +293,7 @@ class Solver(object):
             lg_kl = self.lg_cvae.kl_divergence(analytic=True)
             lg_kl = torch.clamp(lg_kl, self.fb).sum().div(batch_size)
 
-            lg_elbo = focal_loss - lg_kl_weight * lg_kl
+            lg_elbo = focal_loss
 
             loss = - lg_elbo
 
@@ -340,7 +308,7 @@ class Solver(object):
                 self.save_checkpoint(iteration)
 
             # (visdom) insert current line stats
-            if (iteration > 12000) or (iteration < 1400):
+            if (iteration > 0):
                 if self.viz_on and (iteration % self.viz_ll_iter == 0):
                     lg_fde_min, lg_fde_avg, lg_fde_std, \
                     test_ll, test_lg_kl = self.evaluate_dist(self.val_loader, loss=True)
