@@ -282,9 +282,11 @@ class Solver(object):
             #          TRAIN THE VAE (ENC & DEC)
             # ============================================
 
-            (obs_traj, fut_traj, seq_start_end,
+            (obs_traj, fut_traj, _,_, seq_start_end,
              obs_frames, pred_frames, map_path, inv_h_t,
              local_map, local_ic, local_homo, _) = next(iterator)
+
+
             batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
             obs_heat_map, lg_heat_map =  self.make_heatmap(local_ic, local_map, aug=True)
@@ -381,7 +383,7 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, seq_start_end,
+                (obs_traj, fut_traj, _,_,seq_start_end,
                  obs_frames, pred_frames, map_path, inv_h_t,
                  local_map, local_ic, local_homo, _) = batch
                 batch_size = obs_traj.size(1)
