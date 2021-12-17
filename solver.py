@@ -168,8 +168,8 @@ class Solver(object):
             # # input = env + 8 past / output = env + lg
 
             if args.load_e > 0:
-                lg_cvae_path = 'lgcvae.ae_enc_block_1_fcomb_block_2_wD_10_lr_0.001_a_0.25_r_2.0_run_306'
-                lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_3350_lg_cvae.pt')
+                lg_cvae_path = 'lgcvae.ae_enc_block_1_fcomb_block_2_wD_8_lr_0.001_a_0.25_r_2.0_run_312'
+                lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_6700_lg_cvae.pt')
 
                 if self.device == 'cuda':
                     self.lg_cvae = torch.load(lg_cvae_path)
