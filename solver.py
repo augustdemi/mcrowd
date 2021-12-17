@@ -167,7 +167,7 @@ class Solver(object):
             # # input = env + 8 past / output = env + lg
 
             if args.load_e > 0:
-                lg_cvae_path = 'lgcvae.ae_enc_block_1_fcomb_block_2_wD_16_lr_0.001_a_0.25_r_2.0_run_308'
+                lg_cvae_path = 'lgcvae.ae_enc_block_1_fcomb_block_2_wD_10_lr_0.001_a_0.25_r_2.0_run_306'
                 lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_3350_lg_cvae.pt')
 
                 if self.device == 'cuda':
@@ -315,7 +315,7 @@ class Solver(object):
             obs_heat_map, lg_heat_map, degree =  self.make_heatmap(local_ic, local_map, aug=True)
 
             #-------- long term goal --------
-            recon_lg_heat = self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
+            recon_lg_heat = self.lg_cvae.forward(obs_heat_map, obs_local_state, lg_heat_map, training=True)
             recon_lg_heat = F.normalize(F.sigmoid(recon_lg_heat).view(recon_lg_heat.shape[0],-1), p=1)
             lg_heat_map= lg_heat_map.view(lg_heat_map.shape[0], -1)
 
@@ -464,7 +464,7 @@ class Solver(object):
 
                 obs_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
 
-                self.lg_cvae.forward(obs_heat_map, None, training=False)
+                self.lg_cvae.forward(obs_heat_map, obs_local_state, None, training=False)
                 pred_lg_wc20 = []
 
                 for _ in range(num_pred):
@@ -493,7 +493,7 @@ class Solver(object):
                     pred_lg_wc20.append(pred_lg_wc)
 
                 if loss:
-                    self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
+                    self.lg_cvae.forward(obs_heat_map, obs_local_state, lg_heat_map, training=False)
                     pred_lg_heat = F.normalize(pred_lg_heat.view(pred_lg_heat.shape[0], -1), p=1)
                     lg_heat_map = lg_heat_map.view(lg_heat_map.shape[0], -1)
 
