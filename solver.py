@@ -50,9 +50,11 @@ class Solver(object):
 
         self.args = args
 
-        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_a_%s_r_%s_pos_%s_v1_%s_%s_v2_%s_%s' % \
+        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_lg_klw_%s_a_%s_r_%s_fb_%s_anneal_e_%s_load_e_%s' % \
                     (args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE,
-                     args.alpha, args.gamma, args.pos, args.vel1, args.v1_t, args.vel2, args.v2_t)
+                     args.lg_kl_weight, args.alpha, args.gamma, args.fb, args.anneal_epoch, args.load_e)
+
+        # to be appended by run_id
 
         # self.use_cuda = args.cuda and torch.cuda.is_available()
         self.fb = args.fb
@@ -67,12 +69,6 @@ class Solver(object):
         self.sg_idx =  np.array([3,7,11])
         self.no_convs_fcomb = args.no_convs_fcomb
         self.no_convs_per_block = args.no_convs_per_block
-
-        self.pos = args.pos
-        self.vel1 = args.vel1
-        self.vel2 = args.vel2
-        self.v1_t = args.v1_t
-        self.v2_t = args.v2_t
 
         self.kl_weight=args.kl_weight
         self.lg_kl_weight=args.lg_kl_weight
@@ -104,22 +100,18 @@ class Solver(object):
         # visdom setup
         self.viz_on = args.viz_on
         if self.viz_on:
-
             self.win_id = dict(
                 recon='win_recon', total_loss='win_total_loss', test_total_loss='win_test_total_loss',
                 lg_recon='win_lg_recon', lg_kl='win_lg_kl',
                 test_lg_recon='win_test_lg_recon', test_lg_kl='win_test_lg_kl',
-                lg_fde_min='win_lg_fde_min', lg_fde_avg='win_lg_fde_avg', lg_fde_std='win_lg_fde_std',
-                test_l2_lg_pos_loss='win_test_l2_lg_pos_loss', test_cos_sim1='win_test_cos_sim1', test_cos_sim2='win_test_cos_sim2',
-                l2_lg_pos_loss='win_l2_lg_pos_loss', cos_sim1='win_cos_sim1', cos_sim2='win_cos_sim2',
+                lg_fde_min='win_lg_fde_min', lg_fde_avg='win_lg_fde_avg', lg_fde_std='win_lg_fde_std'
             )
             self.line_gather = DataGather(
                 'iter', 'total_loss',
                 'test_total_loss',
                 'lg_recon', 'lg_kl',
                 'test_lg_recon', 'test_lg_kl',
-                'lg_fde_min', 'lg_fde_avg', 'lg_fde_std',
-                'test_l2_lg_pos_loss', 'test_cos_sim1', 'test_cos_sim2', 'l2_lg_pos_loss', 'cos_sim1', 'cos_sim2'
+                'lg_fde_min', 'lg_fde_avg', 'lg_fde_std'
             )
 
 
@@ -129,6 +121,11 @@ class Solver(object):
             self.viz_la_iter = args.viz_la_iter
 
             self.viz_init()
+
+        # create dirs: "records", "ckpts", "outputs" (if not exist)
+        mkdirs("records");
+        mkdirs("ckpts");
+        mkdirs("outputs")
 
         # set run id
         if args.run_id < 0:  # create a new id
@@ -150,6 +147,13 @@ class Solver(object):
         # checkpoints
         self.ckpt_dir = os.path.join("ckpts", self.name)
 
+        # outputs
+        self.output_dir_recon = os.path.join("outputs", self.name + '_recon')
+        # dir for reconstructed images
+        self.output_dir_synth = os.path.join("outputs", self.name + '_synth')
+        # dir for synthesized images
+        self.output_dir_trvsl = os.path.join("outputs", self.name + '_trvsl')
+
         #### create a new model or load a previously saved model
 
         self.ckpt_load_iter = args.ckpt_load_iter
@@ -158,12 +162,34 @@ class Solver(object):
         self.pred_len = args.pred_len
         self.num_layers = args.num_layers
         self.decoder_h_dim = args.decoder_h_dim
+
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
 
-            # input = env + 8 past / output = env + lg
-            num_filters = [32,32,64,64,64]
-            self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
-                                    no_convs_fcomb=self.no_convs_fcomb, no_convs_per_block=self.no_convs_per_block, beta=self.lg_kl_weight).to(self.device)
+            #
+            # # input = env + 8 past / output = env + lg
+
+            if args.load_e > 0:
+                lg_cvae_path = 'lgcvae.ae_enc_block_1_fcomb_block_2_wD_16_lr_0.001_a_0.25_r_2.0_run_308'
+                lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_3350_lg_cvae.pt')
+
+                if self.device == 'cuda':
+                    self.lg_cvae = torch.load(lg_cvae_path)
+                else:
+                    self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
+
+                print(">>>>>>>>> Init: ", lg_cvae_path)
+
+                ## random init after latent space
+                for m in self.lg_cvae.unet.upsampling_path:
+                    m.apply(init_weights)
+                self.lg_cvae.fcomb.apply(init_weights)
+                # kl weight
+                self.lg_cvae.beta = args.lg_kl_weight
+
+            else:
+                num_filters = [32,32,64,64,64]
+                self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
+                                        no_convs_fcomb=self.no_convs_fcomb, no_convs_per_block=self.no_convs_per_block, beta=self.lg_kl_weight).to(self.device)
 
 
         else:  # load a previously saved model
@@ -202,6 +228,20 @@ class Solver(object):
             )
         print('...done')
 
+        self.recon_loss_with_logit = nn.BCEWithLogitsLoss(size_average = False, reduce=False, reduction=None)
+
+
+    def l2_regularisation(self, m):
+        l2_reg = None
+
+        for W in m.parameters():
+            if l2_reg is None:
+                l2_reg = W.norm(2)
+            else:
+                l2_reg = l2_reg + W.norm(2)
+        return l2_reg
+
+
 
     def make_heatmap(self, local_ic, local_map, aug=False):
         heatmaps = []
@@ -232,16 +272,13 @@ class Solver(object):
             heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
             plt.imshow(heat_map_traj)
             '''
-
         heatmaps = torch.tensor(np.stack(heatmaps)).float().to(self.device)
         if aug:
             degree = np.random.choice([0, 90, 180, -90])
             heatmaps = transforms.Compose([
                 transforms.RandomRotation(degrees=(degree, degree))
             ])(heatmaps)
-            return heatmaps[:,:2], heatmaps[:,2:], degree
-        else:
-            return heatmaps[:, :2], heatmaps[:, 2:]
+        return heatmaps[:,:2], heatmaps[:,2:]
 
 
     ####
@@ -256,40 +293,40 @@ class Solver(object):
         start_iter = self.ckpt_load_iter + 1
         epoch = int(start_iter / iter_per_epoch)
 
-        lg_kl_weight = 0
-        print('kl_w: ', lg_kl_weight)
-
-        cum_cos_sim1 = 0
-        cum_cos_sim2 = 0
-        cum_l2_dist_loss = 0
-        b = 0
+        lg_kl_weight = self.lg_kl_weight
+        if self.anneal_epoch > 0:
+            lg_kl_weight = 0
+        print('>>>>>>>> kl_w: ', lg_kl_weight)
 
         for iteration in range(start_iter, self.max_iter + 1):
-            b+=1
+
             # reset data iterators for each epoch
             if iteration % iter_per_epoch == 0:
                 print('==== epoch %d done ====' % epoch)
                 epoch +=1
-                iterator = iter(data_loader)
+                if self.anneal_epoch > 0:
+                    lg_kl_weight = min(self.lg_kl_weight * (epoch / self.anneal_epoch), self.lg_kl_weight)
+                    print('>>>>>>>> kl_w: ', lg_kl_weight)
 
+
+                iterator = iter(data_loader)
 
             # ============================================
             #          TRAIN THE VAE (ENC & DEC)
             # ============================================
 
-            (obs_traj, fut_traj, _, _, seq_start_end,
+            (obs_traj, fut_traj, seq_start_end,
              obs_frames, pred_frames, map_path, inv_h_t,
-             local_map, local_ic, local_homo, obs_local_state) = next(iterator)
+             local_map, local_ic, local_homo) = next(iterator)
             batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
-            obs_heat_map, lg_heat_map, degree =  self.make_heatmap(local_ic, local_map, aug=True)
+            obs_heat_map, lg_heat_map =  self.make_heatmap(local_ic, local_map, aug=True)
 
             #-------- long term goal --------
             recon_lg_heat = self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
             recon_lg_heat = F.normalize(F.sigmoid(recon_lg_heat).view(recon_lg_heat.shape[0],-1), p=1)
             lg_heat_map= lg_heat_map.view(lg_heat_map.shape[0], -1)
 
-            ### VAE loss ###
             # Focal loss:
             # alpha to handle the imblanced classes: α for positive(foreground) class and 1-α for negative(background) class.
             # gamma to handle the hard positive/negative, i.e., the misclassified negative/positivle examples.
@@ -297,10 +334,15 @@ class Solver(object):
                          + (1 - self.alpha) * (1 - lg_heat_map) * torch.log(1 - recon_lg_heat + self.eps) * (
                 recon_lg_heat ** self.gamma)).sum().div(batch_size)
 
+
             lg_kl = self.lg_cvae.kl_divergence(analytic=True)
             lg_kl = torch.clamp(lg_kl, self.fb).sum().div(batch_size)
 
-            loss = - focal_loss
+            # lg_recon_loss = self.recon_loss_with_logit(input=recon_lg_heat, target=lg_heat_map).sum().div(np.prod([*lg_heat_map.size()[:3]]))
+            lg_elbo = focal_loss - lg_kl_weight * lg_kl
+
+
+            loss = - lg_elbo
 
             self.optim_vae.zero_grad()
             loss.backward()
@@ -313,49 +355,34 @@ class Solver(object):
                 self.save_checkpoint(iteration)
 
             # (visdom) insert current line stats
-
-            if (iteration > 0):
+            if (iteration > 14000) or (iteration < 6000):
                 if self.viz_on and (iteration % self.viz_ll_iter == 0):
-                    lg_fde_min, lg_fde_avg, lg_fde_std, \
-                    test_ll, test_lg_kl, test_l2_lg_pos_loss, test_cos_sim1, test_cos_sim2 = self.evaluate_dist(self.val_loader, loss=True)
-                    test_total_loss = -(test_ll - lg_kl_weight * test_lg_kl) + self.pos * test_l2_lg_pos_loss + self.vel1 * test_cos_sim1 - self.vel2 * test_cos_sim2
+                    lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon, test_lg_kl = self.evaluate_dist(self.val_loader, loss=True)
+                    test_total_loss = test_lg_recon - lg_kl_weight * test_lg_kl
                     self.line_gather.insert(iter=iteration,
                                             lg_fde_min=lg_fde_min,
                                             lg_fde_avg=lg_fde_avg,
                                             lg_fde_std=lg_fde_std,
-                                            total_loss=loss.item(),
+                                            total_loss=-loss.item(),
                                             lg_recon=-focal_loss.item(),
                                             lg_kl=lg_kl.item(),
                                             test_total_loss=test_total_loss.item(),
-                                            test_lg_recon=-test_ll.item(),
+                                            test_lg_recon=-test_lg_recon.item(),
                                             test_lg_kl=test_lg_kl.item(),
-                                            test_l2_lg_pos_loss=test_l2_lg_pos_loss.item(),
-                                            test_cos_sim1=test_cos_sim1.item(),
-                                            test_cos_sim2=test_cos_sim2.item(),
-                                            l2_lg_pos_loss=cum_l2_dist_loss/b,
-                                            cos_sim1=cum_cos_sim1/b,
-                                            cos_sim2=cum_cos_sim2/b,
                                             )
-
-
 
                     prn_str = ('[iter_%d (epoch_%d)] VAE Loss: %.3f '
                               ) % \
                               (iteration, epoch,
-                               b,
+                               loss.item(),
                                )
 
                     print(prn_str)
-                    cum_cos_sim1 = 0
-                    cum_cos_sim2 = 0
-                    cum_l2_dist_loss = 0
-                    b=0
 
                 # (visdom) visualize line stats (then flush out)
                 if self.viz_on and (iteration % self.viz_la_iter == 0):
                     self.visualize_line()
                     self.line_gather.flush()
-
 
 
     def repeat(self, tensor, num_reps):
@@ -372,20 +399,19 @@ class Solver(object):
         return tensor
 
 
-    def evaluate_dist(self, data_loader, num_pred=20, loss=False):
+    def evaluate_dist(self, data_loader, loss=False):
         self.set_mode(train=False)
         total_traj = 0
 
         lg_recon = lg_kl = 0
-        l2_lg_pos_loss = cum_cos_sim1 = cum_cos_sim2= 0
         lg_fde=[]
         with torch.no_grad():
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, _,_, seq_start_end,
+                (obs_traj, fut_traj, seq_start_end,
                  obs_frames, pred_frames, map_path, inv_h_t,
-                 local_map, local_ic, local_homo, obs_local_state) = batch
+                 local_map, local_ic, local_homo) = batch
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
@@ -393,13 +419,11 @@ class Solver(object):
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 pred_lg_wc20 = []
-
-                for _ in range(num_pred):
+                for _ in range(20):
                     # -------- long term goal --------
                     pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True))
 
                     pred_lg_wc = []
-                    pred_lg_ics = []
                     for i in range(batch_size):
                         map_size = local_map[i][0].shape
                         pred_lg_ic = []
@@ -408,9 +432,8 @@ class Solver(object):
                             argmax_idx = [argmax_idx//map_size[0], argmax_idx%map_size[0]]
                             pred_lg_ic.append(argmax_idx)
                         pred_lg_ic = torch.tensor(pred_lg_ic).float().to(self.device)
-                        pred_lg_ics.append(pred_lg_ic)
 
-                        # ((local_ic[0,[11,15,19]] - pred_lg_ic) ** 2).sum(1).mean()
+                        # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
                         back_wc = torch.matmul(
                             torch.cat([pred_lg_ic, torch.ones((len(pred_lg_ic), 1)).to(self.device)], dim=1),
                             torch.transpose(local_homo[i].float().to(self.device), 1, 0))
@@ -428,21 +451,10 @@ class Solver(object):
                     lg_recon += (self.alpha * lg_heat_map * torch.log(pred_lg_heat + self.eps) * ((1 - pred_lg_heat) ** self.gamma) \
                          + (1 - self.alpha) * (1 - lg_heat_map) * torch.log(1 - pred_lg_heat + self.eps) * (pred_lg_heat ** self.gamma)).sum().div(batch_size)
 
-                    pred_lg_ics = torch.stack(pred_lg_ics).squeeze(1)
-                    local_ic = torch.from_numpy(local_ic).float().to(self.device)
-                    l2_lg_pos_loss += torch.norm(pred_lg_ics - local_ic[:, -1], p=2, dim=1).sum().div(batch_size)
 
-                    obs_vec = (local_ic[:, self.obs_len - 1] - local_ic[:, self.obs_len-2])
-                    pred_vec = (local_ic[:, self.obs_len - 1] - pred_lg_ics)
-                    gt_vec = (local_ic[:, self.obs_len - 1] - local_ic[:, -1])
-
-                    cos_sim1 = torch.cosine_similarity(obs_vec, pred_vec)
-                    cos_sim2 = torch.cosine_similarity(gt_vec, pred_vec)
-                    cum_cos_sim1 += cos_sim1.sum().div(batch_size)
-                    cum_cos_sim2 += cos_sim2.sum().div(batch_size)
 
                 lg_fde.append(torch.sqrt(((torch.stack(pred_lg_wc20)
-                                           - fut_traj[-1,:,:2].unsqueeze(0).repeat((num_pred,1,1)))**2).sum(-1))) # 20, 3, 4, 2
+                                           - fut_traj[-1,:,:2].unsqueeze(0).repeat((20,1,1)))**2).sum(-1))) # 20, 3, 4, 2
 
             lg_fde=torch.cat(lg_fde, dim=1).cpu().numpy() # all batches are concatenated
 
@@ -453,7 +465,7 @@ class Solver(object):
 
         self.set_mode(train=True)
         if loss:
-            return lg_fde_min, lg_fde_avg, lg_fde_std, lg_recon/b, lg_kl/b, l2_lg_pos_loss/b, cum_cos_sim1/b, cum_cos_sim2/b,
+            return lg_fde_min, lg_fde_avg, lg_fde_std, lg_recon/b, lg_kl/b,
         else:
             return lg_fde_min, lg_fde_avg, lg_fde_std
 
@@ -572,15 +584,6 @@ class Solver(object):
         self.viz.close(env=self.name + '/lines', win=self.win_id['lg_fde_min'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['lg_fde_avg'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['lg_fde_std'])
-
-        self.viz.close(env=self.name + '/lines', win=self.win_id['test_l2_lg_pos_loss'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['test_cos_sim1'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['test_cos_sim2'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['l2_lg_pos_loss'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['cos_sim1'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['cos_sim2'])
-
-
     ####
     def visualize_line(self):
 
@@ -598,57 +601,6 @@ class Solver(object):
         lg_kl = torch.Tensor(data['lg_kl'])
         test_lg_recon = torch.Tensor(data['test_lg_recon'])
         test_lg_kl = torch.Tensor(data['test_lg_kl'])
-
-        test_l2_lg_pos_loss = torch.Tensor(data['test_l2_lg_pos_loss'])
-        test_cos_sim1 = torch.Tensor(data['test_cos_sim1'])
-        test_cos_sim2 = torch.Tensor(data['test_cos_sim2'])
-        l2_lg_pos_loss = torch.Tensor(data['l2_lg_pos_loss'])
-        cos_sim1 = torch.Tensor(data['cos_sim1'])
-        cos_sim2 = torch.Tensor(data['cos_sim2'])
-
-
-        self.viz.line(
-            X=iters, Y=test_l2_lg_pos_loss, env=self.name + '/lines',
-            win=self.win_id['test_l2_lg_pos_loss'], update='append',
-            opts=dict(xlabel='iter', ylabel='test_l2_lg_pos_loss',
-                      title='test_l2_lg_pos_loss')
-        )
-
-        self.viz.line(
-            X=iters, Y=test_cos_sim1, env=self.name + '/lines',
-            win=self.win_id['test_cos_sim1'], update='append',
-            opts=dict(xlabel='iter', ylabel='test_cos_sim1',
-                      title='test_cos_sim1')
-        )
-        self.viz.line(
-            X=iters, Y=test_cos_sim2, env=self.name + '/lines',
-            win=self.win_id['test_cos_sim2'], update='append',
-            opts=dict(xlabel='iter', ylabel='test_cos_sim2',
-                      title='test_cos_sim2')
-        )
-
-        self.viz.line(
-            X=iters, Y=l2_lg_pos_loss, env=self.name + '/lines',
-            win=self.win_id['l2_lg_pos_loss'], update='append',
-            opts=dict(xlabel='iter', ylabel='l2_lg_pos_loss',
-                      title='l2_lg_pos_loss')
-        )
-
-
-        self.viz.line(
-            X=iters, Y=cos_sim1, env=self.name + '/lines',
-            win=self.win_id['cos_sim1'], update='append',
-            opts=dict(xlabel='iter', ylabel='cos_sim1',
-                      title='cos_sim1'),
-        )
-
-        self.viz.line(
-            X=iters, Y=cos_sim2, env=self.name + '/lines',
-            win=self.win_id['cos_sim2'], update='append',
-            opts=dict(xlabel='iter', ylabel='cos_sim2',
-                      title='cos_sim2'),
-        )
-
 
 
         self.viz.line(
