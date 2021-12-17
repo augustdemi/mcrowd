@@ -315,9 +315,9 @@ class Solver(object):
             #          TRAIN THE VAE (ENC & DEC)
             # ============================================
 
-            (obs_traj, fut_traj, seq_start_end,
+            (obs_traj, fut_traj, _,_, seq_start_end,
              obs_frames, pred_frames, map_path, inv_h_t,
-             local_map, local_ic, local_homo) = next(iterator)
+             local_map, local_ic, local_homo, _) = next(iterator)
             batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
             obs_heat_map, lg_heat_map =  self.make_heatmap(local_ic, local_map, aug=True)
@@ -355,7 +355,7 @@ class Solver(object):
                 self.save_checkpoint(iteration)
 
             # (visdom) insert current line stats
-            if (iteration > 14000) or (iteration < 6000):
+            if (iteration > 15000) or (iteration < 4000):
                 if self.viz_on and (iteration % self.viz_ll_iter == 0):
                     lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon, test_lg_kl = self.evaluate_dist(self.val_loader, loss=True)
                     test_total_loss = test_lg_recon - lg_kl_weight * test_lg_kl
@@ -409,9 +409,9 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, seq_start_end,
+                (obs_traj, fut_traj, _,_,seq_start_end,
                  obs_frames, pred_frames, map_path, inv_h_t,
-                 local_map, local_ic, local_homo) = batch
+                 local_map, local_ic, local_homo, _) = batch
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
@@ -478,9 +478,9 @@ class Solver(object):
             b = 0
             for batch in data_loader:
                 b += 1
-                (obs_traj, fut_traj, seq_start_end,
+                (obs_traj, fut_traj, _,_, seq_start_end,
                  obs_frames, pred_frames, map_path, inv_h_t,
-                 local_map, local_ic, local_homo) = batch
+                 local_map, local_ic, local_homo, _) = batch
 
                 obs_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
 
