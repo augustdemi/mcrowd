@@ -282,7 +282,7 @@ class Solver(object):
             y = local_ic[:,:,1] - 80
             cs = np.cos(np.pi / 180 * degree)
             sn = np.sin(np.pi / 180 * degree)
-            rotated_local_ic = torch.from_numpy(np.stack([x * cs - y * sn, x * sn + y * cs], axis=2)).float().to(self.device) + 80
+            rotated_local_ic = np.stack([x * cs - y * sn, x * sn + y * cs], axis=2)
 
             rotated_past_local_state = []
             for past in rotated_local_ic[:,:self.obs_len]:
