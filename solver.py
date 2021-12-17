@@ -372,6 +372,7 @@ class Solver(object):
                 # rotated_gt_lg.append(argmax_idx)
 
             pred_lg_ics = torch.tensor(pred_lg_ics).float().to(self.device)
+            rotated_local_ic = torch.tensor(rotated_local_ic).float().to(self.device)
             l2_lg_pos_loss = torch.norm(pred_lg_ics - rotated_local_ic[:, -1], p=2, dim=1).sum().div(batch_size)
 
             obs_vec = (rotated_local_ic[:, self.obs_len-1] - rotated_local_ic[:, self.obs_len-2])
