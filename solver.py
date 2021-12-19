@@ -257,8 +257,6 @@ class Solver(object):
             heatmaps = transforms.Compose([
                 transforms.RandomRotation(degrees=(degree, degree))
             ])(heatmaps)
-        return heatmaps[:,:2], heatmaps[:,2:]
-
         return heatmaps[:,:2], heatmaps[:,2:], heatmaps[:,-1].unsqueeze(1)
 
     ####
