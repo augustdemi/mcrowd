@@ -559,6 +559,19 @@ class Solver(object):
     def evaluate_each(self, data_loader, num_pred=20):
         self.set_mode(train=False)
 
+        import pickle
+        with open('map_fde.pkl', 'rb') as f:
+            aa =pickle.load(f)
+
+        curve = aa['curv']
+        fde = aa['lg_fde']
+        mf = aa['map_feat']
+        fmin = np.min(aa['lg_fde'], 1)
+        s=[]
+        for (i, e) in enumerate(fmin):
+            s.append((i, e))
+        dd = sorted(s, key=lambda x: x[1])
+
         total_traj = 0
         lg_fde=[]
         map_feat=[]
