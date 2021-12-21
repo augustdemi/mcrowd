@@ -28,6 +28,15 @@ from numpy.linalg import norm
 
 ###############################################################################
 
+def trajectory_curvature(t):
+    path_distance = np.linalg.norm(t[-1] - t[0])
+
+    lengths = np.sqrt(np.sum(np.diff(t, axis=0) ** 2, axis=1))  # Length between points
+    path_length = np.sum(lengths)
+    if np.isclose(path_distance, 0.):
+        return 0, 0, 0
+    return (path_length / path_distance) - 1, path_length, path_distance
+
 
 def set_seed(seed):
     np.random.seed(seed)
@@ -244,7 +253,7 @@ class Solver(object):
                 b += 1
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
                  obs_frames, pred_frames, map_path, inv_h_t,
-                 local_map, local_ic, local_homo) = batch
+                 local_map, local_ic, local_homo, obs_local_state) = batch
 
                 batch = data_loader.dataset.__getitem__(131)
                 batch = data_loader.dataset.__getitem__(277)
@@ -269,7 +278,8 @@ class Solver(object):
                 i=tmp_idx =0
 
                 obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
-                self.lg_cvae.forward(obs_heat_map, None, training=False)
+                # self.lg_cvae.forward(obs_heat_map, None, training=False)
+                self.lg_cvae.forward(obs_heat_map, obs_local_state, None, training=False)
 
                 '''
                 #paper image: idx=27
@@ -806,8 +816,8 @@ class Solver(object):
                         # T++
                         import pickle5
                         # with open('C:\dataset/t++\experiments\pedestrians/t_path_20.pkl', 'rb') as f:
-                        # with open('D:\crowd\AgentFormer pathfinding k=20/pathfinding_20_AF.pkl', 'rb') as f:
-                        with open('C:/Users\Mihee\Documents\카카오톡 받은 파일/ynet_pathfinding_k20.pkl', 'rb') as f:
+                        with open('D:\crowd\AgentFormer pathfinding k=20/pathfinding_20_AF.pkl', 'rb') as f:
+                        # with open('C:/Users\Mihee\Documents\카카오톡 받은 파일/ynet_pathfinding_k20.pkl', 'rb') as f:
                             aa = pickle5.load(f)
                         our_gt = fut_traj[:, 0, :2].numpy()
                         idx= np.where(((aa[1][0,:,0] - our_gt[0])**2).sum(1) <0.4)[0]
@@ -968,6 +978,91 @@ class Solver(object):
                         ax.legend()
 
 
+    def evaluate_each(self, data_loader, num_pred=20):
+        self.set_mode(train=False)
+
+        # import pickle
+        # with open('map_fde.pkl', 'rb') as f:
+        #     aa =pickle.load(f)
+        #
+        # curve = aa['curv']
+        # fde = aa['lg_fde']
+        # mf = aa['map_feat']
+        # fmin = np.min(aa['lg_fde'], 1)
+        # s=[]
+        # for (i, e) in enumerate(fmin):
+        #     s.append((i, e))
+        # dd = sorted(s, key=lambda x: x[1])
+
+        total_traj = 0
+        lg_fde=[]
+        map_feat=[]
+        curvatures=[]
+        with torch.no_grad():
+            b=0
+            for batch in data_loader:
+                b+=1
+                (obs_traj, fut_traj, _,_, seq_start_end,
+                 obs_frames, pred_frames, map_path, inv_h_t,
+                 local_map, local_ic, local_homo, obs_local_state) = batch
+                batch_size = obs_traj.size(1)
+                total_traj += fut_traj.size(1)
+
+                obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
+
+                self.lg_cvae.forward(obs_heat_map, obs_local_state, None, training=False)
+                pred_lg_wc20 = []
+
+                for _ in range(num_pred):
+                    # -------- long term goal --------
+                    pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True))
+
+                    pred_lg_wc = []
+                    pred_lg_ics = []
+                    for i in range(batch_size):
+                        map_size = local_map[i][0].shape
+                        pred_lg_ic = []
+                        for heat_map in pred_lg_heat[i]:
+                            argmax_idx = heat_map.argmax()
+                            argmax_idx = [argmax_idx//map_size[0], argmax_idx%map_size[0]]
+                            pred_lg_ic.append(argmax_idx)
+                        pred_lg_ic = torch.tensor(pred_lg_ic).float().to(self.device)
+                        pred_lg_ics.append(pred_lg_ic)
+
+                        # ((local_ic[0,[11,15,19]] - pred_lg_ic) ** 2).sum(1).mean()
+                        back_wc = torch.matmul(
+                            torch.cat([pred_lg_ic, torch.ones((len(pred_lg_ic), 1)).to(self.device)], dim=1),
+                            torch.transpose(local_homo[i].float().to(self.device), 1, 0))
+                        pred_lg_wc.append(back_wc[0,:2] / back_wc[0,2])
+                        # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
+                    pred_lg_wc = torch.stack(pred_lg_wc)
+                    pred_lg_wc20.append(pred_lg_wc)
+                lg_fde.append(torch.sqrt(((torch.stack(pred_lg_wc20)
+                                           - fut_traj[-1,:,:2].unsqueeze(0).repeat((num_pred,1,1)))**2).sum(-1)))
+                encoding = self.lg_cvae.unet_enc_feat
+                encoding = torch.mean(encoding, dim=2, keepdim=True)
+                encoding = torch.mean(encoding, dim=3, keepdim=True)
+                encoding = torch.squeeze(encoding, dim=2)
+                encoding = torch.squeeze(encoding, dim=2)
+                map_feat.append(encoding.detach().cpu().numpy())
+                for coord in local_ic:
+                    curvature, pl, _ = trajectory_curvature(coord[:8])
+                    curvatures.append(curvature)
+
+            lg_fde=torch.cat(lg_fde, dim=1).cpu().numpy()
+            # lg_fde_min = np.min(lg_fde, axis=0)
+            # lg_fde_avg = np.mean(lg_fde, axis=0)
+            # lg_fde_std = np.std(lg_fde, axis=0)
+            map_feat = np.concatenate(map_feat)
+            curvatures = np.array(curvatures)
+
+        all = {'lg_fde':lg_fde.transpose(1,0), 'map_feat':map_feat, 'curv':curvatures}
+
+        import pickle
+        with open('312_map_fde.pkl', 'wb') as f:
+            pickle.dump(all, f)
+        print(curvatures.shape)
+
 
     def all_evaluation(self, data_loader, lg_num=5, traj_num=4, generate_heat=True):
         self.set_mode(train=False)
@@ -983,14 +1078,15 @@ class Solver(object):
                 b+=1
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
                  obs_frames, pred_frames, map_path, inv_h_t,
-                 local_map, local_ic, local_homo) = batch
+                 local_map, local_ic, local_homo, obs_local_state) = batch
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
                 map_size = local_map[0,0].shape
 
                 obs_heat_map, _, _= self.make_heatmap(local_ic, local_map)
 
-                self.lg_cvae.forward(obs_heat_map, None, training=False)
+                # self.lg_cvae.forward(obs_heat_map, None, training=False)
+                self.lg_cvae.forward(obs_heat_map, obs_local_state, None, training=False)
                 fut_rel_pos_dists = []
                 pred_lg_wcs = []
                 pred_sg_wcs = []
