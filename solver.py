@@ -311,6 +311,7 @@ class Solver(object):
             p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
             q_dist = Normal(muy, torch.sqrt(torch.exp(log_vary)))
 
+            rel_fut_pos = fut_traj[:,:,:2] - obs_traj[-1:, :, :2]
 
             # TF, goals, z~posterior
             fut_rel_pos_dist_tf_post = self.decoderMy(
@@ -320,7 +321,7 @@ class Solver(object):
                 q_dist.rsample(),
                 fut_traj[list(self.sg_idx), :, :2].permute(1,0,2), # goal
                 self.sg_idx,
-                fut_vel_st # TF
+                rel_fut_pos # TF
             )
 
 
@@ -335,8 +336,8 @@ class Solver(object):
             )
 
 
-            ll_tf_post = fut_rel_pos_dist_tf_post.log_prob(fut_vel_st).sum().div(batch_size)
-            ll_prior = fut_rel_pos_dist_prior.log_prob(fut_vel_st).sum().div(batch_size)
+            ll_tf_post = fut_rel_pos_dist_tf_post.log_prob(rel_fut_pos).sum().div(batch_size)
+            ll_prior = fut_rel_pos_dist_prior.log_prob(rel_fut_pos).sum().div(batch_size)
 
             loss_kl = kl_divergence(q_dist, p_dist)
             loss_kl = torch.clamp(loss_kl, min=self.z_fb).sum().div(batch_size)
@@ -462,13 +463,14 @@ class Solver(object):
                         = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, hx, train=False)
                     q_dist = Normal(muy, torch.sqrt(torch.exp(log_var)))
 
-                    loss_recon -= fut_rel_pos_dist_prior.log_prob(fut_vel_st).sum().div(batch_size)
+                    rel_fut_pos = fut_traj[:, :, :2] - obs_traj[-1:, :, :2]
+                    loss_recon -= fut_rel_pos_dist_prior.log_prob(rel_fut_pos).sum().div(batch_size)
                     kld = kl_divergence(q_dist, p_dist).sum().div(batch_size)
                     loss_kl += kld
 
                 ade, fde = [], []
                 for dist in fut_rel_pos_dist20:
-                    pred_fut_traj=integrate_samples(dist.rsample() * self.scale, obs_traj[-1, :, :2], dt=self.dt)
+                    pred_fut_traj=dist.rsample() + obs_traj[-1:, :, :2]
                     ade.append(displacement_error(
                         pred_fut_traj, fut_traj[:,:,:2], mode='raw'
                     ))
