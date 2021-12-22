@@ -67,10 +67,8 @@ class EncoderX(nn.Module):
         self.fc_latent = nn.Linear(mlp_dim, zS_dim*2)
 
         # self.local_map_feat_dim = np.prod([*a])
-        self.map_h_dim = 64*16*16
-
-        self.map_fc1 = nn.Linear(self.map_h_dim + 9, map_mlp_dim)
-        self.map_fc2 = nn.Linear(map_mlp_dim, map_feat_dim)
+        self.local_map_feat_dim = 64
+        self.map_fc = nn.Linear(self.local_map_feat_dim + 9, map_feat_dim)
 
 
     def forward(self, obs_traj, seq_start_end, local_map_feat, local_homo, train=False):
@@ -94,13 +92,11 @@ class EncoderX(nn.Module):
         stats = self.fc_latent(hx)
 
         # map enc
-        local_map_feat = local_map_feat.view(-1, self.map_h_dim)
+        local_map_feat = torch.mean(local_map_feat, dim=2, keepdim=True)
+        local_map_feat = torch.mean(local_map_feat, dim=3, keepdim=True)
+        local_map_feat = local_map_feat.squeeze(-1).squeeze(-1)
         local_homo = local_homo.view(-1, 9)
-        map_feat = self.map_fc1(torch.cat((local_map_feat, local_homo), dim=-1))
-        map_feat = F.dropout(F.relu(map_feat),
-                      p=self.dropout_mlp,
-                      training=train)
-        map_feat = self.map_fc2(map_feat)
+        map_feat = self.map_fc(torch.cat((local_map_feat, local_homo), dim=-1))
 
         # map and traj
         hx = self.fc_hidden(torch.cat((hx, map_feat), dim=-1)) # 64(32 without attn) to z dim
@@ -262,15 +258,11 @@ class Decoder(nn.Module):
             std = torch.sqrt(torch.exp(logVar))
             mus.append(mu)
             stds.append(std)
-
             if train:
                 pred_vel = fut_vel_st[i]
             else:
-                if(i == sg_update_idx[j]):
-                    pred_vel = sg_state[j+1,:,2:4]
-                    j += 1
-                else:
-                    pred_vel = Normal(mu, std).rsample()
+                pred_vel = Normal(mu, std).rsample()
+
 
         mus = torch.stack(mus, dim=0)
         stds = torch.stack(stds, dim=0)
