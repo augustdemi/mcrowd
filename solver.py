@@ -475,9 +475,9 @@ class Solver(object):
             lg_fde_avg = np.mean(lg_fde2, axis=0).mean()
             lg_fde_std = np.std(lg_fde2, axis=0).mean()
 
-            lg_fde_min = np.min(lg_fde, axis=0).mean()
-            lg_fde_avg = np.mean(lg_fde, axis=0).mean()
-            lg_fde_std = np.std(lg_fde, axis=0).mean()
+            # lg_fde_min = np.min(lg_fde, axis=0).mean()
+            # lg_fde_avg = np.mean(lg_fde, axis=0).mean()
+            # lg_fde_std = np.std(lg_fde, axis=0).mean()
             sg_ade_min = np.min(sg_ade, axis=0).mean()/len(self.sg_idx)
             sg_ade_avg = np.mean(sg_ade, axis=0).mean()/len(self.sg_idx)
             sg_ade_std = np.std(sg_ade, axis=0).mean()/len(self.sg_idx)
