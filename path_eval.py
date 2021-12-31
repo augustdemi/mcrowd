@@ -263,9 +263,10 @@ class Solver(object):
                 batch = data_loader.dataset.__getitem__(idx)
                 (obs_traj, fut_traj,
                  obs_frames, pred_frames, map_path, inv_h_t,
-                 local_map, local_ic, local_homo, scale) = batch
+                 local_map, local_ic, local_homo, obs_local_state, scale) = batch
                 obs_traj = obs_traj.permute((2,0,1))
                 fut_traj = fut_traj.permute((2,0,1))
+                obs_local_state = obs_local_state.permute((2,0,1))
                 plt.imshow(local_map[0, 0])
                 plt.scatter(local_ic[0,:,1], local_ic[0,:,0], s=1, c='b')
                 plt.show()
@@ -278,8 +279,8 @@ class Solver(object):
                 i=tmp_idx =0
 
                 obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
-                # self.lg_cvae.forward(obs_heat_map, None, training=False)
-                self.lg_cvae.forward(obs_heat_map, obs_local_state, None, training=False)
+                self.lg_cvae.forward(obs_heat_map, None, training=False)
+                # self.lg_cvae.forward(obs_heat_map, obs_local_state, None, training=False)
 
                 '''
                 #paper image: idx=27
@@ -412,6 +413,34 @@ class Solver(object):
                         ax.imshow(mmm[k % 5][i, 0])
 
 
+
+                ################ LG2 #####################
+                zs = []
+                for _ in range(20):
+                    zs.append(self.lg_cvae.prior_latent_space.rsample())
+
+                mm = []
+                for k in range(20):
+                    mm.append(F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, zs[k])))
+
+
+                env = 1-local_map[i,0]
+                heat_map_traj = torch.zeros((160,160))
+                for t in [0, 1, 2, 3, 4, 5, 6, 7, 11, 15, 19]:
+                    heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 20
+                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=1)
+
+
+                fig = plt.figure(figsize=(12, 10))
+                fig.tight_layout()
+                for k in range(20):
+                    ax = fig.add_subplot(4, 5, k + 1)
+                    a = mm[k][i, 0].detach().cpu().numpy().copy()
+                    ax.imshow(np.stack([env * (1 - heat_map_traj), env * (1 - a * 5), env], axis=2))
+                    ax.imshow(mm[k][i, 0], alpha=0.5)
+                    ax.axis('off')
+
+
                 ####################### SG ############################
 
                 pred_lg_prior = mm[0]
@@ -462,22 +491,24 @@ class Solver(object):
                 pred_sg_wcs = []
                 traj_num=1
                 lg_num=20
+                mm = []
 
 
                 # for _ in range(lg_num):
                 while len(pred_lg_wcs) < lg_num :
                     # -------- long term goal --------
                     pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True))
+                    mm.append(pred_lg_heat)
                 # for pred_lg_heat in mmm:
                     pred_lg_wc = []
                     pred_lg_ics = []
                     pred_lg_ic = (pred_lg_heat[0,0] == torch.max(pred_lg_heat[0,0])).nonzero()[0].unsqueeze(0).float()
-                    obs_vec = local_ic[0, self.obs_len - 1] - local_ic[0, self.obs_len - 2]
-                    pred_vec = local_ic[0, self.obs_len - 1]- pred_lg_ic.detach().cpu().numpy().squeeze(0)
-                    cos_sim = dot(obs_vec, pred_vec) / (norm(obs_vec) * norm(pred_vec))
-                    if cos_sim > 0:
-                        print(cos_sim)
-                        continue
+                    # obs_vec = local_ic[0, self.obs_len - 1] - local_ic[0, self.obs_len - 2]
+                    # pred_vec = local_ic[0, self.obs_len - 1]- pred_lg_ic.detach().cpu().numpy().squeeze(0)
+                    # cos_sim = dot(obs_vec, pred_vec) / (norm(obs_vec) * norm(pred_vec))
+                    # if cos_sim > 0:
+                    #     print(cos_sim)
+                    #     continue
                     pred_lg_ics.append(pred_lg_ic)
 
                     # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
@@ -981,18 +1012,18 @@ class Solver(object):
     def evaluate_each(self, data_loader, num_pred=20):
         self.set_mode(train=False)
 
-        # import pickle
-        # with open('map_fde.pkl', 'rb') as f:
-        #     aa =pickle.load(f)
-        #
-        # curve = aa['curv']
-        # fde = aa['lg_fde']
-        # mf = aa['map_feat']
-        # fmin = np.min(aa['lg_fde'], 1)
-        # s=[]
-        # for (i, e) in enumerate(fmin):
-        #     s.append((i, e))
-        # dd = sorted(s, key=lambda x: x[1])
+        import pickle
+        with open('312_map_fde.pkl', 'rb') as f:
+            aa =pickle.load(f)
+
+        curve = aa['curv']
+        fde = aa['lg_fde']
+        mf = aa['map_feat']
+        fmin = np.min(aa['lg_fde'], 1)
+        s=[]
+        for (i, e) in enumerate(fmin):
+            s.append((i, e))
+        dd = sorted(s, key=lambda x: x[1])
 
         total_traj = 0
         lg_fde=[]
@@ -1101,12 +1132,12 @@ class Solver(object):
                     pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True, z_prior=w_prior))
                 # for pred_lg_heat in mmm:
                     pred_lg_ic = (pred_lg_heat[0,0] == torch.max(pred_lg_heat[0,0])).nonzero()[0].unsqueeze(0).float()
-                    obs_vec = local_ic[0, self.obs_len - 1] - local_ic[0, self.obs_len - 2]
-                    pred_vec = local_ic[0, self.obs_len - 1]- pred_lg_ic.detach().cpu().numpy().squeeze(0)
-                    cos_sim = dot(obs_vec, pred_vec) / (norm(obs_vec) * norm(pred_vec))
-                    if cos_sim > 0.5:
-                        # print(cos_sim)
-                        continue
+                    # obs_vec = local_ic[0, self.obs_len - 1] - local_ic[0, self.obs_len - 2]
+                    # pred_vec = local_ic[0, self.obs_len - 1]- pred_lg_ic.detach().cpu().numpy().squeeze(0)
+                    # cos_sim = dot(obs_vec, pred_vec) / (norm(obs_vec) * norm(pred_vec))
+                    # if cos_sim > 0.5:
+                    #     # print(cos_sim)
+                    #     continue
 
                     back_wc = torch.matmul(
                         torch.cat([pred_lg_ic, torch.ones((len(pred_lg_ic), 1)).to(self.device)], dim=1),
