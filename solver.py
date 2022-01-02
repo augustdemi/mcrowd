@@ -20,7 +20,7 @@ from unet.probabilistic_unet import ProbabilisticUnet
 from unet.unet import Unet
 import numpy as np
 import visdom
-
+import cv2
 
 ###############################################################################
 
@@ -159,8 +159,8 @@ class Solver(object):
         self.num_layers = args.num_layers
         self.decoder_h_dim = args.decoder_h_dim
 
-        lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1.0_a_0.25_r_2.0_fb_0.5_anneal_e_10_load_e_1_pos_1.0_v1_0.0_2.0_v2_1.0_2.0_run_312'
-        lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_40200_lg_cvae.pt')
+        lg_cvae_path = 'sdd.lgcvae_enc_block_1_fcomb_block_3_wD_20_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_6.0_anneal_e_10_aug_1_run_23'
+        lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_59000_lg_cvae.pt')
 
         if self.device == 'cuda':
             self.lg_cvae = torch.load(lg_cvae_path)
@@ -222,9 +222,10 @@ class Solver(object):
 
         if self.ckpt_load_iter != self.max_iter:
             print("Initializing train dataset")
-            _, self.train_loader = data_loader(self.args, args.dataset_dir, 'train', shuffle=True)
+            _, self.train_loader = data_loader(self.args, self.dataset_dir, data_split='train')
             print("Initializing val dataset")
-            _, self.val_loader = data_loader(self.args, args.dataset_dir, 'val', shuffle=True)
+            _, self.val_loader = data_loader(self.args, self.dataset_dir, data_split='test')
+
             print(
                 'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
             )
@@ -233,37 +234,83 @@ class Solver(object):
 
 
 
-    def make_heatmap(self, local_ic, local_map):
-        heatmaps = []
+    def make_heatmap(self, local_ic, local_map, aug=False, only_obs=False):
+        heat_maps=[]
+        down_size=256
+        half = down_size//2
         for i in range(len(local_ic)):
-            ohm = [local_map[i, 0]]
+            map_size = local_map[i][0].shape[0]
+            if map_size < down_size:
+                env = np.full((down_size,down_size),3)
+                env[half-map_size//2:half+map_size//2, half-map_size//2:half+map_size//2] = local_map[i][0]
+                ohm = [env/5]
+                heat_map_traj = np.zeros_like(local_map[i][0])
+                heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 1
+                heat_map_traj= ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+                heat_map_traj = heat_map_traj / heat_map_traj.sum()
+                extended_map = np.zeros((down_size, down_size))
+                extended_map[half-map_size//2:half+map_size//2, half-map_size//2:half+map_size//2] = heat_map_traj
+                ohm.append(extended_map)
+                if not only_obs:
+                    # future
+                    for j in (self.sg_idx + 8):
+                        heat_map_traj = np.zeros_like(local_map[i][0])
+                        heat_map_traj[local_ic[i, j, 0], local_ic[i, j, 1]] = 1
+                        heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+                        extended_map = np.zeros((down_size, down_size))
+                        extended_map[half-map_size//2:half+map_size//2, half-map_size//2:half+map_size//2]= heat_map_traj
+                        ohm.append(extended_map)
+                heat_maps.append(np.stack(ohm))
+            else:
+                env = cv2.resize(local_map[i][0], dsize=(down_size, down_size))
+                ohm = [env/5]
+                heat_map_traj = np.zeros_like(local_map[i][0])
+                heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 100
 
-            heat_map_traj = np.zeros((160, 160))
-            for t in range(self.obs_len):
-                heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
-                # as Y-net used variance 4 for the GT heatmap representation.
-            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-            ohm.append( heat_map_traj/heat_map_traj.sum())
+                if map_size > 1000:
+                    heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2),
+                                               dsize=((map_size+down_size)//2, (map_size+down_size)//2))
+                    heat_map_traj = heat_map_traj / heat_map_traj.sum()
+                heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=(down_size, down_size))
+                if map_size > 3500:
+                    heat_map_traj[np.where(heat_map_traj > 0)] = 1
+                else:
+                    heat_map_traj = heat_map_traj / heat_map_traj.sum()
+                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+                ohm.append(heat_map_traj / heat_map_traj.sum())
 
-            heat_map_traj = np.zeros((160, 160))
-            heat_map_traj[local_ic[i, -1, 0], local_ic[i,-1, 1]] = 1
-            # as Y-net used variance 4 for the GT heatmap representation.
-            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-            # plt.imshow(heat_map_traj)
-            ohm.append(heat_map_traj)
+                '''
+                heat_map = nnf.interpolate(torch.tensor(heat_map_traj).unsqueeze(0).unsqueeze(0),
+                                           size=local_map[i][0].shape, mode='nearest').squeeze(0).squeeze(0)
+                heat_map = nnf.interpolate(torch.tensor(heat_map_traj).unsqueeze(0).unsqueeze(0),
+                                           size=local_map[i][0].shape,  mode='bicubic',
+                                                  align_corners = False).squeeze(0).squeeze(0)
+                '''
+                if not only_obs:
+                    for j in (self.sg_idx+ 8):
+                        heat_map_traj = np.zeros_like(local_map[i][0])
+                        heat_map_traj[local_ic[i, j, 0], local_ic[i, j, 1]] = 1000
+                        if map_size > 1000:
+                            heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2),
+                                                       dsize=((map_size+down_size)//2, (map_size+down_size)//2))
+                        heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=(down_size, down_size))
+                        heat_map_traj = heat_map_traj / heat_map_traj.sum()
+                        heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+                        ohm.append(heat_map_traj)
+                heat_maps.append(np.stack(ohm))
 
-            heatmaps.append(np.stack(ohm))
-            '''
-            heat_map_traj = np.zeros((160, 160))
-            # for t in range(self.obs_len + self.pred_len):
-            for t in [0,1,2,3,4,5,6,7,11,14,17]:
-                heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
-                # as Y-net used variance 4 for the GT heatmap representation.
-            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-            plt.imshow(heat_map_traj)
-            '''
-        heatmaps = torch.tensor(np.stack(heatmaps)).float().to(self.device)
-        return heatmaps[:,:2], heatmaps[:,2:]
+        heat_maps = torch.tensor(np.stack(heat_maps)).float().to(self.device)
+
+        if aug:
+            degree = np.random.choice([0,90,180, -90])
+            heat_maps = transforms.Compose([
+                transforms.RandomRotation(degrees=(degree, degree))
+            ])(heat_maps)
+        if only_obs:
+            return heat_maps
+        else:
+            return heat_maps[:,:2], heat_maps[:,2:], heat_maps[:,-1].unsqueeze(1)
+
 
     ####
     def train(self):
@@ -295,7 +342,7 @@ class Solver(object):
              local_map, local_ic, local_homo, _) = next(iterator)
             batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
-            obs_heat_map, _ =  self.make_heatmap(local_ic, local_map)
+            obs_heat_map =  self.make_heatmap(local_ic, local_map, aug=False, only_obs=True)
 
             #-------- map encoding from lgvae --------
             unet_enc_feat = self.lg_cvae.unet.down_forward(obs_heat_map)
@@ -434,7 +481,7 @@ class Solver(object):
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
-                obs_heat_map, _ = self.make_heatmap(local_ic, local_map)
+                obs_heat_map = self.make_heatmap(local_ic, local_map, aug=False, only_obs=True)
 
                 # -------- map encoding from lgvae --------
                 unet_enc_feat = self.lg_cvae.unet.down_forward(obs_heat_map)
