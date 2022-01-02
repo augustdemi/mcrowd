@@ -37,10 +37,6 @@ def integrate_samples(v, p_0, dt=1):
     abs_traj = torch.cumsum(v, dim=1) * dt + p_0.unsqueeze(1)
     return  abs_traj.permute((1, 0, 2))
 
-# def recon_loss_with_logit(input, target):
-#     nn.BCEWithLogitsLoss(size_average = False, reduce=False, reduction=None)
-
-
 
 class Solver(object):
 
@@ -51,7 +47,6 @@ class Solver(object):
 
         self.name = '%s_lr_%s_a_%s_r_%s_aug_%s_scale_%s_num_sg_%s' % \
                     (args.dataset_name, args.lr_VAE, args.alpha, args.gamma, args.aug, args.scale, args.load_e)
-        # self.name = 'sg_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_2.0_anneal_e_10_load_e_1'
 
         # to be appended by run_id
 
