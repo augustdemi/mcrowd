@@ -339,7 +339,8 @@ class Solver(object):
 
             (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
              obs_frames, pred_frames, map_path, inv_h_t,
-             local_map, local_ic, local_homo, _) = next(iterator)
+             local_map, local_ic, local_homo) = next(iterator)
+
             batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
             obs_heat_map =  self.make_heatmap(local_ic, local_map, aug=False, only_obs=True)
@@ -475,9 +476,10 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
+
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
                  obs_frames, pred_frames, map_path, inv_h_t,
-                 local_map, local_ic, local_homo, _) = batch
+                 local_map, local_ic, local_homo) = batch
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
