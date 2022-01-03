@@ -365,7 +365,8 @@ class Solver(object):
                 q_dist.rsample(),
                 fut_traj[list(self.sg_idx), :, :2].permute(1,0,2), # goal
                 self.sg_idx,
-                rel_fut_pos # TF
+                rel_fut_pos, # TF
+                train=True
             )
 
 
@@ -377,6 +378,7 @@ class Solver(object):
                 p_dist.rsample(),
                 fut_traj[list(self.sg_idx), :, :2].permute(1, 0, 2),  # goal
                 self.sg_idx,
+                train=True
             )
 
 
