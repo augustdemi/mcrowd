@@ -191,7 +191,8 @@ class Solver(object):
                 z_dim=args.zS_dim,
                 num_layers=args.num_layers,
                 device=args.device,
-                dropout_rnn=args.dropout_rnn).to(self.device)
+                dropout_rnn=args.dropout_rnn,
+                scale=100).to(self.device)
 
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
