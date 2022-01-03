@@ -254,7 +254,7 @@ class Decoder(nn.Module):
             std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
             mus.append(mu)
             stds.append(std)
-            if rel_fut_pos:
+            if rel_fut_pos is not None:
                 pred_pos = rel_fut_pos[i]
             else:
                 pred_pos = Normal(mu, std).rsample()
