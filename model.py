@@ -67,8 +67,10 @@ class EncoderX(nn.Module):
         self.fc_latent = nn.Linear(mlp_dim, zS_dim*2)
 
         # self.local_map_feat_dim = np.prod([*a])
-        self.local_map_feat_dim = 64
-        self.map_fc = nn.Linear(self.local_map_feat_dim + 9, map_feat_dim)
+        self.map_h_dim = 64*16*16
+
+        self.map_fc1 = nn.Linear(self.map_h_dim + 9, map_mlp_dim)
+        self.map_fc2 = nn.Linear(map_mlp_dim, map_feat_dim)
 
 
     def forward(self, obs_traj, seq_start_end, local_map_feat, local_homo, train=False):
@@ -92,11 +94,13 @@ class EncoderX(nn.Module):
         stats = self.fc_latent(hx)
 
         # map enc
-        local_map_feat = torch.mean(local_map_feat, dim=2, keepdim=True)
-        local_map_feat = torch.mean(local_map_feat, dim=3, keepdim=True)
-        local_map_feat = local_map_feat.squeeze(-1).squeeze(-1)
+        local_map_feat = local_map_feat.view(-1, self.map_h_dim)
         local_homo = local_homo.view(-1, 9)
-        map_feat = self.map_fc(torch.cat((local_map_feat, local_homo), dim=-1))
+        map_feat = self.map_fc1(torch.cat((local_map_feat, local_homo), dim=-1))
+        map_feat = F.dropout(F.relu(map_feat),
+                      p=self.dropout_mlp,
+                      training=train)
+        map_feat = self.map_fc2(map_feat)
 
         # map and traj
         hx = self.fc_hidden(torch.cat((hx, map_feat), dim=-1)) # 64(32 without attn) to z dim
@@ -201,7 +205,7 @@ class Decoder(nn.Module):
         self.sg_fc = nn.Linear(4*enc_h_dim, n_pred_state)
 
 
-    def forward(self, last_obs_st, last_obs_pos, enc_h_feat, z, sg, sg_update_idx, rel_fut_pos=None, train=False):
+    def forward(self, last_obs_st, last_obs_pos, enc_h_feat, z, sg, sg_update_idx, fut_vel_st=None):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
@@ -218,10 +222,10 @@ class Decoder(nn.Module):
         zx = torch.cat([enc_h_feat, z], dim=1) # 493, 89(64+25)
         decoder_h=self.dec_hidden(zx) # 493, 128
         # Infer initial action state for node from current state
-        pred_pos = self.to_vel(last_obs_st)
+        pred_vel = self.to_vel(last_obs_st)
 
         ### make six states
-        dt = self.dt * (self.seq_len/len(sg_update_idx))
+        dt = self.dt * (12/len(sg_update_idx))
         last_ob_sg = torch.cat([last_obs_pos.unsqueeze(1), sg], dim=1).detach().cpu().numpy()
         last_ob_sg = (last_ob_sg - last_ob_sg[:,:1])/self.scale # bs, 4(last obs + # sg), 2
 
@@ -237,28 +241,36 @@ class Decoder(nn.Module):
         ### sg encoding
         _, sg_h = self.sg_rnn_enc(sg_state) # [8, 656, 16], 두개의 [1, 656, 32]
         sg_h = torch.cat(sg_h, dim=0).permute(1, 0, 2)
+        if fut_vel_st is not None:
+            train=True
+        else:
+            train=False
         sg_h = F.dropout(sg_h,
                         p=self.dropout_rnn,
                         training=train)  # [bs, max_time, enc_rnn_dim]
         sg_feat = self.sg_fc(sg_h.reshape(-1, 4 * self.enc_h_dim))
 
+
         ### traj decoding
         mus = []
         stds = []
+        j=0
         for i in range(self.seq_len):
-            decoder_h= self.rnn_decoder(torch.cat([zx, pred_pos, sg_feat], dim=1), decoder_h) #493, 128
+            decoder_h= self.rnn_decoder(torch.cat([zx, pred_vel, sg_feat], dim=1), decoder_h) #493, 128
             mu= self.fc_mu(decoder_h)
             logVar = self.fc_std(decoder_h)
-            mu = torch.clamp(mu, min=-1e8, max=1e8)
-            logVar = torch.clamp(logVar, min=-8e1, max=8e1)
-            std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
+            std = torch.sqrt(torch.exp(logVar))
             mus.append(mu)
             stds.append(std)
-            if rel_fut_pos is not None:
-                pred_pos = rel_fut_pos[i]
-            else:
-                pred_pos = Normal(mu, std).rsample()
 
+            if train:
+                pred_vel = fut_vel_st[i]
+            else:
+                if(i == sg_update_idx[j]):
+                    pred_vel = sg_state[j+1,:,2:4]
+                    j += 1
+                else:
+                    pred_vel = Normal(mu, std).rsample()
 
         mus = torch.stack(mus, dim=0)
         stds = torch.stack(stds, dim=0)
