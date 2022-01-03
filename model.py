@@ -201,7 +201,7 @@ class Decoder(nn.Module):
         self.sg_fc = nn.Linear(4*enc_h_dim, n_pred_state)
 
 
-    def forward(self, last_obs_st, last_obs_pos, enc_h_feat, z, sg, sg_update_idx, rel_fut_pos=None):
+    def forward(self, last_obs_st, last_obs_pos, enc_h_feat, z, sg, sg_update_idx, rel_fut_pos=None, train=False):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
@@ -237,38 +237,27 @@ class Decoder(nn.Module):
         ### sg encoding
         _, sg_h = self.sg_rnn_enc(sg_state) # [8, 656, 16], 두개의 [1, 656, 32]
         sg_h = torch.cat(sg_h, dim=0).permute(1, 0, 2)
-        if rel_fut_pos is not None:
-            train=True
-        else:
-            train=False
         sg_h = F.dropout(sg_h,
                         p=self.dropout_rnn,
                         training=train)  # [bs, max_time, enc_rnn_dim]
         sg_feat = self.sg_fc(sg_h.reshape(-1, 4 * self.enc_h_dim))
 
-
-        sg = sg - last_obs_pos.unsqueeze(1)
         ### traj decoding
         mus = []
         stds = []
-        j=0
         for i in range(self.seq_len):
             decoder_h= self.rnn_decoder(torch.cat([zx, pred_pos, sg_feat], dim=1), decoder_h) #493, 128
             mu= self.fc_mu(decoder_h)
             logVar = self.fc_std(decoder_h)
-            std = torch.sqrt(torch.exp(logVar))
+            mu = torch.clamp(mu, min=-1e8, max=1e8)
+            logVar = torch.clamp(logVar, min=-1e8, max=8e1)
+            std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
             mus.append(mu)
             stds.append(std)
             if train:
                 pred_pos = rel_fut_pos[i]
             else:
-                # pred_pos = Normal(mu, std).rsample()
-                if(i == sg_update_idx[j]):
-                    pred_pos = sg[:,j]
-                    j += 1
-                else:
-                    pred_pos = Normal(mu, std).rsample()
-
+                pred_pos = Normal(mu, std).rsample()
 
 
         mus = torch.stack(mus, dim=0)
