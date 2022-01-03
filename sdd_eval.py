@@ -259,6 +259,7 @@ class Solver(object):
         return tensor
 
 
+
     def check_feat(self, data_loader):
         self.set_mode(train=False)
 
@@ -315,6 +316,10 @@ class Solver(object):
                 i=tmp_idx =0
 
                 obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
+
+                with open( 'D:\crowd\datasets\mmtransformer/map.pkl', 'rb') as f:
+                    s = pickle5.load(f)
+
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
 
@@ -578,10 +583,14 @@ class Solver(object):
                     pred_data.append(np.concatenate([local_ic[i,:8], pred_pixel[:,:2]], 0))
 
                     # pred_data.append(np.concatenate([obs_traj[:,i,:2].numpy(), pred_real], 0))
-
-
-
                 pred_data = np.expand_dims(np.stack(pred_data),1)
+
+
+                p = []
+                for pred in multi_sample_pred:
+                    p.append(integrate_samples(pred * self.scale, obs_traj[-1, :, :2], dt=self.dt))
+                p = torch.stack(p).transpose(2,1).numpy()
+                g = fut_traj[:,:,:2].transpose(1,0).unsqueeze(0).repeat((20,1,1,1)).numpy()
 
 
                 #---------- plot gif
@@ -809,94 +818,103 @@ class Solver(object):
                                 zorder=500,
                                 path_effects=[pe.Stroke(linewidth=2, foreground='k'), pe.Normal()], label='GT past')
                         c = m[jj] / m[jj].max()
-                        c[np.where(c<0.0001)] = 1
-                        d = np.stack([c+1, np.ones_like(c), np.ones_like(c)]).transpose(1, 2, 0)
+                        # c[np.where(c<0.0001)] = 1
+                        # d = np.stack([c+1, np.ones_like(c), np.ones_like(c)]).transpose(1, 2, 0)
+                        d = np.stack([1 - c, np.ones_like(c), np.ones_like(c)]).transpose(1, 2, 0)
                         ax.imshow(d, alpha=0.7)
 
                         ######################
-                        # AF
-                        import pickle5
-                        # with open('D:\crowd\sdd_ynet/output_k_20.pkl','rb') as f:
-                        # with open('C:\dataset/t++\experiments\pedestrians/9sdd_20.pkl', 'rb') as f:
-                        with open('D:\crowd\AgentFormer sdd k=20/sdd_20_AF.pkl', 'rb') as f:
-                            aa = pickle5.load(f)
-                        # aa[1] *=100
-                        our_gt = fut_traj[:, 0, :2].numpy()
-                        idx= np.where(((aa[1][0,:,0] - our_gt[0])**2).sum(1) <1)[0][0]
-                        gt = aa[1][0, idx]
-                        gt - our_gt
-                        af_pred = aa[0][:, idx]
+                    # AF
+                    import pickle5
+                    # with open('D:\crowd\sdd_ynet/output_k_20.pkl','rb') as f:
+                    with open('C:\dataset/t++\experiments\pedestrians/9sdd_20.pkl', 'rb') as f:
+                    # with open('D:\crowd\AgentFormer sdd k=20/sdd_20_AF.pkl', 'rb') as f:
+                        aa = pickle5.load(f)
+                    aa[1] *=100
+                    our_gt = fut_traj[:, 0, :2].numpy()
+                    idx= np.where(((aa[1][0,:,0] - our_gt[0])**2).sum(1) <1)[0][0]
+                    gt = aa[1][0, idx]
+                    gt - our_gt
+                    af_pred = aa[0][:, idx]
+                    bp = np.expand_dims(af_pred,1)
+                    bg = np.expand_dims(np.expand_dims(gt,0),0).repeat(20,0)
 
-                        ## pixel data
-                        af_pred_data = []
-                        for pred_real in af_pred:
-                            pred_pixel = np.concatenate([pred_real, np.ones((self.pred_len, 1))],
-                                                        axis=1)
+                    ## pixel data
+                    af_pred_data = []
+                    for pred_real in af_pred:
+                        pred_pixel = np.concatenate([pred_real, np.ones((self.pred_len, 1))],
+                                                    axis=1)
 
-                            pred_pixel = np.matmul(pred_pixel, np.linalg.inv(np.transpose(local_homo[tmp_idx])))
-                            pred_pixel /= np.expand_dims(pred_pixel[:, 2], 1)
-                            af_pred_data.append(np.concatenate([local_ic[i, :8], pred_pixel[:, :2]], 0))
+                        pred_pixel = np.matmul(pred_pixel, np.linalg.inv(np.transpose(local_homo[tmp_idx])))
+                        pred_pixel /= np.expand_dims(pred_pixel[:, 2], 1)
+                        af_pred_data.append(np.concatenate([local_ic[i, :8], pred_pixel[:, :2]], 0))
 
-                        af_pred_data = np.expand_dims(np.stack(af_pred_data), 1)  # (20, 1, 16, 2)
+                    af_pred_data = np.expand_dims(np.stack(af_pred_data), 1)  # (20, 1, 16, 2)
 
-                        import matplotlib.patheffects as pe
-                        import seaborn as sns
-                        from matplotlib.offsetbox import OffsetImage, AnnotationBbox
-                        ####### plot 20 trajs ############
-                        i = tmp_idx
-                        # env = local_map[i][0]
-                        env = np.expand_dims((1 - local_map[i][0] / 5 + 0.2), 2).repeat(3, 2)
+                    import matplotlib.patheffects as pe
+                    import seaborn as sns
+                    from matplotlib.offsetbox import OffsetImage, AnnotationBbox
+                    ####### plot 20 trajs ############
+                    i = tmp_idx
+                    # env = local_map[i][0]
+                    env = np.expand_dims((1 - local_map[i][0] / 5 + 0.2), 2).repeat(3, 2)
 
-                        fig = plt.figure(figsize=(5, 5))
-                        ax = fig.add_subplot(1, 1, 1)
-                        plt.tight_layout()
-                        # env = OffsetImage(env, zoom=0.06)
-                        # env = AnnotationBbox(env, (0.5, 0.5),
-                        #                      bboxprops=dict(edgecolor='red'))
-                        #
-                        # ax.add_artist(env)
-                        ax.imshow(env)
-                        ax.axis('off')
+                    fig = plt.figure(figsize=(5, 5))
+                    ax = fig.add_subplot(1, 1, 1)
+                    plt.tight_layout()
+                    # env = OffsetImage(env, zoom=0.06)
+                    # env = AnnotationBbox(env, (0.5, 0.5),
+                    #                      bboxprops=dict(edgecolor='red'))
+                    #
+                    # ax.add_artist(env)
+                    ax.imshow(env)
+                    ax.axis('off')
 
-                        for t in range(self.obs_len, self.obs_len + self.pred_len):
-                            # sns.kdeplot(pred_data[:, 0, t, 1], pred_data[:, 0, t, 0],shade=True)
-                            sns.kdeplot(af_pred_data[:, 0, t, 1], af_pred_data[:, 0, t, 0], bw=None,
-                                        ax=ax, shade=True, shade_lowest=False,
-                                        color='r', zorder=600, alpha=0.3, legend=True)
+                    for t in range(self.obs_len, self.obs_len + self.pred_len):
+                        # sns.kdeplot(pred_data[:, 0, t, 1], pred_data[:, 0, t, 0],shade=True)
+                        sns.kdeplot(af_pred_data[:, 0, t, 1], af_pred_data[:, 0, t, 0], bw=None,
+                                    ax=ax, shade=True, shade_lowest=False,
+                                    color='r', zorder=600, alpha=0.3, legend=True)
 
-                        # ax.scatter(local_ic[0,:,1], local_ic[0,:,0], s=5, c='b')
+                    # ax.scatter(local_ic[0,:,1], local_ic[0,:,0], s=5, c='b')
 
-                        for t in range(20):
-                            if t == 0:
-                                ax.plot(af_pred_data[t, 0, 8:, 1], af_pred_data[t, 0, 8:, 0], 'r--', linewidth=2,
-                                        zorder=650, c='firebrick',
-                                        path_effects=[pe.Stroke(linewidth=2, foreground='k'), pe.Normal()],
-                                        label='Predicted future')
-                            else:
-                                ax.plot(af_pred_data[t, 0, 8:, 1], af_pred_data[t, 0, 8:, 0], 'r--', linewidth=2,
-                                        zorder=650, c='firebrick',
-                                        path_effects=[pe.Stroke(linewidth=2, foreground='k'), pe.Normal()])
+                    for t in range(20):
+                        if t == 0:
+                            ax.plot(af_pred_data[t, 0, 8:, 1], af_pred_data[t, 0, 8:, 0], 'r--', linewidth=2,
+                                    zorder=650, c='firebrick',
+                                    path_effects=[pe.Stroke(linewidth=2, foreground='k'), pe.Normal()],
+                                    label='Predicted future')
+                        else:
+                            ax.plot(af_pred_data[t, 0, 8:, 1], af_pred_data[t, 0, 8:, 0], 'r--', linewidth=2,
+                                    zorder=650, c='firebrick',
+                                    path_effects=[pe.Stroke(linewidth=2, foreground='k'), pe.Normal()])
 
-                        ax.plot(local_ic[0, 8:, 1], local_ic[0, 8:, 0],
-                                'r--o',
-                                c='darkorange',
-                                linewidth=2,
-                                markersize=2,
-                                zorder=650,
-                                path_effects=[pe.Stroke(linewidth=2, foreground='k'), pe.Normal()], label='GT future')
-                        ax.plot(local_ic[0, :8, 1], local_ic[0, :8, 0],
-                                'b--o',
-                                c='royalblue',
-                                linewidth=2,
-                                markersize=2,
-                                zorder=650,
-                                path_effects=[pe.Stroke(linewidth=2, foreground='k'), pe.Normal()], label='GT past')
+                    ax.plot(local_ic[0, 8:, 1], local_ic[0, 8:, 0],
+                            'r--o',
+                            c='darkorange',
+                            linewidth=2,
+                            markersize=2,
+                            zorder=650,
+                            path_effects=[pe.Stroke(linewidth=2, foreground='k'), pe.Normal()], label='GT future')
+                    ax.plot(local_ic[0, :8, 1], local_ic[0, :8, 0],
+                            'b--o',
+                            c='royalblue',
+                            linewidth=2,
+                            markersize=2,
+                            zorder=650,
+                            path_effects=[pe.Stroke(linewidth=2, foreground='k'), pe.Normal()], label='GT past')
 
-                        ax.legend()
+                    # ax.legend()
 
     def all_evaluation(self, data_loader, lg_num=5, traj_num=4, generate_heat=True):
         self.set_mode(train=False)
         total_traj = 0
+
+        total_coll5 = [0] * (lg_num * traj_num)
+        total_coll10 = [0] * (lg_num * traj_num)
+        total_coll15 = [0] * (lg_num * traj_num)
+        total_coll20 = [0] * (lg_num * traj_num)
+        n_scene = 0
 
         all_ade =[]
         all_fde =[]
@@ -1018,6 +1036,11 @@ class Solver(object):
 
 
                 ade, fde = [], []
+                multi_coll5 = []
+                multi_coll10 = []
+                multi_coll15 = []
+                multi_coll20 = []
+                n_scene += sum([e-s for s, e in seq_start_end])
                 for dist in fut_rel_pos_dists:
                     pred_fut_traj=integrate_samples(dist.rsample() * self.scale, obs_traj[-1, :, :2], dt=self.dt)
                     ade.append(displacement_error(
@@ -1026,6 +1049,38 @@ class Solver(object):
                     fde.append(final_displacement_error(
                         pred_fut_traj[-1], fut_traj[-1,:,:2], mode='raw'
                     ))
+                    coll5 = 0
+                    coll10 = 0
+                    coll15 = 0
+                    coll20 = 0
+                    for s, e in seq_start_end:
+                        num_ped = e - s
+                        if num_ped == 1:
+                            continue
+                        seq_traj = fut_traj[:, s:e]
+                        for i in range(len(seq_traj)):
+                            curr1 = seq_traj[i].repeat(num_ped, 1)
+                            curr2 = self.repeat(seq_traj[i], num_ped)
+                            dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
+                            dist = dist.reshape(num_ped, num_ped)
+                            diff_agent_idx = np.triu_indices(num_ped, k=1)
+                            diff_agent_dist = dist[diff_agent_idx]
+                            coll5 += (diff_agent_dist < 5).sum()
+                            coll10 += (diff_agent_dist < 10).sum()
+                            coll15 += (diff_agent_dist < 15).sum()
+                            coll20 += (diff_agent_dist < 20).sum()
+                    multi_coll5.append(coll5)
+                    multi_coll10.append(coll10)
+                    multi_coll15.append(coll15)
+                    multi_coll20.append(coll20)
+
+
+                for i in range(lg_num * traj_num):
+                    total_coll5[i] += multi_coll5[i]
+                    total_coll10[i] += multi_coll10[i]
+                    total_coll15[i] += multi_coll15[i]
+                    total_coll20[i] += multi_coll20[i]
+
                 all_ade.append(torch.stack(ade))
                 all_fde.append(torch.stack(fde))
                 sg_ade.append(torch.sqrt(((torch.stack(pred_sg_wcs).permute(0, 2, 1, 3)
@@ -1052,6 +1107,17 @@ class Solver(object):
             lg_fde_min = np.min(lg_fde, axis=0).mean()
             lg_fde_avg = np.mean(lg_fde, axis=0).mean()
             lg_fde_std = np.std(lg_fde, axis=0).mean()
+
+            total_coll5=np.array(total_coll5)
+            total_coll10=np.array(total_coll10)
+            total_coll15=np.array(total_coll15)
+            total_coll20=np.array(total_coll20)
+
+            print('total 5: ', np.min(total_coll5, axis=0).mean()/n_scene, np.mean(total_coll5, axis=0).mean()/n_scene, np.std(total_coll5, axis=0).mean()/n_scene)
+            print('total 10: ', np.min(total_coll10, axis=0).mean()/n_scene, np.mean(total_coll10, axis=0).mean()/n_scene, np.std(total_coll10, axis=0).mean()/n_scene)
+            print('total 15: ', np.min(total_coll15, axis=0).mean()/n_scene, np.mean(total_coll15, axis=0).mean()/n_scene, np.std(total_coll15, axis=0).mean()/n_scene)
+            print('total 20: ', np.min(total_coll20, axis=0).mean()/n_scene, np.mean(total_coll20, axis=0).mean()/n_scene, np.std(total_coll20, axis=0).mean()/n_scene)
+
 
         return ade_min, fde_min, \
                ade_avg, fde_avg, \
