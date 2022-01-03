@@ -250,7 +250,7 @@ class Decoder(nn.Module):
             mu= self.fc_mu(decoder_h)
             logVar = self.fc_std(decoder_h)
             mu = torch.clamp(mu, min=-1e8, max=1e8)
-            logVar = torch.clamp(logVar, min=-1e8, max=8e1)
+            logVar = torch.clamp(logVar, min=-8e1, max=8e1)
             std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
             mus.append(mu)
             stds.append(std)
