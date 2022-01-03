@@ -51,11 +51,6 @@ class Solver(object):
                     (args.dataset_name, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
                      args.decoder_h_dim, args.mlp_dim, args.map_feat_dim , args.map_mlp_dim, args.lr_VAE, args.kl_weight, args.ll_prior_w, args.fb, args.scale, args.num_sg)
 
-
-        # to be appended by run_id
-
-        # self.use_cuda = args.cuda and torch.cuda.is_available()
-
         self.device = args.device
         self.temp=1.99
         self.dt=0.4
