@@ -1183,6 +1183,13 @@ class Solver(object):
         self.set_mode(train=False)
         total_traj = 0
 
+        total_coll5 = [0] * (lg_num * traj_num)
+        total_coll10 = [0] * (lg_num * traj_num)
+        total_coll15 = [0] * (lg_num * traj_num)
+        total_coll20 = [0] * (lg_num * traj_num)
+        total_coll25 = [0] * (lg_num * traj_num)
+        n_scene = 0
+
         all_ade =[]
         all_fde =[]
         sg_ade=[]
@@ -1304,7 +1311,14 @@ class Solver(object):
                         fut_rel_pos_dists.append(fut_rel_pos_dist_prior)
 
 
+
                 ade, fde = [], []
+                multi_coll5 = []
+                multi_coll10 = []
+                multi_coll15 = []
+                multi_coll20 = []
+                multi_coll25 = []
+                n_scene += sum([e-s for s, e in seq_start_end])
                 for dist in fut_rel_pos_dists:
                     pred_fut_traj=integrate_samples(dist.rsample() * self.scale, obs_traj[-1, :, :2], dt=self.dt)
                     ade.append(displacement_error(
@@ -1313,6 +1327,43 @@ class Solver(object):
                     fde.append(final_displacement_error(
                         pred_fut_traj[-1], fut_traj[-1,:,:2], mode='raw'
                     ))
+                    coll5 = 0
+                    coll10 = 0
+                    coll15 = 0
+                    coll20 = 0
+                    coll25 = 0
+                    for s, e in seq_start_end:
+                        num_ped = e - s
+                        if num_ped == 1:
+                            continue
+                        seq_traj = pred_fut_traj[:, s:e]
+                        for i in range(len(seq_traj)):
+                            curr1 = seq_traj[i].repeat(num_ped, 1)
+                            curr2 = self.repeat(seq_traj[i], num_ped)
+                            dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
+                            dist = dist.reshape(num_ped, num_ped)
+                            diff_agent_idx = np.triu_indices(num_ped, k=1)
+                            diff_agent_dist = dist[diff_agent_idx]
+                            coll5 += (diff_agent_dist < 2.9).sum()
+                            coll10 += (diff_agent_dist < 3).sum()
+                            coll15 += (diff_agent_dist < 3.5).sum()
+                            coll20 += (diff_agent_dist < 4).sum()
+                            coll25 += (diff_agent_dist < 4.5).sum()
+                    multi_coll5.append(coll5)
+                    multi_coll10.append(coll10)
+                    multi_coll15.append(coll15)
+                    multi_coll20.append(coll20)
+                    multi_coll25.append(coll25)
+
+
+                for i in range(lg_num * traj_num):
+                    total_coll5[i] += multi_coll5[i]
+                    total_coll10[i] += multi_coll10[i]
+                    total_coll15[i] += multi_coll15[i]
+                    total_coll20[i] += multi_coll20[i]
+                    total_coll25[i] += multi_coll25[i]
+
+
                 all_ade.append(torch.stack(ade))
                 all_fde.append(torch.stack(fde))
                 sg_ade.append(torch.sqrt(((torch.stack(pred_sg_wcs).permute(0, 2, 1, 3)
@@ -1339,6 +1390,21 @@ class Solver(object):
             lg_fde_min = np.min(lg_fde, axis=0).mean()
             lg_fde_avg = np.mean(lg_fde, axis=0).mean()
             lg_fde_std = np.std(lg_fde, axis=0).mean()
+
+
+            total_coll5=np.array(total_coll5)
+            total_coll10=np.array(total_coll10)
+            total_coll15=np.array(total_coll15)
+            total_coll20=np.array(total_coll20)
+            total_coll25=np.array(total_coll25)
+
+            print('total 5: ', np.min(total_coll5, axis=0).mean(), np.mean(total_coll5, axis=0).mean(), np.std(total_coll5, axis=0).mean())
+            print('total 10: ', np.min(total_coll10, axis=0).mean(), np.mean(total_coll10, axis=0).mean(), np.std(total_coll10, axis=0).mean())
+            print('total 15: ', np.min(total_coll15, axis=0).mean(), np.mean(total_coll15, axis=0).mean(), np.std(total_coll15, axis=0).mean())
+            print('total 20: ', np.min(total_coll20, axis=0).mean(), np.mean(total_coll20, axis=0).mean(), np.std(total_coll20, axis=0).mean())
+            print('total 25: ', np.min(total_coll25, axis=0).mean(), np.mean(total_coll25, axis=0).mean(), np.std(total_coll25, axis=0).mean())
+
+            print(n_scene)
 
         return ade_min, fde_min, \
                ade_avg, fde_avg, \
