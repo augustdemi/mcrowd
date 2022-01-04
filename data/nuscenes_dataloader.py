@@ -27,16 +27,6 @@ class data_generator(object):
         data_root = parser.data_root_nuscenes_pred
         seq_train, seq_val, seq_test = get_nuscenes_pred_split(data_root)
         self.init_frame = 0
-        # from nuscenes.nuscenes import NuScenes
-        # data_path = '/dresden/users/ml1323/crowd/datasets/Nuscenes/'
-        # nusc = NuScenes(version='v1.0-trainval', dataroot=data_path, verbose=True)
-        # import csv
-        # map_name = {}
-        # with open('D:\crowd\mcrowd/nu_map.csv', newline='') as f:
-        #     dd = csv.reader(f)
-        #     for l in dd:
-        #         map_name.update({l[0]:l[1]})
-
 
         process_func = preprocess
         self.data_root = data_root
@@ -52,15 +42,12 @@ class data_generator(object):
         self.sequence = []
         for seq_name in self.sequence_to_load:
             # print("loading sequence {} ...".format(seq_name))
-            # ns_scene = nusc.get('scene', nusc.field2token('scene', 'name', ns_scene_name)[0])
-
             preprocessor = process_func(data_root, seq_name, parser, log, self.split, self.phase)
 
             num_seq_samples = preprocessor.num_fr - (parser.min_past_frames - 1) * self.frame_skip - parser.min_future_frames * self.frame_skip + 1
             self.num_total_samples += num_seq_samples
             self.num_sample_list.append(num_seq_samples)
             self.sequence.append(preprocessor)
-            # print(num_seq_samples)
         print("{} sequence files are loaded ...".format(len(self.sequence_to_load)))
         self.sample_list = list(range(self.num_total_samples))
         self.idx_list = []
@@ -79,7 +66,7 @@ class data_generator(object):
         print(f'total num samples: {self.num_total_samples}')
         print("------------------------------ done --------------------------------\n")
 
-        
+
     def get_seq_and_frame(self, index):
         index_tmp = copy.copy(index)
         for seq_index in range(len(self.num_sample_list)):    # 0-indexed
@@ -107,7 +94,6 @@ class data_generator(object):
         local_ics = []
         local_homos = []
         scene_maps = []
-        seq_names = []
         for sample_index in self.sample_list[rng_idx[0]: rng_idx[1]]:
 
             seq_index, frame = self.get_seq_and_frame(sample_index)
@@ -137,13 +123,8 @@ class data_generator(object):
             radius = []
             for i in range(len(all_traj)):
                 map_traj = scene_map.to_map_points(scene_points[i])
-                # import matplotlib.pyplot as plt
-                # plt.imshow(scene_map.data.transpose(1,2,0))
-                # plt.scatter(map_traj[:,1], map_traj[:,0], s=1)
-
                 r = np.clip(np.sqrt(((map_traj[1:] - map_traj[:-1]) ** 2).sum(1)).mean() * 20, a_min=128, a_max=None)
                 radius.append(np.round(r).astype(int))
-                seq_names.append(seq.seq_name)
                 # print(r)
             comput_local_homo = (len(self.local_ic[sample_index]) == 0)
             local_map, local_ic, local_homo = scene_map.get_cropped_maps(scene_points, radius, compute_local_homo=comput_local_homo)
@@ -198,7 +179,7 @@ class data_generator(object):
 
         out = [
             obs_traj, fut_traj, obs_traj_st, fut_traj[:, :, 2:4] / self.scale, seq_start_end,
-            scene_maps, local_maps, local_ics, torch.tensor(local_homos).float().to(self.device), seq_names
+            scene_maps, local_maps, local_ics, torch.tensor(local_homos).float().to(self.device)
         ]
 
         return out
