@@ -105,7 +105,6 @@ class EncoderX(nn.Module):
         # map and traj
         hx = self.fc_hidden(torch.cat((hx, map_feat), dim=-1)) # 64(32 without attn) to z dim
 
-        stats = self.fc2(stats)
         mu = stats[:, :self.zS_dim]
         log_var = stats[:, self.zS_dim:]
         mu = torch.clamp(mu, min=-1e8, max=1e8)
