@@ -380,8 +380,8 @@ class Solver(object):
             (muy, log_vary) \
                 = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, hx, train=True)
 
-            p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
-            q_dist = Normal(muy, torch.sqrt(torch.exp(log_vary)))
+            p_dist = Normal(mux, torch.clamp(torch.sqrt(torch.exp(log_varx)), min=1e-8))
+            q_dist = Normal(muy, torch.clamp(torch.sqrt(torch.exp(log_vary)), min=1e-8))
 
 
             # TF, goals, z~posterior
@@ -455,7 +455,7 @@ class Solver(object):
                     self.save_checkpoint(iteration)
 
             # (visdom) insert current line stats
-            if iteration <1000 or iteration > 10000:
+            if iteration < 1600 or iteration > 15000:
                 if self.viz_on and (iteration % self.viz_ll_iter == 0):
                     ade_min, fde_min, \
                     ade_avg, fde_avg, \
@@ -541,7 +541,7 @@ class Solver(object):
                 # -------- trajectories --------
                 (hx, mux, log_varx) \
                     = self.encoderMx(obs_traj_st, seq_start_end, unet_enc_feat, local_homo)
-                p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
+                p_dist = Normal(mux, torch.clamp(torch.sqrt(torch.exp(log_varx)), min=1e-8))
 
                 fut_rel_pos_dist20 = []
                 for _ in range(4):

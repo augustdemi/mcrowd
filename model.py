@@ -105,7 +105,12 @@ class EncoderX(nn.Module):
         # map and traj
         hx = self.fc_hidden(torch.cat((hx, map_feat), dim=-1)) # 64(32 without attn) to z dim
 
-        return hx, stats[:,:self.zS_dim], stats[:,self.zS_dim:]
+        stats = self.fc2(stats)
+        mu = stats[:, :self.zS_dim]
+        log_var = stats[:, self.zS_dim:]
+        mu = torch.clamp(mu, min=-1e8, max=1e8)
+        log_var = torch.clamp(log_var, max=8e1)
+        return hx, mu, log_var
 
 
 class EncoderY(nn.Module):
@@ -166,8 +171,12 @@ class EncoderY(nn.Module):
                       p=self.dropout_mlp,
                       training=train)
         stats = self.fc2(stats)
+        mu = stats[:, :self.zS_dim]
+        log_var = stats[:, self.zS_dim:]
+        mu = torch.clamp(mu, min=-1e8, max=1e8)
+        log_var = torch.clamp(log_var, max=8e1)
 
-        return stats[:,:self.zS_dim], stats[:,self.zS_dim:]
+        return mu, log_var
 
 
 class Decoder(nn.Module):
@@ -269,7 +278,7 @@ class Decoder(nn.Module):
             # std = torch.sqrt(torch.exp(logVar))
 
             mu = torch.clamp(mu, min=-1e8, max=1e8)
-            logVar = torch.clamp(logVar, min=-1e8, max=8e1)
+            logVar = torch.clamp(logVar, max=8e1)
             std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
 
             mus.append(mu)
