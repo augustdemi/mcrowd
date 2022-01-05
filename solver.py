@@ -472,7 +472,7 @@ class Solver(object):
                                             loss_recon_prior=-ll_prior.item(),
                                             loss_kl=loss_kl.item(),
                                             loss_coll=coll_loss.item(),
-                                            total_coll=total_coll.item(),
+                                            total_coll=total_coll.item()/n_scene,
                                             test_loss_recon=test_loss_recon.item(),
                                             test_loss_kl=test_loss_kl.item(),
                                             test_loss_coll=test_loss_coll.item(),
@@ -615,7 +615,7 @@ class Solver(object):
             return ade_min, fde_min, \
                    ade_avg, fde_avg, \
                    ade_std, fde_std, \
-                   loss_recon/b, loss_kl/b, coll_loss/b, total_coll/n_scene
+                   loss_recon/b, loss_kl/b, coll_loss/b, total_coll
         else:
             return ade_min, fde_min, \
                    ade_avg, fde_avg, \
