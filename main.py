@@ -52,7 +52,7 @@ def create_parser():
                         help='cpu/cuda')
 
     # training hyperparameters
-    parser.add_argument('--batch_size', default=3, type=int,
+    parser.add_argument('--batch_size', default=2, type=int,
                         help='batch size')
     parser.add_argument('--lr_VAE', default=1e-3, type=float,
                         help='learning rate of the VAE')
@@ -65,7 +65,7 @@ def create_parser():
     parser.add_argument('--ckpt_load_iter', default=0, type=int,
                         help='iter# to load the previously saved model ' +
                              '(default=0 to start from the scratch)')
-    parser.add_argument('--max_iter', default=10, type=float,
+    parser.add_argument('--max_iter', default=0, type=float,
                         help='maximum number of batch iterations')
     parser.add_argument('--ckpt_save_iter', default=100, type=int,
                         help='checkpoint saved every # iters')
@@ -97,7 +97,8 @@ def create_parser():
     parser.add_argument('--obs_len', default=8, type=int)
     parser.add_argument('--pred_len', default=12, type=int)
     # dataset
-    parser.add_argument('--dataset_dir', default='../datasets/Trajectories', type=str, help='dataset directory')
+    # parser.add_argument('--dataset_dir', default='../datasets/Trajectories', type=str, help='dataset directory')
+    parser.add_argument('--dataset_dir', default='../datasets/SDD', type=str, help='dataset directory')
     # parser.add_argument('--dataset_dir', default='C:/dataset/KITTI-trajectory-prediction', type=str, help='dataset directory')
     parser.add_argument('--dataset_name', default='sdd.lgcvae', type=str,
                         help='dataset name')
@@ -118,7 +119,7 @@ def create_parser():
     parser.add_argument('--dropout_mlp', default=0.3, type=float)
     parser.add_argument('--dropout_rnn', default=0.25, type=float)
     # Decoder
-    parser.add_argument('--mlp_dim', default=32, type=int)
+    parser.add_argument('--mlp_dim', default=128, type=int)
     parser.add_argument('--map_mlp_dim', default=128, type=int)
     parser.add_argument('--batch_norm', default=0, type=bool_flag)
 
@@ -135,13 +136,11 @@ def create_parser():
     parser.add_argument('--fb', default=0.5, type=float)
     parser.add_argument('--anneal_epoch', default=20, type=int)
     parser.add_argument('--aug', default=1, type=int)
-    parser.add_argument('--load_e', default=1, type=int)
+    parser.add_argument('--load_e', default=3, type=int)
     parser.add_argument('--scale', default=1.0, type=float)
-    parser.add_argument('--pos', default=1.0, type=float)
-    parser.add_argument('--vel1', default=1.0, type=float)
-    parser.add_argument('--vel2', default=1.0, type=float)
-    parser.add_argument('--v1_t', default=0.7, type=float)
-    parser.add_argument('--v2_t', default=0.5, type=float)
+    parser.add_argument('--coll_th', default=5.0, type=float)
+    parser.add_argument('--w_coll', default=5.0, type=float)
+
 
 
     parser.add_argument('--desc', default='data', type=str,
@@ -158,19 +157,21 @@ def main(args):
         solver = Solver(args)
 
         print('--------------------', args.dataset_name, '----------------------')
-        args.batch_size = 3
+        args.batch_size = 2
 
-        _, test_loader = data_loader(args, args.dataset_dir, 'test', shuffle=False)
+        # _, test_loader = data_loader(args, args.dataset_dir, 'test', shuffle=True)
 
-        # cfg = Config('nuscenes', False, create_dirs=True)
-        # torch.set_default_dtype(torch.float32)
-        # log = open('log.txt', 'a+')
-        # test_loader = data_generator(cfg, log, split='test', phase='testing',
-        #                                  batch_size=args.batch_size, device=args.device, scale=args.scale, shuffle=False)
+        cfg = Config('nuscenes', False, create_dirs=True)
+        torch.set_default_dtype(torch.float32)
+        log = open('log.txt', 'a+')
+        test_loader = data_generator(cfg, log, split='test', phase='testing',
+                                         batch_size=args.batch_size, device=args.device, scale=args.scale, shuffle=False)
 
         # solver.check_feat(test_loader)
 
         # solver.evaluate_lg(test_loader, num_gen=3)
+        # solver.evaluate_each(test_loader)
+        # solver.collision_stat(test_loader)
         solver.evaluate_dist(test_loader, loss=True)
         #
         # fde_min, fde_avg, fde_std = solver.evaluate_dist(test_loader, loss=False)
