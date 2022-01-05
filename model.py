@@ -207,8 +207,6 @@ class Decoder(nn.Module):
         self.pool_net = PoolHiddenNet(
             h_dim=dec_h_dim,
             context_dim=context_dim,
-            activation='relu',
-            batch_norm=True,
             dropout=dropout_mlp
         )
         # self.mlp_context_enc = nn.Linear(enc_h_dim + dec_h_dim, dec_h_dim)
@@ -305,7 +303,7 @@ class PoolHiddenNet(nn.Module):
     """Pooling module as proposed in our paper"""
     def __init__(
         self, h_dim=64, context_dim=32,
-        activation='relu', batch_norm=True, dropout=0.0
+        activation='relu', batch_norm=False, dropout=0.0
     ):
         super(PoolHiddenNet, self).__init__()
 
