@@ -1580,15 +1580,37 @@ class Solver(object):
 
 
     def pretrain_load_checkpoint(self, traj, lg, sg):
-        sg['iter']=30000
-        lg['iter']=39000
-        traj['ckpt_dir']='ckpts/nu.traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_0.07_scale_1.0_num_sg_3_run_5'
-        traj['iter'] = 45000
+        # sg['iter']=30000
+        # lg['iter']=39000
+        # traj['ckpt_dir']='ckpts/nu.traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_0.07_scale_1.0_num_sg_3_run_5'
+        # traj['iter'] = 45000
+        #
+        # sg_unet_path = os.path.join(
+        #     'ckpts/nu.sg_lr_0.001_a_0.25_r_2.0_aug_1_num_sg_3_run_4',
+        #     'iter_%s_sg_unet.pt' % sg['iter']
+        # )
+        # encoderMx_path = os.path.join(
+        #     traj['ckpt_dir'],
+        #     'iter_%s_encoderMx.pt' % traj['iter']
+        # )
+        # encoderMy_path = os.path.join(
+        #     traj['ckpt_dir'],
+        #     'iter_%s_encoderMy.pt' % traj['iter']
+        # )
+        # decoderMy_path = os.path.join(
+        #     traj['ckpt_dir'],
+        #     'iter_%s_decoderMy.pt' %  traj['iter']
+        # )
+        # lg_cvae_path = os.path.join(
+        #     'ckpts/nu.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_3.0_anneal_e_10_aug_1_llprior_0.0_run_4',
+        #     'iter_%s_lg_cvae.pt' %  lg['iter']
+        # )
 
         sg_unet_path = os.path.join(
-            'ckpts/nu.sg_lr_0.001_a_0.25_r_2.0_aug_1_num_sg_3_run_4',
+            sg['ckpt_dir'],
             'iter_%s_sg_unet.pt' % sg['iter']
         )
+
         encoderMx_path = os.path.join(
             traj['ckpt_dir'],
             'iter_%s_encoderMx.pt' % traj['iter']
@@ -1602,10 +1624,9 @@ class Solver(object):
             'iter_%s_decoderMy.pt' %  traj['iter']
         )
         lg_cvae_path = os.path.join(
-            'ckpts/nu.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_3.0_anneal_e_10_aug_1_llprior_0.0_run_4',
+            lg['ckpt_dir'],
             'iter_%s_lg_cvae.pt' %  lg['iter']
         )
-
 
         if self.device == 'cuda':
             self.encoderMx = torch.load(encoderMx_path)
