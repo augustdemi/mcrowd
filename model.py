@@ -282,7 +282,10 @@ class Decoder(nn.Module):
 
             mus.append(mu)
             stds.append(std)
-            pred_vel = Normal(mu, std).rsample()
+            if fut_vel_st is not None:
+                pred_vel = fut_vel_st[i]
+            else:
+                pred_vel = Normal(mu, std).rsample()
 
             # create context for the next prediction
             curr_pos = pred_vel * self.scale * self.dt + last_pos
