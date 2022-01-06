@@ -107,7 +107,7 @@ class EncoderX(nn.Module):
 
         mu = stats[:, :self.zS_dim]
         log_var = stats[:, self.zS_dim:]
-        mu = torch.clamp(mu, min=-1e8, max=1e8)
+        mu = torch.clamp(mu, min=-1e6, max=1e6)
         log_var = torch.clamp(log_var, max=8e1)
         return hx, mu, log_var
 
@@ -172,7 +172,7 @@ class EncoderY(nn.Module):
         stats = self.fc2(stats)
         mu = stats[:, :self.zS_dim]
         log_var = stats[:, self.zS_dim:]
-        mu = torch.clamp(mu, min=-1e8, max=1e8)
+        mu = torch.clamp(mu, min=-1e6, max=1e6)
         log_var = torch.clamp(log_var, max=8e1)
 
         return mu, log_var
@@ -276,7 +276,7 @@ class Decoder(nn.Module):
             logVar = self.fc_std(decoder_h)
             # std = torch.sqrt(torch.exp(logVar))
 
-            mu = torch.clamp(mu, min=-1e8, max=1e8)
+            mu = torch.clamp(mu, min=-1e6, max=1e6)
             logVar = torch.clamp(logVar, max=8e1)
             std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
 
