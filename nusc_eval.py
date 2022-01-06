@@ -1301,6 +1301,7 @@ class Solver(object):
                         # -------- trajectories --------
                         # NO TF, pred_goals, z~prior
                         fut_rel_pos_dist_prior = self.decoderMy(
+                            seq_start_end,
                             obs_traj_st[-1],
                             obs_traj[-1, :, :2],
                             hx,
@@ -1344,11 +1345,11 @@ class Solver(object):
                             dist = dist.reshape(num_ped, num_ped)
                             diff_agent_idx = np.triu_indices(num_ped, k=1)
                             diff_agent_dist = dist[diff_agent_idx]
-                            coll5 += (diff_agent_dist < 2.9).sum()
-                            coll10 += (diff_agent_dist < 3).sum()
-                            coll15 += (diff_agent_dist < 3.5).sum()
-                            coll20 += (diff_agent_dist < 4).sum()
-                            coll25 += (diff_agent_dist < 4.5).sum()
+                            coll5 += (diff_agent_dist < 1.0).sum()
+                            coll10 += (diff_agent_dist < 1.5).sum()
+                            coll15 += (diff_agent_dist < 2.0).sum()
+                            coll20 += (diff_agent_dist < 2.8).sum()
+                            coll25 += (diff_agent_dist < 0.5).sum()
                     multi_coll5.append(coll5)
                     multi_coll10.append(coll10)
                     multi_coll15.append(coll15)
