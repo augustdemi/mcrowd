@@ -441,7 +441,7 @@ class Solver(object):
                     diff_agent_idx = np.triu_indices(num_ped, k=1)
                     diff_agent_dist = dist[diff_agent_idx]
                     diff_agent_dist = (diff_agent_dist - self.coll_th)
-                    coll_loss += (torch.sigmoid(-self.beta * diff_agent_dist)).sum()
+                    coll_loss += (1 - torch.sigmoid(self.beta * diff_agent_dist)).sum()
                     total_coll += (diff_agent_dist < self.coll_th).sum()
 
             loss = - traj_elbo + self.w_coll * coll_loss
@@ -584,7 +584,7 @@ class Solver(object):
                             diff_agent_idx = np.triu_indices(num_ped, k=1)
                             diff_agent_dist = dist[diff_agent_idx]
                             diff_agent_dist = (diff_agent_dist - self.coll_th)
-                            coll_loss += (torch.sigmoid(-self.beta * diff_agent_dist)).sum()
+                            coll_loss += (1 - torch.sigmoid(self.beta * diff_agent_dist)).sum()
                             total_coll += (diff_agent_dist < self.coll_th).sum()
 
 
