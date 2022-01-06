@@ -105,7 +105,11 @@ class EncoderX(nn.Module):
         # map and traj
         hx = self.fc_hidden(torch.cat((hx, map_feat), dim=-1)) # 64(32 without attn) to z dim
 
-        return hx, stats[:,:self.zS_dim], stats[:,self.zS_dim:]
+        mu = stats[:, :self.zS_dim]
+        log_var = stats[:, self.zS_dim:]
+        mu = torch.clamp(mu, min=-1e8, max=1e8)
+        log_var = torch.clamp(log_var, max=8e1)
+        return hx, mu, log_var
 
 
 class EncoderY(nn.Module):
@@ -167,7 +171,12 @@ class EncoderY(nn.Module):
                       training=train)
         stats = self.fc2(stats)
 
-        return stats[:,:self.zS_dim], stats[:,self.zS_dim:]
+        mu = stats[:, :self.zS_dim]
+        log_var = stats[:, self.zS_dim:]
+        mu = torch.clamp(mu, min=-1e8, max=1e8)
+        log_var = torch.clamp(log_var, max=8e1)
+        return mu, log_var
+
 
 
 class Decoder(nn.Module):
@@ -205,7 +214,7 @@ class Decoder(nn.Module):
         self.sg_fc = nn.Linear(4*enc_h_dim, n_pred_state)
 
 
-    def forward(self, last_obs_st, last_obs_pos, enc_h_feat, z, sg, sg_update_idx, fut_vel_st=None):
+    def forward(self, seq_start_end, last_obs_st, last_obs_pos, enc_h_feat, z, sg, sg_update_idx, fut_vel_st=None, train=False):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
@@ -241,10 +250,6 @@ class Decoder(nn.Module):
         ### sg encoding
         _, sg_h = self.sg_rnn_enc(sg_state) # [8, 656, 16], 두개의 [1, 656, 32]
         sg_h = torch.cat(sg_h, dim=0).permute(1, 0, 2)
-        if fut_vel_st is not None:
-            train=True
-        else:
-            train=False
         sg_h = F.dropout(sg_h,
                         p=self.dropout_rnn,
                         training=train)  # [bs, max_time, enc_rnn_dim]
@@ -263,7 +268,7 @@ class Decoder(nn.Module):
             mus.append(mu)
             stds.append(std)
 
-            if train:
+            if fut_vel_st is not None:
                 pred_vel = fut_vel_st[i]
             else:
                 if(i == sg_update_idx[j]):
