@@ -97,8 +97,8 @@ def create_parser():
     parser.add_argument('--obs_len', default=8, type=int)
     parser.add_argument('--pred_len', default=12, type=int)
     # dataset
-    # parser.add_argument('--dataset_dir', default='../datasets/Trajectories', type=str, help='dataset directory')
-    parser.add_argument('--dataset_dir', default='../datasets/SDD', type=str, help='dataset directory')
+    parser.add_argument('--dataset_dir', default='../datasets/Trajectories', type=str, help='dataset directory')
+    # parser.add_argument('--dataset_dir', default='../datasets/SDD', type=str, help='dataset directory')
     # parser.add_argument('--dataset_dir', default='C:/dataset/KITTI-trajectory-prediction', type=str, help='dataset directory')
     parser.add_argument('--dataset_name', default='sdd.lgcvae', type=str,
                         help='dataset name')
@@ -140,6 +140,7 @@ def create_parser():
     parser.add_argument('--scale', default=1.0, type=float)
     parser.add_argument('--coll_th', default=5.0, type=float)
     parser.add_argument('--w_coll', default=5.0, type=float)
+    parser.add_argument('--beta', default=5.0, type=float)
 
 
 
@@ -171,7 +172,7 @@ def main(args):
 
         # solver.evaluate_lg(test_loader, num_gen=3)
         # solver.evaluate_each(test_loader)
-        # solver.collision_stat(test_loader)
+        solver.collision_stat(test_loader)
         solver.evaluate_dist(test_loader, loss=True)
         #
         # fde_min, fde_avg, fde_std = solver.evaluate_dist(test_loader, loss=False)
