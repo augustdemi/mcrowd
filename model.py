@@ -282,7 +282,10 @@ class Decoder(nn.Module):
 
             mus.append(mu)
             stds.append(std)
-            pred_vel = Normal(mu, std).rsample()
+            if fut_vel_st is not None:
+                pred_vel = fut_vel_st[i]
+            else:
+                pred_vel = Normal(mu, std).rsample()
 
             # create context for the next prediction
             curr_pos = pred_vel * self.scale * self.dt + last_pos
@@ -321,7 +324,7 @@ class PoolHiddenNet(nn.Module):
         # self.embedding_dim = embedding_dim
 
         mlp_pre_dim = 2 + 2*h_dim # 2+128*2
-        mlp_pre_pool_dims = [mlp_pre_dim, context_dim]
+        mlp_pre_pool_dims = [mlp_pre_dim, 512, context_dim]
 
         # self.spatial_embedding = nn.Linear(2, embedding_dim)
         self.mlp_pre_pool = make_mlp(
