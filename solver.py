@@ -584,10 +584,8 @@ class Solver(object):
                             dist = torch.norm(curr1 - curr2, dim=1)
                             dist = dist.reshape(num_ped, num_ped)
                             diff_agent_idx = np.triu_indices(num_ped, k=1)
-                            diff_agent_dist = []
-                            diff_agent_dist += dist[diff_agent_idx]
-                            diff_agent_dist += dist[diff_agent_idx[1], diff_agent_idx[0]]
-                            diff_agent_dist = (torch.stack(diff_agent_dist) - self.coll_th)
+                            diff_agent_dist = dist[diff_agent_idx]
+                            diff_agent_dist = diff_agent_dist- self.coll_th
                             coll_loss += (torch.sigmoid(-self.beta * diff_agent_dist)).sum()
                             total_coll += (diff_agent_dist < self.coll_th).sum()
 
