@@ -420,10 +420,7 @@ class Solver(object):
             traj_elbo = loglikelihood - self.kl_weight * loss_kl
 
 
-            pred_fut_traj_prior = integrate_samples(fut_rel_pos_dist_prior.rsample() * self.scale, obs_traj[-1, :, :2],
-                                              dt=self.dt)
-
-            pred_fut_traj_post = integrate_samples(fut_rel_pos_dist_tf_post.rsample() * self.scale, obs_traj[-1, :, :2],
+            pred_fut_traj = integrate_samples(fut_rel_pos_dist_prior.rsample() * self.scale, obs_traj[-1, :, :2],
                                               dt=self.dt)
             coll_loss = 0
             total_coll = n_scene = 0
@@ -434,21 +431,10 @@ class Solver(object):
                     num_ped = e - s
                     if num_ped == 1:
                         continue
-                    for seq_traj in pred_fut_traj_prior[:, s:e]:
-                        curr1 = seq_traj.repeat(num_ped, 1)
-                        curr2 = self.repeat(seq_traj, num_ped)
-                        dist = torch.norm(curr1 - curr2, dim=1)
-                        dist = dist.reshape(num_ped, num_ped)
-                        diff_agent_idx = np.triu_indices(num_ped, k=1)
-                        diff_agent_dist = []
-                        diff_agent_dist += dist[diff_agent_idx]
-                        diff_agent_dist += dist[diff_agent_idx[1], diff_agent_idx[0]]
-                        diff_agent_dist = (torch.stack(diff_agent_dist) - self.coll_th)
-                        coll_loss += (torch.sigmoid(-self.beta * diff_agent_dist)).sum()
-                        total_coll += (diff_agent_dist < self.coll_th).sum()
-                    for seq_traj in pred_fut_traj_post[:, s:e]:
-                        curr1 = seq_traj.repeat(num_ped, 1)
-                        curr2 = self.repeat(seq_traj, num_ped)
+                    seq_traj = pred_fut_traj[:, s:e]
+                    for i in range(len(seq_traj)):
+                        curr1 = seq_traj[i].repeat(num_ped, 1)
+                        curr2 = self.repeat(seq_traj[i], num_ped)
                         dist = torch.norm(curr1 - curr2, dim=1)
                         dist = dist.reshape(num_ped, num_ped)
                         diff_agent_idx = np.triu_indices(num_ped, k=1)
@@ -471,7 +457,7 @@ class Solver(object):
                     self.save_checkpoint(iteration)
 
             # (visdom) insert current line stats
-            if iteration < 1600 or iteration > 15000:
+            if iteration < 1600 or iteration > 20000:
                 if self.viz_on and (iteration % self.viz_ll_iter == 0):
                     ade_min, fde_min, \
                     ade_avg, fde_avg, \
