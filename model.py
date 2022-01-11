@@ -324,14 +324,9 @@ class PoolHiddenNet(nn.Module):
         # self.embedding_dim = embedding_dim
 
         mlp_pre_dim = 2 + 2*h_dim # 2+128*2
-        mlp_pre_pool_dims = [mlp_pre_dim, 512, context_dim]
 
         # self.spatial_embedding = nn.Linear(2, embedding_dim)
-        self.mlp_pre_pool = make_mlp(
-            mlp_pre_pool_dims,
-            activation=activation,
-            batch_norm=batch_norm,
-            dropout=dropout)
+        self.mlp_pre_pool = nn.Linear(mlp_pre_dim, h_dim)
         self.reset_mlp= nn.Linear(mlp_pre_dim, h_dim)
         self.update_mlp= nn.Linear(mlp_pre_dim, h_dim)
 
@@ -377,7 +372,7 @@ class PoolHiddenNet(nn.Module):
             update_gate = torch.sigmoid(self.update_mlp(mlp_h_input))
             updated_hidden = self.mlp_pre_pool(torch.cat([curr_rel_pos, reset_gate * curr_hidden_1, reset_gate * curr_hidden_2], dim=1))
 
-            updated_hidden = (1-update_gate) * curr_hidden_2 + update_gate* updated_hidden
+            updated_hidden = (1-update_gate) * curr_hidden_2 + update_gate * torch.tanh(updated_hidden)
 
             curr_pool_h = updated_hidden.view(num_ped, num_ped, -1).max(1)[0] # (sqrt(repeated data), sqrt(repeated data), 1024) 로 바꾼후, 각 agent별로 상대와의 거리가 가장 큰걸 골라냄. (argmax말로 value를)
             pool_h.append(curr_pool_h)
