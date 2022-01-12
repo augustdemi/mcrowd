@@ -218,7 +218,7 @@ class Decoder(nn.Module):
             dropout=dropout_mlp
         )
         # self.mlp_context_enc = nn.Linear(enc_h_dim + dec_h_dim, dec_h_dim)
-        self.mlp_context= nn.Linear(dec_h_dim*2, dec_h_dim)
+        self.mlp_context= nn.Linear(dec_h_dim + context_dim, dec_h_dim)
 
     def forward(self, seq_start_end, last_obs_st, last_pos, enc_h_feat, z, sg, sg_update_idx, fut_vel_st=None, train=False):
         """
@@ -320,14 +320,13 @@ class PoolHiddenNet(nn.Module):
         super(PoolHiddenNet, self).__init__()
 
         self.h_dim = h_dim
-        context_dim = h_dim
         self.context_dim = context_dim
         # self.embedding_dim = embedding_dim
 
         mlp_pre_dim = 2 + 2*h_dim # 2+128*2
 
         # self.spatial_embedding = nn.Linear(2, embedding_dim)
-        self.mlp_pre_pool = nn.Linear(mlp_pre_dim, h_dim)
+        self.mlp_pre_pool = nn.Linear(mlp_pre_dim, context_dim)
         self.reset_mlp= nn.Linear(mlp_pre_dim, h_dim)
 
     def repeat(self, tensor, num_reps):
