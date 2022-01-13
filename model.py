@@ -287,9 +287,7 @@ class Decoder(nn.Module):
 
             # create context for the next prediction
             curr_pos = pred_vel * self.scale * self.dt + last_pos
-            context = self.pool_net(decoder_h, seq_start_end, curr_pos)  # batchsize, 1024
-            decoder_h = self.mlp_context(torch.cat([decoder_h, context], 1))  # batchsize, 1024
-
+            decoder_h = self.pool_net(decoder_h, seq_start_end, curr_pos)  # batchsize, 1024
             # refine the prediction
             mu = self.fc_mu(decoder_h)
             logVar = self.fc_std(decoder_h)
@@ -301,6 +299,7 @@ class Decoder(nn.Module):
             last_pos = curr_pos
             mus.append(mu)
             stds.append(std)
+
 
         mus = torch.stack(mus, dim=0)
         stds = torch.stack(stds, dim=0)
@@ -329,14 +328,16 @@ class PoolHiddenNet(nn.Module):
         super(PoolHiddenNet, self).__init__()
 
         self.h_dim = h_dim
+        context_dim = h_dim
         self.context_dim = context_dim
         # self.embedding_dim = embedding_dim
 
         mlp_pre_dim = 2 + 2*h_dim # 2+128*2
 
         # self.spatial_embedding = nn.Linear(2, embedding_dim)
-        self.mlp_pre_pool = nn.Linear(mlp_pre_dim, context_dim)
+        self.mlp_pre_pool = nn.Linear(mlp_pre_dim, h_dim)
         self.reset_mlp= nn.Linear(mlp_pre_dim, h_dim)
+        self.update_mlp= nn.Linear(mlp_pre_dim, h_dim)
 
     def repeat(self, tensor, num_reps):
         """
@@ -377,7 +378,11 @@ class PoolHiddenNet(nn.Module):
             mlp_h_input = torch.cat([curr_rel_pos, curr_hidden_1, curr_hidden_2], dim=1) #(repeated data, 64+128)
 
             reset_gate = torch.sigmoid(self.reset_mlp(mlp_h_input))
+            update_gate = torch.sigmoid(self.update_mlp(mlp_h_input))
             updated_hidden = self.mlp_pre_pool(torch.cat([curr_rel_pos, reset_gate * curr_hidden_1, reset_gate * curr_hidden_2], dim=1))
+
+            updated_hidden = (1-update_gate) * curr_hidden_2 + update_gate * torch.tanh(updated_hidden)
+
             curr_pool_h = updated_hidden.view(num_ped, num_ped, -1).max(1)[0] # (sqrt(repeated data), sqrt(repeated data), 1024) 로 바꾼후, 각 agent별로 상대와의 거리가 가장 큰걸 골라냄. (argmax말로 value를)
             pool_h.append(curr_pool_h)
         pool_h = torch.cat(pool_h, dim=0)
