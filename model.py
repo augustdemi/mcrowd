@@ -290,7 +290,7 @@ class Decoder(nn.Module):
             # create context for the next prediction
             curr_pos = pred_vel * self.scale * self.dt + last_pos
             context = self.pool_net(decoder_h, seq_start_end, curr_pos)  # batchsize, 1024
-            decoder_h = self.mlp_context(torch.cat([decoder_h, context], dim=1))  # mlp : 1152 -> 1024 -> 128
+            decoder_h = self.mlp_context(torch.cat([decoder_h, context], 1))  # batchsize, 1024
             last_pos = curr_pos
 
         mus = torch.stack(mus, dim=0)
@@ -324,14 +324,10 @@ class PoolHiddenNet(nn.Module):
         # self.embedding_dim = embedding_dim
 
         mlp_pre_dim = 2 + 2*h_dim # 2+128*2
-        mlp_pre_pool_dims = [mlp_pre_dim, 512, context_dim]
 
         # self.spatial_embedding = nn.Linear(2, embedding_dim)
-        self.mlp_pre_pool = make_mlp(
-            mlp_pre_pool_dims,
-            activation=activation,
-            batch_norm=batch_norm,
-            dropout=dropout)
+        self.mlp_pre_pool = nn.Linear(mlp_pre_dim, context_dim)
+        self.reset_mlp= nn.Linear(mlp_pre_dim, h_dim)
 
     def repeat(self, tensor, num_reps):
         """
@@ -362,7 +358,7 @@ class PoolHiddenNet(nn.Module):
             curr_end_pos = end_pos[start:end]
             # hidden feature
             curr_hidden_1 = curr_hidden.repeat(num_ped, 1).detach() # Repeat -> H1, H2, H1, H2
-            curr_hidden_2 = self.repeat(curr_hidden, num_ped) # Repeat -> H1, H2, H1, H2
+            curr_hidden_2 = self.repeat(curr_hidden, num_ped) # Repeat -> H1, H1, H2, H2
             # position distance & embedding
             curr_end_pos_1 = curr_end_pos.repeat(num_ped, 1) # Repeat position -> P1, P2, P1, P2
             curr_end_pos_2 = self.repeat(curr_end_pos, num_ped) # Repeat position -> P1, P1, P2, P2
@@ -370,8 +366,10 @@ class PoolHiddenNet(nn.Module):
             # curr_rel_embedding = self.spatial_embedding(curr_rel_pos) # 다른 agent와의 relative거리의 embedding: (repeated data, 64)
             # mlp_h_input = torch.cat([curr_rel_embedding, curr_hidden_1], dim=1) #(repeated data, 64+128)
             mlp_h_input = torch.cat([curr_rel_pos, curr_hidden_1, curr_hidden_2], dim=1) #(repeated data, 64+128)
-            curr_pool_h = self.mlp_pre_pool(mlp_h_input) # 64+128 -> 512 -> (repeated data, bottleneck_dim)
-            curr_pool_h = curr_pool_h.view(num_ped, num_ped, -1).max(1)[0] # (sqrt(repeated data), sqrt(repeated data), 1024) 로 바꾼후, 각 agent별로 상대와의 거리가 가장 큰걸 골라냄. (argmax말로 value를)
+
+            reset_gate = torch.sigmoid(self.reset_mlp(mlp_h_input))
+            updated_hidden = self.mlp_pre_pool(torch.cat([curr_rel_pos, reset_gate * curr_hidden_1, reset_gate * curr_hidden_2], dim=1))
+            curr_pool_h = updated_hidden.view(num_ped, num_ped, -1).max(1)[0] # (sqrt(repeated data), sqrt(repeated data), 1024) 로 바꾼후, 각 agent별로 상대와의 거리가 가장 큰걸 골라냄. (argmax말로 value를)
             pool_h.append(curr_pool_h)
         pool_h = torch.cat(pool_h, dim=0)
         return pool_h
