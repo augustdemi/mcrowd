@@ -280,8 +280,6 @@ class Decoder(nn.Module):
             logVar = torch.clamp(logVar, max=8e1)
             std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
 
-            mus.append(mu)
-            stds.append(std)
             if fut_vel_st is not None:
                 pred_vel = fut_vel_st[i]
             else:
@@ -291,7 +289,18 @@ class Decoder(nn.Module):
             curr_pos = pred_vel * self.scale * self.dt + last_pos
             context = self.pool_net(decoder_h, seq_start_end, curr_pos)  # batchsize, 1024
             decoder_h = self.mlp_context(torch.cat([decoder_h, context], 1))  # batchsize, 1024
+
+            # refine the prediction
+            mu = self.fc_mu(decoder_h)
+            logVar = self.fc_std(decoder_h)
+            mu = torch.clamp(mu, min=-1e8, max=1e8)
+            logVar = torch.clamp(logVar, max=8e1)
+            std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
+            pred_vel = Normal(mu, std).rsample()
+            curr_pos = pred_vel * self.scale * self.dt + last_pos
             last_pos = curr_pos
+            mus.append(mu)
+            stds.append(std)
 
         mus = torch.stack(mus, dim=0)
         stds = torch.stack(stds, dim=0)
@@ -357,7 +366,7 @@ class PoolHiddenNet(nn.Module):
             curr_hidden = h_states[start:end] # (num_layer, batchsize, hidden_size) -> (num_layer*batchsize, hidden_size)
             curr_end_pos = end_pos[start:end]
             # hidden feature
-            curr_hidden_1 = curr_hidden.repeat(num_ped, 1).detach() # Repeat -> H1, H2, H1, H2
+            curr_hidden_1 = curr_hidden.repeat(num_ped, 1) # Repeat -> H1, H2, H1, H2
             curr_hidden_2 = self.repeat(curr_hidden, num_ped) # Repeat -> H1, H1, H2, H2
             # position distance & embedding
             curr_end_pos_1 = curr_end_pos.repeat(num_ped, 1) # Repeat position -> P1, P2, P1, P2
