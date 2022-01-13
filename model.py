@@ -366,7 +366,7 @@ class PoolHiddenNet(nn.Module):
             curr_hidden = h_states[start:end] # (num_layer, batchsize, hidden_size) -> (num_layer*batchsize, hidden_size)
             curr_end_pos = end_pos[start:end]
             # hidden feature
-            curr_hidden_1 = curr_hidden.repeat(num_ped, 1) # Repeat -> H1, H2, H1, H2
+            curr_hidden_1 = curr_hidden.repeat(num_ped, 1).detach() # Repeat -> H1, H2, H1, H2
             curr_hidden_2 = self.repeat(curr_hidden, num_ped) # Repeat -> H1, H1, H2, H2
             # position distance & embedding
             curr_end_pos_1 = curr_end_pos.repeat(num_ped, 1) # Repeat position -> P1, P2, P1, P2
