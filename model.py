@@ -287,7 +287,7 @@ class Decoder(nn.Module):
                 pred_vel = Normal(mu, std).rsample()
             # create context for the next prediction
             curr_pos = pred_vel * self.scale * self.dt + last_pos
-            context = self.pool_net(decoder_h, seq_start_end, curr_pos/self.scale)  # batchsize, 1024
+            context = self.pool_net(decoder_h, seq_start_end, curr_pos)  # batchsize, 1024
             decoder_h = self.mlp_context(torch.cat([decoder_h, context], dim=1))  # mlp : 1152 -> 1024 -> 128
             # refine the prediction
             mu = self.fc_mu(decoder_h)
