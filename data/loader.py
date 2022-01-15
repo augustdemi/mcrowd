@@ -7,6 +7,10 @@ from .sdd_trajectories import seq_collate as sdd_seq_collate
 from .kitti_trajectories import TrackDataset as kitti_Traj
 from .kitti_trajectories import seq_collate as kitti_seq_collate
 
+
+from .a2a_trajectories import TrajectoryDataset as a2a_Traj
+from .a2a_trajectories import seq_collate as a2a_seq_collate
+
 def data_loader(args, path, data_split='train', shuffle=True):
 
     if 'Trajectories' in path:
@@ -23,6 +27,12 @@ def data_loader(args, path, data_split='train', shuffle=True):
             data_split=data_split,
             device=args.device)
         seq_col = kitti_seq_collate
+    elif 'A2A' in path:
+        dset = a2a_Traj(
+            path,
+            data_split=data_split,
+            device=args.device)
+        seq_col = a2a_seq_collate
     else:
         dset = sdd_Traj(
             path,
