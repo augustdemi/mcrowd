@@ -288,7 +288,8 @@ class TrajectoryDataset(Dataset):
             for start, end in zip(cum_start_idx, cum_start_idx[1:])
         ] # [(0, 2),  (2, 4),  (4, 7),  (7, 10), ... (32682, 32684),  (32684, 32686)]
 
-        self.num_seq = len(self.seq_start_end)
+        # self.num_seq = len(self.seq_start_end)
+        self.num_seq = len(self.obs_traj)
         self.data_files = np.stack(data_files)
         self.local_ic = [[]] * len(self.obs_traj)
         self.local_homo = [[]] * len(self.obs_traj)
@@ -300,8 +301,11 @@ class TrajectoryDataset(Dataset):
         return self.num_seq
 
     def __getitem__(self, index):
-        start, end = self.seq_start_end[index]
-        key = '/'.join(self.data_files[index].split('/')[:-1])
+        # start, end = self.seq_start_end[index]
+        start, end = index, index+1
+        seq_idx = np.where((index >= self.seq_start_end[:,0]) & (index < self.seq_start_end[:,1]))[0]
+
+        key = '/'.join(self.data_files[seq_idx].split('/')[:-1])
         global_map = self.maps[key]
         # global_map = np.expand_dims(global_map, 0).repeat((end-start), axis=0)
         # inv_h_t = np.expand_dims(np.eye(3), 0).repeat((end-start), axis=0)
@@ -352,7 +356,7 @@ class TrajectoryDataset(Dataset):
         out = [
             self.obs_traj[start:end].to(self.device), self.pred_traj[start:end].to(self.device),
             self.obs_frame_num[start], self.fut_frame_num[start],
-            self.data_files[index], inv_h_t,
+            self.data_files[seq_idx], inv_h_t,
             local_maps, local_ics, local_homos, self.scale
         ]
         return out
