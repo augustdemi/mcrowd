@@ -141,7 +141,7 @@ class TrajectoryDataset(Dataset):
 
 
         if data_split == 'train':
-            max_num_file = 30
+            max_num_file = 50
         else:
             max_num_file = 5
 
@@ -303,7 +303,8 @@ class TrajectoryDataset(Dataset):
     def __getitem__(self, index):
         # start, end = self.seq_start_end[index]
         start, end = index, index+1
-        seq_idx = np.where((index >= self.seq_start_end[:,0]) & (index < self.seq_start_end[:,1]))[0]
+        ss = np.array(self.seq_start_end)
+        seq_idx = np.where((index >= ss[:,0]) & (index < ss[:,1]))[0][0]
 
         key = '/'.join(self.data_files[seq_idx].split('/')[:-1])
         global_map = self.maps[key]
