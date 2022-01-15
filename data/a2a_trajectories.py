@@ -141,7 +141,7 @@ class TrajectoryDataset(Dataset):
 
 
         if data_split == 'train':
-            max_num_file = 50
+            max_num_file = 40
         else:
             max_num_file = 5
 
@@ -169,6 +169,8 @@ class TrajectoryDataset(Dataset):
                     prev_file = f.split('\\')[:-1]
                 num_file +=1
                 all_files.append(f.rstrip().replace('\\', '/'))
+            print('/'.join(prev_file))
+            print(num_file)
 
 
 
@@ -270,7 +272,9 @@ class TrajectoryDataset(Dataset):
                     fut_frame_num.append(np.ones((num_peds_considered, self.pred_len)) * frames[idx + self.obs_len:idx + self.seq_len])
                     # map_file_names.append(num_peds_considered*[map_file_name])
                     data_files.append(path)
-            print(path, len(seq_list))
+            cum_start_idx = [0] + np.cumsum(num_peds_in_seq).tolist()
+            aa = np.array([(start, end) for start, end in zip(cum_start_idx, cum_start_idx[1:])])
+            print(path, aa[-1][1], np.round((aa[:,1]-aa[:,0]).mean(),2))
 
         seq_list = np.concatenate(seq_list, axis=0) # (32686, 2, 16)
         self.obs_frame_num = np.concatenate(obs_frame_num, axis=0)
