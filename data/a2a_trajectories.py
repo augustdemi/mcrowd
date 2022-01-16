@@ -299,7 +299,7 @@ class TrajectoryDataset(Dataset):
         self.data_files = np.stack(data_files)
         self.local_ic = [[]] * len(self.obs_traj)
         self.local_homo = [[]] * len(self.obs_traj)
-        self.radius = [[]] * len(self.obs_traj)
+        self.local_map = [[]] * len(self.obs_traj)
 
         print(self.seq_start_end[-1])
 
@@ -326,24 +326,27 @@ class TrajectoryDataset(Dataset):
 
         i = start
         for all_traj in seq_all_traj:
-            map_traj = np.matmul(np.concatenate([all_traj, np.ones((len(all_traj), 1))], 1), inv_h_t)
-            map_traj /= np.expand_dims(map_traj[:, 2], 1)
-            map_traj = map_traj[:, :2]
-            '''
-            plt.imshow(global_map)
-            plt.scatter(map_traj[:8, 0], map_traj[:8, 1], s=1, c='b')
-            plt.scatter(map_traj[8:, 0], map_traj[8:, 1], s=1, c='r')
-            '''
-            radius = np.sqrt(((map_traj[1:] - map_traj[:-1]) ** 2).sum(1)).mean() * 20
-            radius = np.round(radius).astype(int)
             if len(self.local_ic[i]) == 0:
+                map_traj = np.matmul(np.concatenate([all_traj, np.ones((len(all_traj), 1))], 1), inv_h_t)
+                map_traj /= np.expand_dims(map_traj[:, 2], 1)
+                map_traj = map_traj[:, :2]
+                '''
+                plt.imshow(global_map)
+                plt.scatter(map_traj[:8, 0], map_traj[:8, 1], s=1, c='b')
+                plt.scatter(map_traj[8:, 0], map_traj[8:, 1], s=1, c='r')
+                '''
+                radius = np.sqrt(((map_traj[1:] - map_traj[:-1]) ** 2).sum(1)).mean() * 20
+                radius = np.round(radius).astype(int)
+
                 local_map, local_ic, local_homo = self.get_local_map_ic(global_map, inv_h_t, map_traj, all_traj, zoom=30,
                                                                         radius=radius,
                                                                         compute_local_homo=True)
+                self.local_map[i] = local_map
                 self.local_ic[i] = local_ic
                 self.local_homo[i] = local_homo
             else:
-                local_map, _, _ = self.get_local_map_ic(global_map, inv_h_t, map_traj, all_traj, zoom=30, radius=radius)
+                # local_map, _, _ = self.get_local_map_ic(global_map, inv_h_t, map_traj, all_traj, zoom=30, radius=radius)
+                local_map = self.local_map[i]
                 local_ic = self.local_ic[i]
                 local_homo = self.local_homo[i]
 
