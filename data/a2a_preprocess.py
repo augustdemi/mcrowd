@@ -6,6 +6,9 @@ import cv2
 import numpy as np
 import torch
 from torch.utils.data import Dataset
+
+import sys
+sys.path.append('../')
 from utils import derivative_of
 
 import matplotlib.pyplot as plt
@@ -139,7 +142,7 @@ class TrajectoryDataset(Dataset):
         if data_split == 'train':
             max_num_file = 40
         else:
-            max_num_file = 1
+            max_num_file = 5
 
         self.seq_len = self.obs_len + self.pred_len
 
@@ -316,10 +319,10 @@ class TrajectoryDataset(Dataset):
             plt.scatter(map_traj[8:, 0], map_traj[8:, 1], s=1, c='r')
             '''
 
-            radius = np.sqrt(((map_traj[1:] - map_traj[:-1]) ** 2).sum(1)).mean() * 20
+            radius = np.sqrt(((map_traj[1:] - map_traj[:-1]) ** 2).sum(1)).mean() * 10
             radius = np.round(radius).astype(int)
             local_map, local_ic, local_homo = self.get_local_map_ic(global_map, inv_h_t, map_traj, all_traj,
-                                                                    zoom=30,
+                                                                    zoom=10,
                                                                     radius=radius,
                                                                     compute_local_homo=True)
             self.local_map.append(local_map)
@@ -437,9 +440,9 @@ class TrajectoryDataset(Dataset):
 
 
 if __name__ == '__main__':
-
+    # 'C:\dataset\HTP-benchmark\A2A Data'
     traj = TrajectoryDataset(
-            data_dir='C:\dataset\HTP-benchmark\A2A Data',
+            data_dir='../../datasets/A2A',
             data_split='test',
             device='cpu',
             scale=1)
