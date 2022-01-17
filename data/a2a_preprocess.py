@@ -298,7 +298,7 @@ class TrajectoryDataset(Dataset):
 
         ss = np.array(self.seq_start_end)
         for i in range(len(self.obs_traj)):
-            if i%1000 == 0:
+            if i % 500 == 0:
                 print(i)
             seq_idx = np.where((i >= ss[:, 0]) & (i < ss[:, 1]))[0][0]
 
@@ -319,7 +319,7 @@ class TrajectoryDataset(Dataset):
             plt.scatter(map_traj[8:, 0], map_traj[8:, 1], s=1, c='r')
             '''
 
-            radius = np.sqrt(((map_traj[1:] - map_traj[:-1]) ** 2).sum(1)).mean() * 10
+            radius = np.sqrt(((map_traj[1:] - map_traj[:-1]) ** 2).sum(1)).mean() * 20
             radius = np.round(radius).astype(int)
             local_map, local_ic, local_homo = self.get_local_map_ic(global_map, inv_h_t, map_traj, all_traj,
                                                                     zoom=10,
@@ -441,6 +441,7 @@ class TrajectoryDataset(Dataset):
 
 if __name__ == '__main__':
     # 'C:\dataset\HTP-benchmark\A2A Data'
+    # '../../datasets/A2A'
     traj = TrajectoryDataset(
             data_dir='../../datasets/A2A',
             data_split='test',
