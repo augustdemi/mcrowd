@@ -139,7 +139,7 @@ class TrajectoryDataset(Dataset):
         if data_split == 'train':
             max_num_file = 40
         else:
-            max_num_file = 5
+            max_num_file = 1
 
         self.seq_len = self.obs_len + self.pred_len
 
@@ -295,6 +295,8 @@ class TrajectoryDataset(Dataset):
 
         ss = np.array(self.seq_start_end)
         for i in range(len(self.obs_traj)):
+            if i%1000 == 0:
+                print(i)
             seq_idx = np.where((i >= ss[:, 0]) & (i < ss[:, 1]))[0][0]
 
             key = '/'.join(self.data_files[seq_idx].split('/')[:-1])
@@ -313,9 +315,9 @@ class TrajectoryDataset(Dataset):
             plt.scatter(map_traj[:8, 0], map_traj[:8, 1], s=1, c='b')
             plt.scatter(map_traj[8:, 0], map_traj[8:, 1], s=1, c='r')
             '''
+
             radius = np.sqrt(((map_traj[1:] - map_traj[:-1]) ** 2).sum(1)).mean() * 20
             radius = np.round(radius).astype(int)
-
             local_map, local_ic, local_homo = self.get_local_map_ic(global_map, inv_h_t, map_traj, all_traj,
                                                                     zoom=30,
                                                                     radius=radius,
@@ -324,7 +326,7 @@ class TrajectoryDataset(Dataset):
             self.local_ic.append(local_ic)
             self.local_homo.append(local_homo)
 
-        self.local_map = np.stack(self.local_map)
+
         self.local_ic = np.stack(self.local_ic)
         self.local_homo = np.stack(self.local_homo)
 
@@ -411,6 +413,7 @@ class TrajectoryDataset(Dataset):
             all_pixel_local /= np.expand_dims(all_pixel_local[:, 2], 1)
             all_pixel_local = np.round(all_pixel_local).astype(int)[:, :2]
 
+
             '''
             ##  back to wc validate
             back_wc = np.matmul(np.concatenate([all_pixel_local, np.ones((len(all_pixel_local), 1))], axis=1), np.transpose(h))
@@ -436,7 +439,7 @@ class TrajectoryDataset(Dataset):
 if __name__ == '__main__':
 
     traj = TrajectoryDataset(
-            data_dir='../datasets/A2A',
+            data_dir='C:\dataset\HTP-benchmark\A2A Data',
             data_split='test',
             device='cpu',
             scale=1)
