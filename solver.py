@@ -23,6 +23,7 @@ from data.nuscenes_dataloader import data_generator
 import numpy as np
 import visdom
 import torch.nn.functional as nnf
+from unet.utils import init_weights
 
 
 ###############################################################################
@@ -50,9 +51,12 @@ class Solver(object):
 
         self.args = args
 
-        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_a_%s_r_%s_aug_%s' % \
+
+
+        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_lg_klw_%s_a_%s_r_%s_fb_%s_anneal_e_%s_aug_%s_llprior_%s' % \
                     (args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE,
-                     args.alpha, args.gamma, args.aug)
+                     args.lg_kl_weight, args.alpha, args.gamma, args.fb, args.anneal_epoch, args.aug, args.ll_prior_w)
+
 
 
         # to be appended by run_id
@@ -159,10 +163,36 @@ class Solver(object):
 
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
 
-            # input = env + 8 past / output = env + lg
-            num_filters = [32,32,64,64,64]
-            self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
-                                    no_convs_fcomb=self.no_convs_fcomb, no_convs_per_block=self.no_convs_per_block, beta=self.lg_kl_weight).to(self.device)
+
+
+            #
+            # # input = env + 8 past / output = env + lg
+
+            if args.load_e > 0:
+                'a2a.lg.ae_enc_block_1_fcomb_block_2_wD_10_lr_0.001_a_0.25_r_2.0_aug_1_run_5'
+                lg_cvae_path = 'ckpts/a2a.lg.ae_enc_block_1_fcomb_block_2' + \
+                               '_wD_' + str(args.w_dim) + '_lr_0.001_a_0.25_r_2.0_aug_1_run_5/' + \
+                               'iter_9400_lg_cvae.pt'
+
+                if self.device == 'cuda':
+                    self.lg_cvae = torch.load(lg_cvae_path)
+                else:
+                    self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
+
+                print(">>>>>>>>> Init: ", lg_cvae_path)
+
+                # random init after latent space
+                for m in self.lg_cvae.unet.upsampling_path:
+                    m.apply(init_weights)
+                self.lg_cvae.fcomb.apply(init_weights)
+                # kl weight
+                self.lg_cvae.beta = args.lg_kl_weight
+
+            else:
+                num_filters = [32,32,64,64,64]
+                self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
+                                        no_convs_fcomb=self.no_convs_fcomb, no_convs_per_block=self.no_convs_per_block, beta=self.lg_kl_weight).to(self.device)
+
 
 
         else:  # load a previously saved model
@@ -271,12 +301,20 @@ class Solver(object):
         epoch = int(start_iter / iter_per_epoch)
 
 
+        lg_kl_weight = self.lg_kl_weight
+        if self.anneal_epoch > 0:
+            lg_kl_weight = 0
+        print('>>>>>>>> kl_w: ', lg_kl_weight)
+
         for iteration in range(start_iter, self.max_iter + 1):
 
             # reset data iterators for each epoch
             if iteration % iter_per_epoch == 0:
                 print('==== epoch %d done ====' % epoch)
                 epoch +=1
+                if self.anneal_epoch > 0:
+                    lg_kl_weight = min(self.lg_kl_weight * (epoch / self.anneal_epoch), self.lg_kl_weight)
+                    print('>>>>>>>> kl_w: ', lg_kl_weight)
 
                 iterator = iter(data_loader)
 
@@ -285,7 +323,7 @@ class Solver(object):
             # ============================================
 
             (obs_traj, fut_traj, obs_traj_st, fut_traj_st, seq_start_end,
-             videos, classes, global_map, homo,
+             obs_frames, fut_frames, map_path, inv_h_t,
              local_map, local_ic, local_homo) = next(iterator)
             batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
@@ -313,7 +351,11 @@ class Solver(object):
                          + (1 - self.alpha) * (1 - lg_heat_map) * torch.log(1 - recon_lg_heat + self.eps) * (
                 recon_lg_heat ** self.gamma)).sum().div(batch_size)
 
-            lg_elbo = focal_loss
+            lg_kl = self.lg_cvae.kl_divergence(analytic=True)
+            lg_kl = torch.clamp(lg_kl, self.fb).sum().div(batch_size)
+
+            lg_elbo = focal_loss - lg_kl_weight * lg_kl
+
 
 
             loss = - lg_elbo
@@ -331,20 +373,20 @@ class Solver(object):
             # (visdom) insert current line stats
             if iteration > 0:
                 if self.viz_on and (iteration % self.viz_ll_iter == 0):
-                    lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon = self.evaluate_dist(self.val_loader, loss=True)
-                    test_total_loss = test_lg_recon
+                    lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon, test_lg_kl = self.evaluate_dist(self.val_loader,
+                                                                                                       loss=True)
+                    test_total_loss = test_lg_recon - lg_kl_weight * test_lg_kl
                     self.line_gather.insert(iter=iteration,
                                             lg_fde_min=lg_fde_min,
                                             lg_fde_avg=lg_fde_avg,
                                             lg_fde_std=lg_fde_std,
                                             total_loss=-loss.item(),
                                             lg_recon=-focal_loss.item(),
-                                            lg_kl=0,
+                                            lg_kl=lg_kl.item(),
                                             test_total_loss=test_total_loss.item(),
                                             test_lg_recon=-test_lg_recon.item(),
-                                            test_lg_kl=0,
+                                            test_lg_kl=test_lg_kl.item(),
                                             )
-
                     prn_str = ('[iter_%d (epoch_%d)] VAE Loss: %.3f '
                               ) % \
                               (iteration, epoch,
@@ -361,10 +403,10 @@ class Solver(object):
 
 
 
-
     def evaluate_dist(self, data_loader, loss=False):
         self.set_mode(train=False)
         total_traj = 0
+        lg_kl = 0
 
         lg_recon = 0
         lg_fde=[]
@@ -425,6 +467,7 @@ class Solver(object):
                     self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
                     pred_lg_heat = F.normalize(pred_lg_heat.view(pred_lg_heat.shape[0], -1), p=1)
                     lg_heat_map = lg_heat_map.view(lg_heat_map.shape[0], -1)
+                    lg_kl += self.lg_cvae.kl_divergence(analytic=True).sum().div(batch_size)
 
                     lg_recon += (self.alpha * lg_heat_map * torch.log(pred_lg_heat + self.eps) * ((1 - pred_lg_heat) ** self.gamma) \
                          + (1 - self.alpha) * (1 - lg_heat_map) * torch.log(1 - pred_lg_heat + self.eps) * (pred_lg_heat ** self.gamma)).sum().div(batch_size)
@@ -440,87 +483,9 @@ class Solver(object):
 
         self.set_mode(train=True)
         if loss:
-            return lg_fde_min, lg_fde_avg, lg_fde_std, lg_recon/b
+            return lg_fde_min, lg_fde_avg, lg_fde_std, lg_recon/b, lg_kl/b
         else:
             return lg_fde_min, lg_fde_avg, lg_fde_std
-
-
-
-
-    def repeat(self, tensor, num_reps):
-        """
-        Inputs:
-        -tensor: 2D tensor of any shape
-        -num_reps: Number of times to repeat each row
-        Outpus:
-        -repeat_tensor: Repeat each row such that: R1, R1, R2, R2
-        """
-        col_len = tensor.size(1)
-        tensor = tensor.unsqueeze(dim=1).repeat(1, num_reps, 1)
-        tensor = tensor.view(-1, col_len)
-        return tensor
-
-
-
-    def collision_stat(self, data_loader, threshold=0.2):
-        self.set_mode(train=False)
-
-        total_coll5 = 0
-        total_coll10 = 0
-        total_coll15 = 0
-        total_coll20 = 0
-        total_coll25 = 0
-        n_scene = 0
-        total_ped = []
-        e_ped = []
-        avg_dist = 0
-        n_agent = 0
-        min_dist =100000
-
-        with torch.no_grad():
-            b=0
-            for batch in data_loader:
-                b+=1
-                (obs_traj, fut_traj, obs_traj_st, fut_traj_st, seq_start_end,
-                 obs_frames, fut_frames, map_path, inv_h_t,
-                 local_map, local_ic, local_homo) = batch
-                b+=1
-                for s, e in seq_start_end:
-                    n_scene +=1
-                    num_ped = e - s
-                    total_ped.append(num_ped)
-                    if num_ped == 1:
-                        continue
-                    e_ped.append(num_ped)
-
-                    seq_traj = fut_traj[:,s:e,:2]
-                    for i in range(len(seq_traj)):
-                        curr1 = seq_traj[i].repeat(num_ped, 1)
-                        curr2 = self.repeat(seq_traj[i], num_ped)
-                        dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
-                        dist = dist.reshape(num_ped, num_ped)
-                        diff_agent_idx = np.triu_indices(num_ped, k=1)
-                        diff_agent_dist = dist[diff_agent_idx]
-                        avg_dist += diff_agent_dist.sum()
-                        min_dist = min(diff_agent_dist.min(), min_dist)
-                        n_agent += len(diff_agent_dist)
-                        total_coll5 += (diff_agent_dist < 0.5).sum()
-                        total_coll10 += (diff_agent_dist < 0.6).sum()
-                        total_coll15 += (diff_agent_dist < 0.7).sum()
-                        total_coll20 += (diff_agent_dist < 0.8).sum()
-                        total_coll25 += (diff_agent_dist < 0.9).sum()
-        print('total_coll5: ', total_coll5)
-        print('total_coll10: ', total_coll10)
-        print('total_coll15: ', total_coll15)
-        print('total_coll20: ', total_coll20)
-        print('total_coll25: ', total_coll25)
-        print('n_scene: ', n_scene)
-        print('scenes with ped > 1:', len(e_ped))
-        print('avg_dist:', avg_dist/n_agent)
-        print('min_dist:', min_dist)
-        print('avg e_ped:', np.array(e_ped).mean())
-        print('avg ped:', np.array(total_ped).mean())
-
 
     def check_feat(self, data_loader):
         self.set_mode(train=False)
