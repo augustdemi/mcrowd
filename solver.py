@@ -369,12 +369,12 @@ class Solver(object):
 
 
             # save model parameters
-            if iteration % (iter_per_epoch*5) == 0:
+            if (iteration % (iter_per_epoch*5) == 0) or (iteration % (iter_per_epoch*2) == 0):
                 self.save_checkpoint(iteration)
 
             # (visdom) insert current line stats
             if iteration > 0:
-                if self.viz_on and (iteration % (iter_per_epoch*5) == 0):
+                if iteration == 5191 or (self.viz_on and (iteration % (iter_per_epoch*5) == 0)):
                     lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon, test_lg_kl = self.evaluate_dist(self.val_loader,
                                                                                                        loss=True)
                     test_total_loss = test_lg_recon - lg_kl_weight * test_lg_kl
@@ -396,11 +396,9 @@ class Solver(object):
                                )
 
                     print(prn_str)
+                    self.visualize_line()
+                    self.line_gather.flush()
 
-                    # (visdom) visualize line stats (then flush out)
-                    if self.viz_on and (iteration % self.viz_la_iter == 0):
-                        self.visualize_line()
-                        self.line_gather.flush()
 
 
 
