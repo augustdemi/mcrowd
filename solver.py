@@ -169,10 +169,7 @@ class Solver(object):
             # # input = env + 8 past / output = env + lg
 
             if args.load_e > 0:
-                'a2a.lg.ae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_a_0.25_r_2.0_aug_1_run_8'
-                lg_cvae_path = 'ckpts/a2a.lg.ae_enc_block_1_fcomb_block_2' + \
-                               '_wD_' + str(args.w_dim) + '_lr_0.001_a_0.25_r_2.0_aug_1_run_5/' + \
-                               'iter_20740_lg_cvae.pt'
+                lg_cvae_path = 'a2a.lg.ae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_a_0.25_r_2.0_aug_1_run_8/iter_20740_lg_cvae.pt'
 
                 if self.device == 'cuda':
                     self.lg_cvae = torch.load(lg_cvae_path)
@@ -218,10 +215,13 @@ class Solver(object):
 
 
         if self.ckpt_load_iter != self.max_iter:
-            print("Initializing train dataset")
-            _, self.train_loader = data_loader(self.args, args.dataset_dir, 'train', shuffle=True)
-            print("Initializing val dataset")
-            _, self.val_loader = data_loader(self.args, args.dataset_dir, 'test', shuffle=False)
+            train_file_name = 'trainall'
+            test_file_name = 'test10'
+
+            print("Initializing train dataset from ", train_file_name)
+            _, self.train_loader = data_loader(self.args, args.dataset_dir, train_file_name, shuffle=True)
+            print("Initializing val dataset from ", test_file_name)
+            _, self.val_loader = data_loader(self.args, args.dataset_dir, test_file_name, shuffle=False)
             # _, self.val_loader = _, self.train_loader
 
             self.iter_per_e = len(self.train_loader.dataset) / args.batch_size
@@ -298,6 +298,7 @@ class Solver(object):
         iterator = iter(data_loader)
 
         iter_per_epoch = len(iterator)
+        print(iter_per_epoch)
         start_iter = self.ckpt_load_iter + 1
         epoch = int(start_iter / iter_per_epoch)
 
@@ -396,10 +397,10 @@ class Solver(object):
 
                     print(prn_str)
 
-                # (visdom) visualize line stats (then flush out)
-                if self.viz_on and (iteration % self.viz_la_iter == 0):
-                    self.visualize_line()
-                    self.line_gather.flush()
+                    # (visdom) visualize line stats (then flush out)
+                    if self.viz_on and (iteration % self.viz_la_iter == 0):
+                        self.visualize_line()
+                        self.line_gather.flush()
 
 
 
