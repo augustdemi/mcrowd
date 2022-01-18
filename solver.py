@@ -169,7 +169,7 @@ class Solver(object):
             # # input = env + 8 past / output = env + lg
 
             if args.load_e > 0:
-                lg_cvae_path = 'a2a.lg.ae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_a_0.25_r_2.0_aug_1_run_8/iter_20740_lg_cvae.pt'
+                lg_cvae_path = 'ckpts/a2a.lg.ae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_a_0.25_r_2.0_aug_1_run_8/iter_20740_lg_cvae.pt'
 
                 if self.device == 'cuda':
                     self.lg_cvae = torch.load(lg_cvae_path)
@@ -298,7 +298,7 @@ class Solver(object):
         iterator = iter(data_loader)
 
         iter_per_epoch = len(iterator)
-        print(iter_per_epoch)
+        print('iter_per_epoch:', iter_per_epoch)
         start_iter = self.ckpt_load_iter + 1
         epoch = int(start_iter / iter_per_epoch)
 
@@ -369,12 +369,12 @@ class Solver(object):
 
 
             # save model parameters
-            if iteration % (self.iter_per_e*5) == 0:
+            if iteration % (iter_per_epoch*5) == 0:
                 self.save_checkpoint(iteration)
 
             # (visdom) insert current line stats
             if iteration > 0:
-                if self.viz_on and (iteration % (self.iter_per_e*5) == 0):
+                if self.viz_on and (iteration % (iter_per_epoch*5) == 0):
                     lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon, test_lg_kl = self.evaluate_dist(self.val_loader,
                                                                                                        loss=True)
                     test_total_loss = test_lg_recon - lg_kl_weight * test_lg_kl
