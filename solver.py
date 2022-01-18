@@ -169,10 +169,10 @@ class Solver(object):
             # # input = env + 8 past / output = env + lg
 
             if args.load_e > 0:
-                'a2a.lg.ae_enc_block_1_fcomb_block_2_wD_10_lr_0.001_a_0.25_r_2.0_aug_1_run_5'
+                'a2a.lg.ae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_a_0.25_r_2.0_aug_1_run_8'
                 lg_cvae_path = 'ckpts/a2a.lg.ae_enc_block_1_fcomb_block_2' + \
                                '_wD_' + str(args.w_dim) + '_lr_0.001_a_0.25_r_2.0_aug_1_run_5/' + \
-                               'iter_9400_lg_cvae.pt'
+                               'iter_20740_lg_cvae.pt'
 
                 if self.device == 'cuda':
                     self.lg_cvae = torch.load(lg_cvae_path)
@@ -224,9 +224,10 @@ class Solver(object):
             _, self.val_loader = data_loader(self.args, args.dataset_dir, 'test', shuffle=False)
             # _, self.val_loader = _, self.train_loader
 
+            self.iter_per_e = len(self.train_loader.dataset) / args.batch_size
 
             print(
-                'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
+                'There are {} iterations per epoch'.format(self.iter_per_e)
             )
         print('...done')
 
@@ -367,12 +368,12 @@ class Solver(object):
 
 
             # save model parameters
-            if iteration % self.ckpt_save_iter == 0:
+            if iteration % (self.iter_per_e*5) == 0:
                 self.save_checkpoint(iteration)
 
             # (visdom) insert current line stats
             if iteration > 0:
-                if self.viz_on and (iteration % self.viz_ll_iter == 0):
+                if self.viz_on and (iteration % (self.iter_per_e*5) == 0):
                     lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon, test_lg_kl = self.evaluate_dist(self.val_loader,
                                                                                                        loss=True)
                     test_total_loss = test_lg_recon - lg_kl_weight * test_lg_kl
@@ -486,6 +487,85 @@ class Solver(object):
             return lg_fde_min, lg_fde_avg, lg_fde_std, lg_recon/b, lg_kl/b
         else:
             return lg_fde_min, lg_fde_avg, lg_fde_std
+
+
+
+
+
+    def repeat(self, tensor, num_reps):
+        """
+        Inputs:
+        -tensor: 2D tensor of any shape
+        -num_reps: Number of times to repeat each row
+        Outpus:
+        -repeat_tensor: Repeat each row such that: R1, R1, R2, R2
+        """
+        col_len = tensor.size(1)
+        tensor = tensor.unsqueeze(dim=1).repeat(1, num_reps, 1)
+        tensor = tensor.view(-1, col_len)
+        return tensor
+
+
+
+    def collision_stat(self, data_loader, threshold=0.2):
+        self.set_mode(train=False)
+
+        total_coll5 = 0
+        total_coll10 = 0
+        total_coll15 = 0
+        total_coll20 = 0
+        total_coll25 = 0
+        n_scene = 0
+        total_ped = []
+        e_ped = []
+        avg_dist = 0
+        n_agent = 0
+        min_dist =100000
+
+        with torch.no_grad():
+            b=0
+            for batch in data_loader:
+                b+=1
+                (obs_traj, fut_traj, obs_traj_st, fut_traj_st, seq_start_end,
+                 obs_frames, fut_frames, map_path, inv_h_t,
+                 local_map, local_ic, local_homo) = batch
+                b+=1
+                for s, e in seq_start_end:
+                    n_scene +=1
+                    num_ped = e - s
+                    total_ped.append(num_ped)
+                    if num_ped == 1:
+                        continue
+                    e_ped.append(num_ped)
+
+                    seq_traj = fut_traj[:,s:e,:2]
+                    for i in range(len(seq_traj)):
+                        curr1 = seq_traj[i].repeat(num_ped, 1)
+                        curr2 = self.repeat(seq_traj[i], num_ped)
+                        dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
+                        dist = dist.reshape(num_ped, num_ped)
+                        diff_agent_idx = np.triu_indices(num_ped, k=1)
+                        diff_agent_dist = dist[diff_agent_idx]
+                        avg_dist += diff_agent_dist.sum()
+                        min_dist = min(diff_agent_dist.min(), min_dist)
+                        n_agent += len(diff_agent_dist)
+                        total_coll5 += (diff_agent_dist < 0.1).sum()
+                        total_coll10 += (diff_agent_dist < 0.2).sum()
+                        total_coll15 += (diff_agent_dist < 0.3).sum()
+                        total_coll20 += (diff_agent_dist < 0.4).sum()
+                        total_coll25 += (diff_agent_dist < 0.5).sum()
+        print('total_coll5: ', total_coll5)
+        print('total_coll10: ', total_coll10)
+        print('total_coll15: ', total_coll15)
+        print('total_coll20: ', total_coll20)
+        print('total_coll25: ', total_coll25)
+        print('n_scene: ', n_scene)
+        print('scenes with ped > 1:', len(e_ped))
+        print('avg_dist:', avg_dist/n_agent)
+        print('min_dist:', min_dist)
+        print('avg e_ped:', np.array(e_ped).mean())
+        print('avg ped:', np.array(total_ped).mean())
+
 
     def check_feat(self, data_loader):
         self.set_mode(train=False)
