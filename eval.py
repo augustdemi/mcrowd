@@ -4,9 +4,10 @@ import torch
 
 # -----------------------------------------------------------------------------#
 from data.loader import data_loader
-# from path_eval import Solver
-from kitti_eval import Solver
-# from sdd_eval import Solver
+from path_eval import Solver
+# from kitti_eval import Solver
+from sdd_eval import Solver
+from a2a_eval import Solver
 # from nusc_eval import Solver
 from utils import str2bool, bool_flag
 import os
@@ -53,7 +54,7 @@ def create_parser():
                         help='cpu/cuda')
 
     # training hyperparameters
-    parser.add_argument('--batch_size', default=10, type=int,
+    parser.add_argument('--batch_size', default=1, type=int,
                         help='batch size')
     parser.add_argument('--lr_VAE', default=1e-3, type=float,
                         help='learning rate of the VAE')
@@ -100,7 +101,9 @@ def create_parser():
     parser.add_argument('--skip', default=1, type=int)
     # dataset
     # parser.add_argument('--dataset_dir', default='../datasets/Trajectories', type=str, help='dataset directory')
-    parser.add_argument('--dataset_dir', default='C:/dataset/KITTI-trajectory-prediction', type=str, help='dataset directory')
+    # parser.add_argument('--dataset_dir', default='../datasets/SDD', type=str, help='dataset directory')
+    parser.add_argument('--dataset_dir', default='C:\dataset\HTP-benchmark\A2A Data', type=str, help='dataset directory')
+    # parser.add_argument('--dataset_dir', default='C:/dataset/KITTI-trajectory-prediction', type=str, help='dataset directory')
     parser.add_argument('--dataset_name', default='sdd.lgcvae', type=str,
                         help='dataset name')
     parser.add_argument('--model_name', default='', type=str,
@@ -138,7 +141,7 @@ def create_parser():
     parser.add_argument('--fb', default=0.5, type=float)
     parser.add_argument('--anneal_epoch', default=20, type=int)
     parser.add_argument('--aug', default=1, type=int)
-    parser.add_argument('--load_e', default=5, type=int)
+    parser.add_argument('--load_e', default=3, type=int)
     parser.add_argument('--scale', default=1.0, type=float)
 
     parser.add_argument('--desc', default='data', type=str,
@@ -156,7 +159,7 @@ def main(args):
 
         print('--------------------', args.dataset_name, '----------------------')
 
-        # args.batch_size=1
+        args.batch_size=3
 
         # from data.nuscenes.config import Config
         # from data.nuscenes_dataloader import data_generator
@@ -172,6 +175,7 @@ def main(args):
         gh = True
         print("GEN HEAT MAP: ", gh)
 
+        '''
         ############## kitti
         # traj_path = 'ki.traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_2.0_scale_1.0_num_sg_1_run_1'
         # traj_path = 'ki.traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_2.0_scale_1.0_num_sg_5_run_1'
@@ -195,7 +199,7 @@ def main(args):
 
 
 
-        '''
+        
         ############## sdd
         traj_path = 'sdd.traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_1.0_scale_100.0_num_sg_3_run_203'
         traj_iter = '42000'
@@ -212,15 +216,26 @@ def main(args):
         sg_ckpt = {'ckpt_dir': os.path.join('ckpts', sg_path), 'iter': sg_iter}
         print('===== SG CVAE:', sg_ckpt)
 
-        ''' '''
+
+        
         ############## Path
         traj_path = 'traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_0.07_scale_1.0_run_103'
+        traj_path = 'traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_2.0_scale_1.0_num_sg_3_run_313'
+        traj_path = 'traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_2.0_scale_1.0_num_sg_3_run_308'
         traj_iter = '51000'
+        traj_iter = '33500'
+        traj_iter = '67000'
         traj_ckpt = {'ckpt_dir': os.path.join('ckpts', traj_path), 'iter': traj_iter}
         print('===== TRAJECTORY:', traj_ckpt)
 
         lg_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1.0_a_0.25_r_2.0_fb_0.8_anneal_e_10_load_e_3_run_101'
+        lg_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1.0_a_0.25_r_2.0_fb_0.5_anneal_e_10_load_e_1_pos_0.0_v1_0.0_2.0_v2_0.0_2.0_run_312'
+        lg_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1.0_a_0.25_r_2.0_fb_0.5_anneal_e_10_load_e_1_pos_1.0_v1_0.0_2.0_v2_1.0_2.0_run_312'
+        lg_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1.0_a_0.25_r_2.0_fb_0.7_anneal_e_10_load_e_1_run_308'
         lg_iter = '34000'
+        lg_iter = '40200'
+        lg_iter = '41540'
+        lg_iter = '42880'
         lg_ckpt = {'ckpt_dir': os.path.join('ckpts', lg_path), 'iter': lg_iter}
         print('===== LG CVAE:', lg_ckpt)
 
@@ -230,15 +245,32 @@ def main(args):
         print('===== SG CVAE:', sg_ckpt)
         '''
 
+        ############## sdd
+        traj_path = 'a2a.traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_2.0_scale_1.0_num_sg_3_coll_th_1.5_w_coll_1.0_beta_1.0_run_0'
+        traj_iter = '31140'
+        traj_ckpt = {'ckpt_dir': os.path.join('ckpts', traj_path), 'iter': traj_iter}
+        print('===== TRAJECTORY:', traj_ckpt)
+
+        lg_path = 'a2a.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_6.0_anneal_e_10_aug_1_llprior_1.0_run_1'
+        lg_iter = '20760'
+        lg_ckpt = {'ckpt_dir': os.path.join('ckpts', lg_path), 'iter': lg_iter}
+        print('===== LG CVAE:', lg_ckpt)
+
+        sg_path = 'a2a.sg_lr_0.001_a_0.25_r_2.0_aug_1_num_sg_3_run_1'
+        sg_iter = '20760'
+        sg_ckpt = {'ckpt_dir': os.path.join('ckpts', sg_path), 'iter': sg_iter}
+        print('===== SG CVAE:', sg_ckpt)
+
         solver.pretrain_load_checkpoint(traj_ckpt, lg_ckpt, sg_ckpt)
         # solver.make_pred(test_loader, lg_num=20, traj_num=1, generate_heat=True)
         # solver.make_ecfl(test_loader, lg_num=20, traj_num=1, generate_heat=True)
 
         # solver.make_pred_12sg(test_loader)
+        # solver.evaluate_each(test_loader)
+
         # solver.check_feat(test_loader)
 
         # solver.plot_traj_var(test_loader)
-        # solver.evaluate_dist_gt_goal(test_loader)
         # solver.check_feat(test_loader)
 
         lg_num=4
