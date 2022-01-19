@@ -124,10 +124,6 @@ class Solver(object):
 
             self.viz_init()
 
-        # create dirs: "records", "ckpts", "outputs" (if not exist)
-        mkdirs("records");
-        mkdirs("ckpts");
-        mkdirs("outputs")
 
         # set run id
         if args.run_id < 0:  # create a new id
