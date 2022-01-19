@@ -357,7 +357,6 @@ class Solver(object):
 
             # TF, goals, z~posterior
             fut_rel_pos_dist_tf_post = self.decoderMy(
-                seq_start_end,
                 obs_traj_st[-1],
                 obs_traj[-1, :, :2],
                 hx,
@@ -371,7 +370,6 @@ class Solver(object):
 
             # NO TF, predicted goals, z~prior
             fut_rel_pos_dist_prior = self.decoderMy(
-                seq_start_end,
                 obs_traj_st[-1],
                 obs_traj[-1, :, :2],
                 hx,
@@ -493,7 +491,6 @@ class Solver(object):
                 for _ in range(4):
                     # NO TF, pred_goals, z~prior
                     fut_rel_pos_dist_prior = self.decoderMy(
-                        seq_start_end,
                         obs_traj_st[-1],
                         obs_traj[-1,:,:2],
                         hx,
