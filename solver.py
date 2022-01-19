@@ -351,8 +351,8 @@ class Solver(object):
             (muy, log_vary) \
                 = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, hx, train=True)
 
-            p_dist = Normal(mux, log_varx)
-            q_dist = Normal(muy, log_vary)
+            p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
+            q_dist = Normal(muy, torch.sqrt(torch.exp(log_vary)))
 
 
             # TF, goals, z~posterior
@@ -487,7 +487,7 @@ class Solver(object):
                 # -------- trajectories --------
                 (hx, mux, log_varx) \
                     = self.encoderMx(obs_traj_st, seq_start_end, unet_enc_feat, local_homo)
-                p_dist = Normal(mux, log_varx)
+                p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
 
                 fut_rel_pos_dist20 = []
                 for _ in range(4):
