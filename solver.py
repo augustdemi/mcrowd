@@ -398,7 +398,7 @@ class Solver(object):
 
 
             # save model parameters
-            if (iteration % (iter_per_epoch*5) == 0):
+            if iteration % (iter_per_epoch*5) == 0:
                 self.save_checkpoint(iteration)
 
             # (visdom) insert current line stats
