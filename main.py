@@ -97,9 +97,10 @@ def create_parser():
     parser.add_argument('--obs_len', default=8, type=int)
     parser.add_argument('--pred_len', default=12, type=int)
     # dataset
-    parser.add_argument('--dataset_dir', default='../datasets/Trajectories', type=str, help='dataset directory')
+    # parser.add_argument('--dataset_dir', default='../datasets/Trajectories', type=str, help='dataset directory')
     # parser.add_argument('--dataset_dir', default='../datasets/SDD', type=str, help='dataset directory')
     # parser.add_argument('--dataset_dir', default='C:/dataset/KITTI-trajectory-prediction', type=str, help='dataset directory')
+    parser.add_argument('--dataset_dir', default='C:\dataset\HTP-benchmark\A2A Data', type=str, help='dataset directory')
     parser.add_argument('--dataset_name', default='sdd.lgcvae', type=str,
                         help='dataset name')
     parser.add_argument('--model_name', default='', type=str,
@@ -127,7 +128,7 @@ def create_parser():
                         help='kl weight')
     parser.add_argument('--lg_kl_weight', default=0.05, type=float)
 
-    parser.add_argument('--w_dim', default=20, type=int)
+    parser.add_argument('--w_dim', default=10, type=int)
     parser.add_argument('--ll_prior_w', default=1.0, type=float)
     parser.add_argument('--no_convs_fcomb', default=2, type=int)
     parser.add_argument('--no_convs_per_block', default=1, type=int)
@@ -137,6 +138,7 @@ def create_parser():
     parser.add_argument('--anneal_epoch', default=20, type=int)
     parser.add_argument('--aug', default=1, type=int)
     parser.add_argument('--load_e', default=3, type=int)
+    parser.add_argument('--context_dim', default=32, type=int)
     parser.add_argument('--scale', default=1.0, type=float)
     parser.add_argument('--coll_th', default=5.0, type=float)
     parser.add_argument('--w_coll', default=5.0, type=float)
@@ -158,22 +160,24 @@ def main(args):
         solver = Solver(args)
 
         print('--------------------', args.dataset_name, '----------------------')
-        args.batch_size = 2
+        args.batch_size = 4
 
-        # _, test_loader = data_loader(args, args.dataset_dir, 'test', shuffle=True)
+        # cfg = Config('nuscenes', False, create_dirs=True)
+        # torch.set_default_dtype(torch.float32)
+        # log = open('log.txt', 'a+')
+        # test_loader = data_generator(cfg, log, split='test', phase='testing',
+        #                              batch_size=args.batch_size, device=args.device, scale=args.scale, shuffle=False)
+        #
+        _, test_loader = data_loader(args, args.dataset_dir, 'test', shuffle=False)
 
-        cfg = Config('nuscenes', False, create_dirs=True)
-        torch.set_default_dtype(torch.float32)
-        log = open('log.txt', 'a+')
-        test_loader = data_generator(cfg, log, split='test', phase='testing',
-                                         batch_size=args.batch_size, device=args.device, scale=args.scale, shuffle=False)
 
+        # solver.load_checkpoint()
         # solver.check_feat(test_loader)
 
         # solver.evaluate_lg(test_loader, num_gen=3)
         # solver.evaluate_each(test_loader)
         solver.collision_stat(test_loader)
-        solver.evaluate_dist(test_loader, loss=True)
+        # solver.evaluate_dist(test_loader, loss=True)
         #
         # fde_min, fde_avg, fde_std = solver.evaluate_dist(test_loader, loss=False)
         # print(fde_min)
