@@ -152,7 +152,7 @@ class TrajectoryDataset(Dataset):
             self.obs_traj[start:end].to(self.device), self.fut_traj[start:end].to(self.device),
             self.obs_frame_num[start:end], self.fut_frame_num[start:end],
             self.data_file_name[seq_idx], self.inv_h_t['/'.join(self.data_file_name[seq_idx].split('/')[:-1])],
-            self.local_map[start:end],
+            self.local_map[start:end][0],
             self.local_ic[start:end],
             self.local_homo[start:end],
             self.scale

@@ -66,6 +66,7 @@ class Solver(object):
 
         self.coll_th = args.coll_th
         self.beta = args.beta
+        self.context_dim = args.context_dim
         self.w_coll = args.w_coll
 
 
@@ -233,7 +234,9 @@ class Solver(object):
 
         if self.ckpt_load_iter != self.max_iter:
             train_file_name = 'trainall'
+            train_file_name = 'test'
             test_file_name = 'test10'
+            test_file_name = 'test'
 
             print("Initializing train dataset from ", train_file_name)
             _, self.train_loader = data_loader(self.args, args.dataset_dir, train_file_name, shuffle=True)
@@ -397,12 +400,14 @@ class Solver(object):
             traj_elbo = loglikelihood - self.kl_weight * loss_kl
 
 
-            pred_fut_traj = integrate_samples(fut_rel_pos_dist_prior.rsample() * self.scale, obs_traj[-1, :, :2],
-                                              dt=self.dt)
-            coll_loss = 0
-            total_coll = n_scene = 0
 
-            if epoch > 0:
+            coll_loss = torch.tensor(0)
+            total_coll = torch.tensor(0)
+            n_scene = 0
+
+            if (self.beta > 0) and (epoch >= self.beta):
+                pred_fut_traj = integrate_samples(fut_rel_pos_dist_prior.rsample() * self.scale, obs_traj[-1, :, :2],
+                                                  dt=self.dt)
                 for s, e in seq_start_end:
                     n_scene +=1
                     num_ped = e - s
@@ -419,7 +424,7 @@ class Solver(object):
                         diff_agent_dist += dist[diff_agent_idx]
                         diff_agent_dist += dist[diff_agent_idx[1], diff_agent_idx[0]]
                         diff_agent_dist = (torch.stack(diff_agent_dist) - self.coll_th)
-                        coll_loss += (torch.sigmoid(-self.beta * diff_agent_dist)).sum()
+                        coll_loss += (torch.sigmoid(-diff_agent_dist)).sum()
                         total_coll += (diff_agent_dist < self.coll_th).sum()
 
             loss = - traj_elbo + self.w_coll * coll_loss
@@ -556,7 +561,7 @@ class Solver(object):
                             diff_agent_idx = np.triu_indices(num_ped, k=1)
                             diff_agent_dist = dist[diff_agent_idx]
                             diff_agent_dist = diff_agent_dist - self.coll_th
-                            coll_loss += (torch.sigmoid(-self.beta * diff_agent_dist)).sum()
+                            coll_loss += (torch.sigmoid(-diff_agent_dist)).sum()
                             total_coll += (diff_agent_dist < self.coll_th).sum()
 
 
