@@ -234,9 +234,9 @@ class Solver(object):
 
         if self.ckpt_load_iter != self.max_iter:
             train_file_name = 'trainall'
-            train_file_name = 'test'
+            # train_file_name = 'test'
             test_file_name = 'test10'
-            test_file_name = 'test'
+            # test_file_name = 'test'
 
             print("Initializing train dataset from ", train_file_name)
             _, self.train_loader = data_loader(self.args, args.dataset_dir, train_file_name, shuffle=True)
@@ -440,7 +440,7 @@ class Solver(object):
 
             # (visdom) insert current line stats
             if iteration > 0:
-                if (self.viz_on and (iteration % (iter_per_epoch*5) == 0)):
+                if epoch == 1 or (self.viz_on and (iteration % (iter_per_epoch*5) == 0)):
                     ade_min, fde_min, \
                     ade_avg, fde_avg, \
                     ade_std, fde_std, \
