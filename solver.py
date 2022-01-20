@@ -401,11 +401,11 @@ class Solver(object):
 
 
 
-            coll_loss = torch.tensor(0)
-            total_coll = torch.tensor(0)
+            coll_loss = torch.tensor(0.0).to(self.device)
+            total_coll = 0
             n_scene = 0
 
-            if (self.beta > 0) and (epoch >= self.beta):
+            if (self.beta >= 0) and (epoch >= self.beta):
                 pred_fut_traj = integrate_samples(fut_rel_pos_dist_prior.rsample() * self.scale, obs_traj[-1, :, :2],
                                                   dt=self.dt)
                 for s, e in seq_start_end:
@@ -425,7 +425,7 @@ class Solver(object):
                         diff_agent_dist += dist[diff_agent_idx[1], diff_agent_idx[0]]
                         diff_agent_dist = (torch.stack(diff_agent_dist) - self.coll_th)
                         coll_loss += (torch.sigmoid(-diff_agent_dist)).sum()
-                        total_coll += (diff_agent_dist < self.coll_th).sum()
+                        total_coll += (diff_agent_dist < self.coll_th).sum().item()
 
             loss = - traj_elbo + self.w_coll * coll_loss
 
@@ -456,7 +456,7 @@ class Solver(object):
                                             loss_recon_prior=-ll_prior.item(),
                                             loss_kl=loss_kl.item(),
                                             loss_coll=coll_loss.item(),
-                                            total_coll=total_coll.item()/n_scene,
+                                            total_coll=total_coll/n_scene,
                                             test_loss_recon=test_loss_recon.item(),
                                             test_loss_kl=test_loss_kl.item(),
                                             test_loss_coll=test_loss_coll.item(),
