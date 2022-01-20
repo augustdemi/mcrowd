@@ -440,7 +440,7 @@ class Solver(object):
 
             # (visdom) insert current line stats
             if iteration > 0:
-                if epoch == 1 or (self.viz_on and (iteration % (iter_per_epoch*5) == 0)):
+                if iteration == iter_per_epoch or (self.viz_on and (iteration % (iter_per_epoch*5) == 0)):
                     ade_min, fde_min, \
                     ade_avg, fde_avg, \
                     ade_std, fde_std, \
