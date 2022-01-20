@@ -39,9 +39,6 @@ def seq_collate(data):
     local_ic = np.concatenate(local_ic, 0)
     local_homo = torch.cat(local_homo, 0)
 
-    local_maps = []
-    for i in range(len(seq_start_end)):
-        local_maps.extend(local_map[i])
 
     obs_traj_st = obs_traj.clone()
     # pos is stdized by mean = last obs step
@@ -53,7 +50,7 @@ def seq_collate(data):
     out = [
         obs_traj, fut_traj, obs_traj_st, fut_traj[:,:,2:4] / scale, seq_start_end,
         obs_frames, fut_frames, map_path, inv_h_t,
-        local_maps, local_ic, local_homo
+        local_map, local_ic, local_homo
     ]
 
 
@@ -119,7 +116,7 @@ class TrajectoryDataset(Dataset):
         self.local_homo = torch.from_numpy(all_data['local_homo']).float().to(self.device)
         self.local_ic = all_data['local_ic']
 
-        self.num_seq = len(self.seq_start_end)
+        self.num_seq = len(self.obs_traj)
         print(self.seq_start_end[-1])
 
 
@@ -127,7 +124,8 @@ class TrajectoryDataset(Dataset):
         return self.num_seq
 
     def __getitem__(self, index):
-        start, end = self.seq_start_end[index]
+        start, end = index, index+1
+        seq_idx = np.where((index >= self.seq_start_end[:,0]) & (index < self.seq_start_end[:,1]))[0][0]
         '''
         start, end = index, index+1
         seq_idx = np.where((index >= self.seq_start_end[:,0]) & (index < self.seq_start_end[:,1]))[0][0]
@@ -153,7 +151,7 @@ class TrajectoryDataset(Dataset):
         out = [
             self.obs_traj[start:end].to(self.device), self.fut_traj[start:end].to(self.device),
             self.obs_frame_num[start:end], self.fut_frame_num[start:end],
-            self.data_file_name[index], self.inv_h_t['/'.join(self.data_file_name[index].split('/')[:-1])],
+            self.data_file_name[seq_idx], self.inv_h_t['/'.join(self.data_file_name[seq_idx].split('/')[:-1])],
             self.local_map[start:end],
             self.local_ic[start:end],
             self.local_homo[start:end],
