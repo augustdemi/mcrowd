@@ -166,7 +166,7 @@ class Solver(object):
         self.decoder_h_dim = args.decoder_h_dim
 
         lg_cvae_path = 'a2a.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_6.0_anneal_e_10_aug_1_llprior_1.0_run_1'
-        lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_20760_lg_cvae.pt')
+        lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_31140_lg_cvae.pt')
 
         if self.device == 'cuda':
             self.lg_cvae = torch.load(lg_cvae_path)
