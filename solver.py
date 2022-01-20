@@ -456,7 +456,7 @@ class Solver(object):
                                             loss_recon_prior=-ll_prior.item(),
                                             loss_kl=loss_kl.item(),
                                             loss_coll=coll_loss.item(),
-                                            total_coll=total_coll/n_scene,
+                                            total_coll=total_coll,
                                             test_loss_recon=test_loss_recon.item(),
                                             test_loss_kl=test_loss_kl.item(),
                                             test_loss_coll=test_loss_coll.item(),
