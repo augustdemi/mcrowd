@@ -189,10 +189,10 @@ class Solver(object):
             plt.scatter(local_ic[i,:8,1], local_ic[i,:8,0], s=1, c='b')
             plt.scatter(local_ic[i,8:,1], local_ic[i,8:,0], s=1, c='r')
             '''
-            map_size = local_map[i][0].shape[0]
-            env = cv2.resize(local_map[i][0], dsize=(down_size, down_size))
+            map_size = local_map[i].shape[0]
+            env = cv2.resize(local_map[i], dsize=(down_size, down_size))
             ohm = [env]
-            heat_map_traj = np.zeros_like(local_map[i][0])
+            heat_map_traj = np.zeros_like(local_map[i])
             heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 100
 
             if map_size > 1000:
@@ -216,7 +216,7 @@ class Solver(object):
                                               align_corners = False).squeeze(0).squeeze(0)
             '''
             for j in (self.sg_idx + self.obs_len):
-                heat_map_traj = np.zeros_like(local_map[i][0])
+                heat_map_traj = np.zeros_like(local_map[i])
                 heat_map_traj[local_ic[i, j, 0], local_ic[i, j, 1]] = 1000
                 if map_size > 1000:
                     heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2),
@@ -987,6 +987,15 @@ class Solver(object):
         self.set_mode(train=False)
         total_traj = 0
 
+
+        total_coll5 = [0] * (lg_num * traj_num)
+        total_coll10 = [0] * (lg_num * traj_num)
+        total_coll15 = [0] * (lg_num * traj_num)
+        total_coll20 = [0] * (lg_num * traj_num)
+        total_coll25 = [0] * (lg_num * traj_num)
+        n_scene = 0
+
+
         all_ade =[]
         all_fde =[]
         sg_ade=[]
@@ -1019,7 +1028,7 @@ class Solver(object):
                     pred_lg_ics = []
                     pred_lg_wc = []
                     for i in range(batch_size):
-                        map_size = local_map[i][0].shape
+                        map_size = local_map[i].shape
                         pred_lg_ic = []
                         for heat_map in pred_lg_heat[i]:
                             # heat_map = nnf.interpolate(heat_map.unsqueeze(0), size=map_size, mode='nearest')
@@ -1047,7 +1056,7 @@ class Solver(object):
                     if generate_heat:
                         pred_lg_heat_from_ic = []
                         for i in range(len(pred_lg_ics)):
-                            pred_lg_heat_from_ic.append(self.make_one_heatmap(local_map[i][0], pred_lg_ics[i][
+                            pred_lg_heat_from_ic.append(self.make_one_heatmap(local_map[i], pred_lg_ics[i][
                                 0].detach().cpu().numpy().astype(int)))
                         pred_lg_heat_from_ic = torch.tensor(np.stack(pred_lg_heat_from_ic)).unsqueeze(1).float().to(
                             self.device)
@@ -1057,7 +1066,7 @@ class Solver(object):
 
                     pred_sg_wc = []
                     for i in range(batch_size):
-                        map_size = local_map[i][0].shape
+                        map_size = local_map[i].shape
                         pred_sg_ic = []
                         for heat_map in pred_sg_heat[i]:
                             heat_map = nnf.interpolate(heat_map.unsqueeze(0).unsqueeze(0),
@@ -1096,6 +1105,7 @@ class Solver(object):
                         # -------- trajectories --------
                         # NO TF, pred_goals, z~prior
                         fut_rel_pos_dist_prior = self.decoderMy(
+                            seq_start_end,
                             obs_traj_st[-1],
                             obs_traj[-1, :, :2],
                             hx,
@@ -1107,6 +1117,13 @@ class Solver(object):
 
 
                 ade, fde = [], []
+                multi_coll5 = []
+                multi_coll10 = []
+                multi_coll15 = []
+                multi_coll20 = []
+                multi_coll25 = []
+                multi_coll30 = []
+                n_scene += sum([e-s for s, e in seq_start_end])
                 for dist in fut_rel_pos_dists:
                     pred_fut_traj=integrate_samples(dist.rsample() * self.scale, obs_traj[-1, :, :2], dt=self.dt)
                     ade.append(displacement_error(
@@ -1115,6 +1132,46 @@ class Solver(object):
                     fde.append(final_displacement_error(
                         pred_fut_traj[-1], fut_traj[-1,:,:2], mode='raw'
                     ))
+                    coll5 = 0
+                    coll10 = 0
+                    coll15 = 0
+                    coll20 = 0
+                    coll25 = 0
+                    coll30 = 0
+                    for s, e in seq_start_end:
+                        num_ped = e - s
+                        if num_ped == 1:
+                            continue
+                        seq_traj = pred_fut_traj[:, s:e]
+                        for i in range(len(seq_traj)):
+                            curr1 = seq_traj[i].repeat(num_ped, 1)
+                            curr2 = self.repeat(seq_traj[i], num_ped)
+                            dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
+                            dist = dist.reshape(num_ped, num_ped)
+                            diff_agent_idx = np.triu_indices(num_ped, k=1)
+                            diff_agent_dist = dist[diff_agent_idx]
+                            coll5 += (diff_agent_dist < 0.05).sum()
+                            coll10 += (diff_agent_dist < 0.1).sum()
+                            coll15 += (diff_agent_dist < 0.2).sum()
+                            coll20 += (diff_agent_dist < 0.3).sum()
+                            coll25 += (diff_agent_dist < 0.4).sum()
+                            coll30 += (diff_agent_dist < 0.5).sum()
+                    multi_coll5.append(coll5)
+                    multi_coll10.append(coll10)
+                    multi_coll15.append(coll15)
+                    multi_coll20.append(coll20)
+                    multi_coll25.append(coll25)
+                    multi_coll30.append(coll30)
+
+
+                for i in range(lg_num * traj_num):
+                    total_coll5[i] += multi_coll5[i]
+                    total_coll10[i] += multi_coll10[i]
+                    total_coll15[i] += multi_coll15[i]
+                    total_coll20[i] += multi_coll20[i]
+                    total_coll25[i] += multi_coll25[i]
+
+
                 all_ade.append(torch.stack(ade))
                 all_fde.append(torch.stack(fde))
                 sg_ade.append(torch.sqrt(((torch.stack(pred_sg_wcs).permute(0, 2, 1, 3)
