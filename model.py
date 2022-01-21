@@ -288,7 +288,6 @@ class Decoder(nn.Module):
             else:
                 if i == sg_update_idx[j]:
                     pred_vel = sg_state[j+1,:,2:4]
-                    j += 1
                 else:
                     pred_vel = Normal(mu, std).rsample()
                 
@@ -298,7 +297,7 @@ class Decoder(nn.Module):
                 context = self.pool_net(decoder_h, seq_start_end, curr_pos)  # batchsize, 1024
                 decoder_h = self.mlp_context(torch.cat([decoder_h, context], dim=1))  # mlp : 1152 -> 1024 -> 128
 
-                if fut_vel_st is None:
+                if (fut_vel_st is None) and (i != sg_update_idx[j]):
                     # refine the prediction
                     mu = self.fc_mu(decoder_h)
                     logVar = self.fc_std(decoder_h)
@@ -310,6 +309,8 @@ class Decoder(nn.Module):
                 last_pos = curr_pos
             mus.append(mu)
             stds.append(std)
+            if i == sg_update_idx[j]:
+                j += 1
 
         mus = torch.stack(mus, dim=0)
         stds = torch.stack(stds, dim=0)
