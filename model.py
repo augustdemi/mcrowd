@@ -298,7 +298,7 @@ class Decoder(nn.Module):
                 context = self.pool_net(decoder_h, seq_start_end, curr_pos)  # batchsize, 1024
                 decoder_h = self.mlp_context(torch.cat([decoder_h, context], dim=1))  # mlp : 1152 -> 1024 -> 128
 
-                if (fut_vel_st is None) and (i != sg_update_idx[j]):
+                if fut_vel_st is None:
                     # refine the prediction
                     mu = self.fc_mu(decoder_h)
                     logVar = self.fc_std(decoder_h)
