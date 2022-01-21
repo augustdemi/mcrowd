@@ -993,6 +993,7 @@ class Solver(object):
         total_coll15 = [0] * (lg_num * traj_num)
         total_coll20 = [0] * (lg_num * traj_num)
         total_coll25 = [0] * (lg_num * traj_num)
+        total_coll30 = [0] * (lg_num * traj_num)
         n_scene = 0
 
 
@@ -1170,6 +1171,7 @@ class Solver(object):
                     total_coll15[i] += multi_coll15[i]
                     total_coll20[i] += multi_coll20[i]
                     total_coll25[i] += multi_coll25[i]
+                    total_coll30[i] += multi_coll30[i]
 
 
                 all_ade.append(torch.stack(ade))
@@ -1198,6 +1200,25 @@ class Solver(object):
             lg_fde_min = np.min(lg_fde, axis=0).mean()
             lg_fde_avg = np.mean(lg_fde, axis=0).mean()
             lg_fde_std = np.std(lg_fde, axis=0).mean()
+
+
+
+            total_coll5=np.array(total_coll5)
+            total_coll10=np.array(total_coll10)
+            total_coll15=np.array(total_coll15)
+            total_coll20=np.array(total_coll20)
+            total_coll25=np.array(total_coll25)
+            total_coll30=np.array(total_coll30)
+
+            print('total 5: ', np.min(total_coll5, axis=0).mean(), np.mean(total_coll5, axis=0).mean(), np.std(total_coll5, axis=0).mean())
+            print('total 10: ', np.min(total_coll10, axis=0).mean(), np.mean(total_coll10, axis=0).mean(), np.std(total_coll10, axis=0).mean())
+            print('total 15: ', np.min(total_coll15, axis=0).mean(), np.mean(total_coll15, axis=0).mean(), np.std(total_coll15, axis=0).mean())
+            print('total 20: ', np.min(total_coll20, axis=0).mean(), np.mean(total_coll20, axis=0).mean(), np.std(total_coll20, axis=0).mean())
+            print('total 25: ', np.min(total_coll25, axis=0).mean(), np.mean(total_coll25, axis=0).mean(), np.std(total_coll25, axis=0).mean())
+            print('total 30: ', np.min(total_coll30, axis=0).mean(), np.mean(total_coll30, axis=0).mean(), np.std(total_coll30, axis=0).mean())
+
+            print(n_scene)
+
 
         return ade_min, fde_min, \
                ade_avg, fde_avg, \
