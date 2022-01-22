@@ -463,7 +463,7 @@ class Solver(object):
                                             test_loss_recon=test_loss_recon.item(),
                                             test_loss_kl=test_loss_kl.item(),
                                             test_loss_coll=test_loss_coll.item(),
-                                            test_total_coll=test_total_coll.item()
+                                            test_total_coll=test_total_coll
                                             )
                     prn_str = ('[iter_%d (epoch_%d)] vae_loss: %.3f ' + \
                                   '(recon: %.3f, kl: %.3f)\n' + \
