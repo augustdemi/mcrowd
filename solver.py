@@ -423,9 +423,12 @@ class Solver(object):
                         diff_agent_dist = []
                         diff_agent_dist += dist[diff_agent_idx]
                         diff_agent_dist += dist[diff_agent_idx[1], diff_agent_idx[0]]
-                        diff_agent_dist = (torch.stack(diff_agent_dist) - self.coll_th)
-                        coll_loss += (torch.sigmoid(-diff_agent_dist)).sum()
-                        total_coll += (diff_agent_dist < self.coll_th).sum().item()
+                        diff_agent_dist_under_th = [elt for elt in diff_agent_dist if elt < self.coll_th]
+                        if len(diff_agent_dist_under_th) > 0:
+                            total_coll += len(diff_agent_dist_under_th)
+                            diff_agent_dist_under_th = (torch.stack(diff_agent_dist_under_th) - self.coll_th)
+                            coll_loss += (torch.sigmoid(-diff_agent_dist_under_th)).sum()
+
 
             loss = - traj_elbo + self.w_coll * coll_loss
 
@@ -560,9 +563,11 @@ class Solver(object):
                             dist = dist.reshape(num_ped, num_ped)
                             diff_agent_idx = np.triu_indices(num_ped, k=1)
                             diff_agent_dist = dist[diff_agent_idx]
-                            diff_agent_dist = diff_agent_dist - self.coll_th
-                            coll_loss += (torch.sigmoid(-diff_agent_dist)).sum()
-                            total_coll += (diff_agent_dist < self.coll_th).sum()
+                            diff_agent_dist_under_th = [elt for elt in diff_agent_dist if elt < self.coll_th]
+                            if len(diff_agent_dist_under_th) > 0:
+                                total_coll += len(diff_agent_dist_under_th)
+                                diff_agent_dist_under_th = (torch.stack(diff_agent_dist_under_th) - self.coll_th)
+                                coll_loss += (torch.sigmoid(-diff_agent_dist_under_th)).sum()
 
 
                 ade, fde = [], []
