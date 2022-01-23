@@ -329,7 +329,7 @@ class Solver(object):
         iter_per_epoch = len(iterator)
         start_iter = self.ckpt_load_iter + 1
         epoch = int(start_iter / iter_per_epoch)
-        noise_dist = Normal(torch.zeros(self.n_gen), self.eps * torch.ones(self.n_gen))
+        noise_dist = Normal(torch.zeros(self.n_gen).to(self.device), self.eps * torch.ones(self.n_gen).to(self.device))
 
         for iteration in range(start_iter, self.max_iter + 1):
 
@@ -429,7 +429,7 @@ class Solver(object):
                         for cidx in range(len(under_th_idx[0])):
                             idx_tgt, idx_nbr = under_th_idx[0][cidx], under_th_idx[1][cidx]
                             theta = 2 * np.pi * np.random.rand(self.n_gen)
-                            generated_coll_nbr = pred_fut_traj[t, s + idx_nbr].unsqueeze(1) + noise_dist.rsample() * np.array([np.cos(theta), np.sin(theta)])
+                            generated_coll_nbr = pred_fut_traj[t, s + idx_nbr].unsqueeze(1) + noise_dist.rsample() * torch.tensor([np.cos(theta), np.sin(theta)]).to(self.device)
                             all_gen_dist = torch.norm(generated_coll_nbr-pred_fut_traj[t, s + idx_tgt].unsqueeze(1), dim=0)
                             coll_loss += (torch.sigmoid(-(all_gen_dist - self.coll_th) * self.beta)).sum()
                             total_coll += (len(torch.where(all_gen_dist < 0.2)[0]) / 2)
