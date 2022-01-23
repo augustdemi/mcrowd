@@ -48,10 +48,10 @@ class Solver(object):
         self.args = args
         args.num_sg = args.load_e
         self.name = '%s_zD_%s_dr_mlp_%s_dr_rnn_%s_enc_hD_%s_dec_hD_%s_mlpD_%s_map_featD_%s_map_mlpD_%s_lr_%s_klw_%s_ll_prior_w_%s_zfb_%s_scale_%s_num_sg_%s' \
-                    'ctxtD_%s_coll_th_%s_w_coll_%s_beta_%s' % \
+                    'ctxtD_%s_coll_th_%s_w_coll_%s_beta_%s_n_gen_%s_eps_%s' % \
                     (args.dataset_name, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
                      args.decoder_h_dim, args.mlp_dim, args.map_feat_dim , args.map_mlp_dim, args.lr_VAE, args.kl_weight,
-                     args.ll_prior_w, args.fb, args.scale, args.num_sg, args.context_dim, args.coll_th, args.w_coll, args.beta)
+                     args.ll_prior_w, args.fb, args.scale, args.num_sg, args.context_dim, args.coll_th, args.w_coll, args.beta, args.n_gen, args.eps)
 
         # to be appended by run_id
 
@@ -68,6 +68,8 @@ class Solver(object):
         self.beta = args.beta
         self.context_dim = args.context_dim
         self.w_coll = args.w_coll
+        self.n_gen = args.n_gen
+        self.eps = args.eps
 
 
         self.z_fb = args.fb
@@ -327,6 +329,7 @@ class Solver(object):
         iter_per_epoch = len(iterator)
         start_iter = self.ckpt_load_iter + 1
         epoch = int(start_iter / iter_per_epoch)
+        noise_dist = Normal(torch.zeros(self.n_gen), self.eps * torch.ones(self.n_gen))
 
         for iteration in range(start_iter, self.max_iter + 1):
 
@@ -404,8 +407,6 @@ class Solver(object):
             coll_loss = torch.tensor(0.0).to(self.device)
             total_coll = 0
             n_scene = 0
-            noise_dist = Normal(0, 0.01)
-
             pred_fut_traj = integrate_samples(fut_rel_pos_dist_prior.rsample() * self.scale, obs_traj[-1, :, :2],
                                               dt=self.dt)
             for s, e in seq_start_end:
@@ -420,11 +421,30 @@ class Solver(object):
                     dist = torch.norm(curr1 - curr2, dim=1)
                     dist = dist.reshape(num_ped, num_ped)
                     diff_agent_dist = dist[torch.where(dist > 0)]
-                    if len(diff_agent_dist) > 0:
-                        # diff_agent_dist[torch.where(diff_agent_dist > self.coll_th)] += self.beta
-                        diff_agent_dist = diff_agent_dist - self.coll_th
-                        coll_loss += (torch.sigmoid(-diff_agent_dist * self.beta)).sum()
-                        total_coll += (len(torch.where(diff_agent_dist < self.coll_th)[0]) /2)
+                    under_th_idx = torch.where((dist > 0) & (dist < self.coll_th))
+                    if len(under_th_idx[0]) > 0:
+                        coll_loss += (torch.sigmoid(-(diff_agent_dist - self.coll_th) * self.beta)).sum()
+                        total_coll += (len(torch.where(diff_agent_dist < 0.2)[0]) /2)
+
+                        for cidx in range(len(under_th_idx[0])):
+                            idx_tgt, idx_nbr = under_th_idx[0][cidx], under_th_idx[1][cidx]
+                            theta = 2 * np.pi * np.random.rand(self.n_gen)
+                            generated_coll_nbr = pred_fut_traj[t, s + idx_nbr].unsqueeze(1) + noise_dist.rsample() * np.array([np.cos(theta), np.sin(theta)])
+                            all_gen_dist = torch.norm(generated_coll_nbr-pred_fut_traj[t, s + idx_tgt].unsqueeze(1), dim=0)
+                            coll_loss += (torch.sigmoid(-(all_gen_dist - self.coll_th) * self.beta)).sum()
+                            total_coll += (len(torch.where(all_gen_dist < 0.2)[0]) / 2)
+                            '''
+                            all_nbr = pred_fut_traj[t, s:e].detach().numpy()
+                            gt_nbr = pred_fut_traj[t, s + idx_nbr].detach().numpy()
+                            gt_tgt = pred_fut_traj[t, s + idx_tgt].detach().numpy()
+                            gen_nbr = generated_coll_nbr.detach().numpy()
+                            plt.scatter(all_nbr[:,0], all_nbr[:,1], c='g', s=5)
+                            plt.scatter(gt_nbr[0], gt_nbr[1], c='r', s=5)
+                            plt.scatter(gen_nbr[0,:], gen_nbr[1,:], c='b', s=5)
+                            plt.scatter(gt_tgt[0], gt_tgt[1], c='r', marker='x')
+                            '''
+
+
 
 
             loss = - traj_elbo + self.w_coll * coll_loss
@@ -559,11 +579,10 @@ class Solver(object):
                             dist = torch.norm(curr1 - curr2, dim=1)
                             dist = dist.reshape(num_ped, num_ped)
                             diff_agent_dist = dist[torch.where(dist > 0)]
-                            if len(diff_agent_dist) > 0:
-                                # diff_agent_dist[torch.where(diff_agent_dist > self.coll_th)] += self.beta
-                                diff_agent_dist = diff_agent_dist - self.coll_th
-                                coll_loss += (torch.sigmoid(-diff_agent_dist * self.beta)).sum()
-                                total_coll += (len(torch.where(diff_agent_dist < self.coll_th)[0])/2)
+                            under_th_idx = torch.where((dist > 0) & (dist < self.coll_th))
+                            if len(under_th_idx[0]) > 0:
+                                coll_loss += (torch.sigmoid(-(diff_agent_dist - self.coll_th) * self.beta)).sum()
+                                total_coll += (len(torch.where(diff_agent_dist < 0.2)[0]) / 2)
 
                 ade, fde = [], []
                 for dist in fut_rel_pos_dist20:

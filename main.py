@@ -65,7 +65,7 @@ def create_parser():
     parser.add_argument('--ckpt_load_iter', default=0, type=int,
                         help='iter# to load the previously saved model ' +
                              '(default=0 to start from the scratch)')
-    parser.add_argument('--max_iter', default=0, type=float,
+    parser.add_argument('--max_iter', default=10, type=float,
                         help='maximum number of batch iterations')
     parser.add_argument('--ckpt_save_iter', default=100, type=int,
                         help='checkpoint saved every # iters')
@@ -138,11 +138,13 @@ def create_parser():
     parser.add_argument('--anneal_epoch', default=20, type=int)
     parser.add_argument('--aug', default=1, type=int)
     parser.add_argument('--load_e', default=3, type=int)
-    parser.add_argument('--context_dim', default=32, type=int)
+    parser.add_argument('--context_dim', default=0, type=int)
     parser.add_argument('--scale', default=1.0, type=float)
     parser.add_argument('--coll_th', default=5.0, type=float)
     parser.add_argument('--w_coll', default=5.0, type=float)
-    parser.add_argument('--beta', default=5.0, type=float)
+    parser.add_argument('--beta', default=1, type=float)
+    parser.add_argument('--n_gen', default=8, type=int)
+    parser.add_argument('--eps', default=0.05, type=float)
 
 
 
@@ -176,8 +178,8 @@ def main(args):
 
         # solver.evaluate_lg(test_loader, num_gen=3)
         # solver.evaluate_each(test_loader)
-        solver.collision_stat(test_loader)
-        # solver.evaluate_dist(test_loader, loss=True)
+        # solver.collision_stat(test_loader)
+        solver.evaluate_dist(test_loader, loss=True)
         #
         # fde_min, fde_avg, fde_std = solver.evaluate_dist(test_loader, loss=False)
         # print(fde_min)
