@@ -421,11 +421,10 @@ class Solver(object):
                     dist = torch.norm(curr1 - curr2, dim=1)
                     dist = dist.reshape(num_ped, num_ped)
                     diff_agent_dist = dist[torch.where(dist > 0)]
-                    under_th_idx = torch.where((dist > 0) & (dist < self.coll_th))
-                    if len(under_th_idx[0]) > 0:
+                    if len(diff_agent_dist) > 0:
                         coll_loss += (torch.sigmoid(-(diff_agent_dist - self.coll_th) * self.beta)).sum()
                         total_coll += (len(torch.where(diff_agent_dist < 0.2)[0]) /2)
-
+                        under_th_idx = torch.where((dist > 0) & (dist < self.coll_th))
                         for cidx in range(len(under_th_idx[0])):
                             idx_tgt, idx_nbr = under_th_idx[0][cidx], under_th_idx[1][cidx]
                             theta = 2 * np.pi * np.random.rand(self.n_gen)
@@ -579,8 +578,7 @@ class Solver(object):
                             dist = torch.norm(curr1 - curr2, dim=1)
                             dist = dist.reshape(num_ped, num_ped)
                             diff_agent_dist = dist[torch.where(dist > 0)]
-                            under_th_idx = torch.where((dist > 0) & (dist < self.coll_th))
-                            if len(under_th_idx[0]) > 0:
+                            if len(diff_agent_dist) > 0:
                                 coll_loss += (torch.sigmoid(-(diff_agent_dist - self.coll_th) * self.beta)).sum()
                                 total_coll += (len(torch.where(diff_agent_dist < 0.2)[0]) / 2)
 
