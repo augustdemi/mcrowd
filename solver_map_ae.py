@@ -12,6 +12,10 @@ from torchvision.utils import save_image
 from data.loader import data_loader
 from scipy.ndimage import binary_dilation
 from unet.unet import Unet
+import cv2
+import torch.nn.functional as F
+from torchvision import transforms
+
 
 ###############################################################################
 
@@ -147,7 +151,7 @@ class Solver(object):
         print('Start loading data...')
         if self.ckpt_load_iter != self.max_iter:
             print("Initializing train dataset")
-            _, self.train_loader = data_loader(self.args, args.dataset_dir, 'train', shuffle=True)
+            _, self.train_loader = data_loader(self.args, args.dataset_dir, 'test', shuffle=True)
             print("Initializing val dataset")
             _, self.val_loader = data_loader(self.args, args.dataset_dir, 'test', shuffle=False)
 
@@ -157,6 +161,25 @@ class Solver(object):
         print('...done')
 
 
+
+    def preprocess_map(self, local_map, aug=False):
+        env=[]
+        down_size=256
+        for i in range(len(local_map)):
+            map_size = local_map[i][0].shape[0]
+            if map_size < down_size:
+                env.append(np.full((down_size,down_size),3))
+            else:
+                env.append(cv2.resize(local_map[i][0], dsize=(down_size, down_size)))
+
+        env = torch.tensor(env).float().to(self.device)
+
+        if aug:
+            degree = np.random.choice([0,90,180, -90])
+            env = transforms.Compose([
+                transforms.RandomRotation(degrees=(degree, degree))
+            ])(env)
+        return env
 
 
 
@@ -187,10 +210,9 @@ class Solver(object):
 
             (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
              obs_frames, pred_frames, map_path, inv_h_t,
-             local_map, local_ic, local_homo, _) = next(iterator)
+             local_map, local_ic, local_homo) = next(iterator)
             batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
-            local_map = torch.from_numpy(local_map).to(self.device)
-
+            local_map = self.preprocess_map(local_map, aug=True)
             recon_local_map = self.sg_unet.forward(local_map)
             recon_local_map = F.sigmoid(recon_local_map)
 
@@ -235,9 +257,9 @@ class Solver(object):
 
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
                  obs_frames, pred_frames, map_path, inv_h_t,
-                 local_map, local_ic, local_homo, _) = abatch
-                batch_size = obs_traj.size(1)  # =sum(seq_start_end[:,1] - seq_start_end[:,0])
-                local_map = torch.from_numpy(local_map).to(self.device)
+                 local_map, local_ic, local_homo) = abatch
+                batch_size = obs_traj.size(1)
+                local_map = self.preprocess_map(local_map, aug=False)
 
                 recon_local_map = self.sg_unet.forward(local_map)
                 recon_local_map = F.sigmoid(recon_local_map)
