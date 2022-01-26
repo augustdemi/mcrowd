@@ -902,7 +902,7 @@ class Solver(object):
                 b+=1
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
                  obs_frames, pred_frames, map_path, inv_h_t,
-                 local_map, local_ic, local_homo, obs_local_state) = batch
+                 local_map, local_ic, local_homo, _) = batch
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
@@ -1009,7 +1009,7 @@ class Solver(object):
 
                 ade, fde = [], []
                 for dist in fut_rel_pos_dists:
-                    pred_fut_traj=dist.rsample() + obs_traj[-1:, :, :2]
+                    pred_fut_traj=integrate_samples(dist.rsample(), obs_traj[-1, :, :2], dt=self.dt)
                     ade.append(displacement_error(
                         pred_fut_traj, fut_traj[:,:,:2], mode='raw'
                     ))
