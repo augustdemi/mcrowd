@@ -15,6 +15,7 @@ from unet.unet import Unet
 import cv2
 import torch.nn.functional as F
 from torchvision import transforms
+from data.trajectories import seq_collate
 
 ###############################################################################
 
@@ -150,7 +151,7 @@ class Solver(object):
         print('Start loading data...')
         if self.ckpt_load_iter != self.max_iter:
             print("Initializing train dataset")
-            _, self.train_loader = data_loader(self.args, args.dataset_dir, 'train', shuffle=True)
+            _, self.train_loader = data_loader(self.args, args.dataset_dir, 'test', shuffle=True)
             print("Initializing val dataset")
             _, self.val_loader = data_loader(self.args, args.dataset_dir, 'test', shuffle=False)
 
@@ -201,7 +202,7 @@ class Solver(object):
              obs_frames, pred_frames, map_path, inv_h_t,
              local_map, local_ic, local_homo, _) = next(iterator)
             batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
-            local_map = self.preprocess_map(local_map, aug=True)
+            local_map = self.preprocess_map(local_map, aug=False)
             recon_local_map = self.sg_unet.forward(local_map)
             recon_local_map = F.sigmoid(recon_local_map)
 
@@ -259,76 +260,69 @@ class Solver(object):
 
     ####
 
-    def recon(self, data_loader):
+    def recon(self, test_loader, train_loader):
+        from sklearn.manifold import TSNE
+
         self.set_mode(train=False)
         with torch.no_grad():
-            # if 'eth' in self.name:
-            # if 'train' in data_loader.dataset.data_dir:
-            #     # aug train
-            #     fixed_idxs = [10,50,70,80,100,120,123,140, 220, 230]
-            #     dset = 'train'
-            #     data_loader = self.train_loader
-            # else:
-            #     # fixed_idxs = [20, 120, 33, 55, 140, 139, 25, 115, 24, 26, 27, 28, 31]
-            #     fixed_idxs = [125, 135, 136, 117, 114, 116]
-            #     # fixed_idxs = range(30,60)
-            #     # fixed_idxs = range(49)
-            #     dset='test'
-            #     data_loader = self.val_loader
 
-            b=0
-            maxx = 0
-            for abatch in data_loader:
+            test_range= list(range(len(test_loader.dataset)))
+            np.random.shuffle(test_range)
 
-                (obs_traj, fut_traj, seq_start_end, obs_frames, fut_frames, past_obst,
-                 fut_obst) = abatch
-                state = torch.cat([obs_traj[:,:,2:4], fut_traj[:,:,2:4]], dim=0)
-                state = state.view(-1, state.shape[2])
-                map = torch.cat([past_obst, fut_obst], dim=0)
-                map = map.view(-1, map.shape[2], map.shape[3], map.shape[4])
+            # train_range= range(len(train_loader.dataset))
+            # np.random.shuffle(train_range)
+            n_sample = 50
+            test_enc_feat = []
+            train_enc_feat = []
+            for k in range(10):
+                test_sample = []
+                train_sample = []
+                for i in test_range[n_sample*k:n_sample*(k+1)]:
+                    test_sample.append(test_loader.dataset.__getitem__(i))
+                    train_sample.append(train_loader.dataset.__getitem__(i))
 
-                obst_feat = self.encoder(state, map, train=True)
+                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
+                 obs_frames, pred_frames, map_path, inv_h_t,
+                 local_map, local_ic, local_homo, _) = seq_collate(test_sample)
 
-                recon_map, _ = self.decoder(
-                    obst_feat
-                )
-                for i in range(recon_map.shape[0]):
-                    maxx +=recon_map[i].max()
-                b+=recon_map.shape[0]
-            avg_max = maxx/b
-            print(avg_max)
+                local_map = self.preprocess_map(local_map, aug=False)
+                recon_local_map = self.sg_unet.forward(local_map)
+                # recon_local_map = F.sigmoid(recon_local_map)
+                # plt.imshow(recon_local_map[0, 0])
+                test_enc_feat.append(self.sg_unet.enc_feat.view(len(local_map), -1))
+
+                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
+                 obs_frames, pred_frames, map_path, inv_h_t,
+                 local_map, local_ic, local_homo, _) = seq_collate(train_sample)
+
+                local_map = self.preprocess_map(local_map, aug=False)
+                recon_local_map = self.sg_unet.forward(local_map)
+                # recon_local_map = F.sigmoid(recon_local_map)
+                # plt.imshow(recon_local_map[0, 0])
+                train_enc_feat.append(self.sg_unet.enc_feat.view(len(local_map), -1))
+
+            test_enc_feat = torch.cat(test_enc_feat)
+            train_enc_feat = torch.cat(train_enc_feat)
+            tsne = TSNE(n_components=2, random_state=0)
+            X_r2 = tsne.fit_transform(torch.cat([train_enc_feat, test_enc_feat]))
+
+            labels = np.concatenate([np.zeros(n_sample*10), np.ones(n_sample*10)])
+            # target_names = np.unique(labels)
+            target_names = ['train', 'test']
+            # colors = np.array(
+            #     ['burlywood', 'turquoise', 'darkorange', 'blue', 'green', 'yellow', 'red', 'black', 'purple',
+            #      'magenta'])
+            colors = np.array(['blue', 'red'])
+
+            fig = plt.figure()
+            fig.tight_layout()
+            for color, i, target_name in zip(colors, np.unique(labels), target_names):
+                plt.scatter(X_r2[labels == i, 0], X_r2[labels == i, 1], alpha=.5, color=color,
+                            label=target_name, s=5)
+            plt.legend(loc=4, shadow=False, scatterpoints=1)
 
 
-
-##########################
-            data = []
-            fixed_idxs = range(10)
-            fixed_idxs = range(8,10)
-            dset='val'
-            for i, idx in enumerate(fixed_idxs):
-                data.append(data_loader.dataset.__getitem__(idx))
-
-
-            (obs_traj, fut_traj, seq_start_end, obs_frames, fut_frames, past_obst,
-             fut_obst) = seq_collate(data)
-            # out_dir = os.path.join('./output',self.name, dset + str(self.ckpt_load_iter))
-            # mkdirs(out_dir)
-            # for i in range(fut_obst.shape[1]):
-            #     save_image(fut_obst[:, i], str(os.path.join(out_dir, 'gt_img'+str(i)+'.png')), nrow=self.pred_len, pad_value=1)
-
-
-            state = obs_traj[0]
-            map = past_obst[0]
-
-            obst_feat = self.encoder(state[:,2:4], map)
-
-            recon_map, _ = self.decoder(
-                obst_feat
-            )
-            # for i in range(map.shape[0]):
-            #     print(i, recon_map[i].max().item(
-            #     ))
-
+            ############################
             out_dir = os.path.join('./output',self.name, dset, str(self.max_iter))
             mkdirs(out_dir)
             for i in range(map.shape[0]):
@@ -430,6 +424,7 @@ class Solver(object):
         if self.device == 'cuda':
             self.sg_unet = torch.load(sg_unet_path)
         else:
+            sg_unet_path = 'd:\crowd\mcrowd\ckpts\mapae.path_lr_0.001_a_0.25_r_2.0_run_2/iter_3360_sg_unet.pt'
             self.sg_unet = torch.load(sg_unet_path, map_location='cpu')
          ####
 
