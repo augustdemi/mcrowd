@@ -217,9 +217,7 @@ class Solver(object):
             recon_local_map = F.sigmoid(recon_local_map)
 
 
-            focal_loss = (self.alpha * local_map * torch.log(recon_local_map + self.eps) * ((1 - recon_local_map) ** self.gamma) \
-                         + (1 - self.alpha) * (1 - local_map) * torch.log(1 - recon_local_map + self.eps) * (
-                recon_local_map ** self.gamma)).sum().div(batch_size)
+            focal_loss = F.mse_loss(recon_local_map, local_map).sum().div(batch_size)
 
             self.optim_vae.zero_grad()
             focal_loss.backward()
@@ -264,10 +262,7 @@ class Solver(object):
                 recon_local_map = self.sg_unet.forward(local_map)
                 recon_local_map = F.sigmoid(recon_local_map)
 
-                focal_loss = (
-                self.alpha * local_map * torch.log(recon_local_map + self.eps) * ((1 - recon_local_map) ** self.gamma) \
-                + (1 - self.alpha) * (1 - local_map) * torch.log(1 - recon_local_map + self.eps) * (
-                    recon_local_map ** self.gamma)).sum().div(batch_size)
+                focal_loss = F.mse_loss(recon_local_map, local_map).sum().div(batch_size)
 
                 loss += focal_loss
         self.set_mode(train=True)
