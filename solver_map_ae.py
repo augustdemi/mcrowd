@@ -212,7 +212,7 @@ class Solver(object):
              obs_frames, pred_frames, map_path, inv_h_t,
              local_map, local_ic, local_homo) = next(iterator)
             batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
-            local_map = self.preprocess_map(local_map, aug=True)
+            local_map = self.preprocess_map(local_map, aug=False) / 5
             recon_local_map = self.sg_unet.forward(local_map)
             recon_local_map = F.sigmoid(recon_local_map)
 
@@ -259,7 +259,7 @@ class Solver(object):
                  obs_frames, pred_frames, map_path, inv_h_t,
                  local_map, local_ic, local_homo) = abatch
                 batch_size = obs_traj.size(1)
-                local_map = self.preprocess_map(local_map, aug=False)
+                local_map = self.preprocess_map(local_map, aug=False) / 5
 
                 recon_local_map = self.sg_unet.forward(local_map)
                 recon_local_map = F.sigmoid(recon_local_map)
