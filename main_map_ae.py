@@ -99,8 +99,8 @@ def create_parser():
     parser.add_argument('--pred_len', default=12, type=int)
     parser.add_argument('--skip', default=1, type=int)
     # dataset
-    parser.add_argument('--dataset_dir', default='../datasets/Trajectories', type=str, help='dataset directory')
-    # parser.add_argument('--dataset_dir', default='../datasets/SDD', type=str, help='dataset directory')
+    # parser.add_argument('--dataset_dir', default='../datasets/Trajectories', type=str, help='dataset directory')
+    parser.add_argument('--dataset_dir', default='../datasets/SDD', type=str, help='dataset directory')
     parser.add_argument( '--dataset_name', default='A2E', type=str,
       help='dataset name' )
     parser.add_argument( '--num_workers', default=0, type=int,
@@ -121,6 +121,7 @@ def create_parser():
     parser.add_argument('--latent_dim', default=32, type=int)
     parser.add_argument('--hidden_dim', default=256, type=int)
 
+    parser.add_argument('--scale', default=100, type=float)
     parser.add_argument('--alpha', default=0.25, type=float)
     parser.add_argument('--gamma', default=2., type=float)
     parser.add_argument( '--desc', default='data', type=str,
