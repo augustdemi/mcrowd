@@ -3,7 +3,7 @@ import numpy as np
 import torch
 
 #-----------------------------------------------------------------------------#
-from data.ae_loader import data_loader
+from data.loader import data_loader
 from solver_map_ae import Solver
 from utils import str2bool, bool_flag
 import os
@@ -42,14 +42,14 @@ def create_parser():
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument( '--run_id', default=23, type=int,
+    parser.add_argument( '--run_id', default=4, type=int,
       help='run id (default=-1 to create a new id)' )
 
     parser.add_argument( '--device', default='cpu', type=str,
       help='cpu/cuda' )
 
     # training hyperparameters
-    parser.add_argument( '--batch_size', default=16, type=int,
+    parser.add_argument( '--batch_size', default=4, type=int,
       help='batch size' )
     parser.add_argument( '--lr_VAE', default=1e-3, type=float,
       help='learning rate of the VAE' )
@@ -66,7 +66,7 @@ def create_parser():
 
       help='iter# to load the previously saved model ' +
         '(default=0 to start from the scratch)' )
-    parser.add_argument( '--max_iter', default=9500, type=float,
+    parser.add_argument( '--max_iter', default=20000, type=float,
       help='maximum number of batch iterations' )
     parser.add_argument( '--ckpt_save_iter', default=100, type=int,
       help='checkpoint saved every # iters' )
@@ -83,9 +83,9 @@ def create_parser():
     parser.add_argument( '--viz_port',
       default=8002, type=int, help='visdom port number' )
     parser.add_argument( '--viz_ll_iter',
-      default=30, type=int, help='visdom line data logging iter' )
+      default=4, type=int, help='visdom line data logging iter' )
     parser.add_argument( '--viz_la_iter',
-      default=30, type=int, help='visdom line data applying iter' )
+      default=4, type=int, help='visdom line data applying iter' )
     #parser.add_argument( '--viz_ra_iter',
     #  default=10000, type=int, help='visdom recon image applying iter' )
     #parser.add_argument( '--viz_ta_iter',
@@ -99,9 +99,9 @@ def create_parser():
     parser.add_argument('--pred_len', default=12, type=int)
     parser.add_argument('--skip', default=1, type=int)
     # dataset
-    parser.add_argument( '--dataset_dir', default='C:\dataset\HTP-benchmark\Splits\A2E', type=str,
-      help='dataset directory' )
-    parser.add_argument( '--dataset_name', default='Complete 60-20-20', type=str,
+    parser.add_argument('--dataset_dir', default='../datasets/Trajectories', type=str, help='dataset directory')
+    # parser.add_argument('--dataset_dir', default='../datasets/SDD', type=str, help='dataset directory')
+    parser.add_argument( '--dataset_name', default='A2E', type=str,
       help='dataset name' )
     parser.add_argument( '--num_workers', default=0, type=int,
       help='dataloader num_workers' )
@@ -111,20 +111,18 @@ def create_parser():
 
     # model hyperparameters
 
-    parser.add_argument('--dropout_map', default=0.0, type=float)
+    parser.add_argument('--dropout_map', default=0.1, type=float)
     # Decoder
-    parser.add_argument('--mlp_dim', default=32, type=int)
     parser.add_argument('--batch_norm', default=0, type=bool_flag)
 
     parser.add_argument( '--kl_weight', default=10.0, type=float,
       help='kl weight' )
-    parser.add_argument('--map_size', default=32, type=int)
-    parser.add_argument('--latent_dim', default=8, type=int)
-    parser.add_argument('--hidden_dim', default=32, type=int)
-    parser.add_argument( '--gamma', default=0.0, type=float,
-      help='focal loss' )
-    parser.add_argument( '--alpha', default=0.5, type=float,
-      help='focal loss' )
+    parser.add_argument('--map_size', default=16, type=int)
+    parser.add_argument('--latent_dim', default=32, type=int)
+    parser.add_argument('--hidden_dim', default=256, type=int)
+
+    parser.add_argument('--alpha', default=0.25, type=float)
+    parser.add_argument('--gamma', default=2., type=float)
     parser.add_argument( '--desc', default='data', type=str,
       help='run description' )
     return parser
@@ -138,8 +136,7 @@ def main(args):
 
         print("Initializing test dataset")
         solver = Solver(args)
-        test_path = os.path.join(args.dataset_dir, args.dataset_name, 'train')
-        _, test_loader = data_loader(args, test_path, shuffle=True, map_ae=True)
+        _, test_loader = data_loader(args, args.dataset_dir, 'test', shuffle=False)
         solver.recon(test_loader)
 
 
