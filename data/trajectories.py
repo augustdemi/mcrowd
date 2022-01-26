@@ -104,39 +104,20 @@ class TrajectoryDataset(Dataset):
             all_data = pickle.load(handle)
 
 
-        uniq_frame_indices = []
-        for uniq_start in np.unique(all_data['obs_frame_num'][:,0]):
-            uniq_frame_indices.append(np.where(all_data['obs_frame_num'][:,0] == uniq_start)[0])
+        self.obs_frame_num = all_data['obs_frame_num']
+        self.fut_frame_num = all_data['fut_frame_num']
 
-        self.obs_frame_num=[]
-        self.fut_frame_num=[]
-        self.obs_traj=[]
-        self.fut_traj=[]
-        self.local_map=[]
-        self.local_homo=[]
-        self.local_ic=[]
-        self.map_file_name=[]
-        self.seq_start_end = []
-        i=0
-        for uniq_frame_idx in uniq_frame_indices:
-            self.obs_frame_num.append(all_data['obs_frame_num'][uniq_frame_idx])
-            self.fut_frame_num.append(all_data['fut_frame_num'][uniq_frame_idx])
-            self.obs_traj.append(all_data['obs_traj'][uniq_frame_idx])
-            self.fut_traj.append(all_data['fut_traj'][uniq_frame_idx])
-            self.local_map.append(all_data['local_map'][uniq_frame_idx])
-            self.local_homo.append(all_data['local_homo'][uniq_frame_idx])
-            self.local_ic.append(all_data['local_ic'][uniq_frame_idx])
-            self.map_file_name.append(np.array(all_data['map_file_name'])[uniq_frame_idx])
-            self.seq_start_end.append((i,i+len(uniq_frame_idx)))
-            i+=len(uniq_frame_idx)
-        self.obs_traj = torch.from_numpy(np.concatenate(self.obs_traj)).float().to(self.device)
-        self.fut_traj = torch.from_numpy(np.concatenate(self.fut_traj)).float().to(self.device)
-        self.local_map = np.expand_dims(np.concatenate(self.local_map),1)
-        self.local_homo = np.concatenate(self.local_homo)
-        self.local_ic = np.concatenate(self.local_ic)
-        self.map_file_name = np.concatenate(self.map_file_name)
-        self.obs_frame_num = np.concatenate(self.obs_frame_num)
-        self.fut_frame_num = np.concatenate(self.fut_frame_num)
+        # Convert numpy -> Torch Tensor
+        self.obs_traj = torch.from_numpy(all_data['obs_traj']).float().to(self.device)
+        self.fut_traj = torch.from_numpy(all_data['fut_traj']).float().to(self.device)
+
+        self.seq_start_end = all_data['seq_start_end']
+        self.map_file_name = all_data['map_file_name']
+        self.inv_h_t = all_data['inv_h_t']
+
+        self.local_map = np.expand_dims(all_data['local_map'],1)
+        self.local_homo = all_data['local_homo']
+        self.local_ic = all_data['local_ic']
 
         self.obs_local_state = []
         for local_ic in self.local_ic:
@@ -164,7 +145,7 @@ class TrajectoryDataset(Dataset):
         out = [
             self.obs_traj[start:end, :], self.fut_traj[start:end, :],
             self.obs_frame_num[start:end], self.fut_frame_num[start:end],
-            self.map_file_name[start:end], np.eye(3),
+            np.array([self.map_file_name[index]] * (end - start)), np.array([self.inv_h_t[index]] * (end - start)),
             self.local_map[start:end],
             self.local_ic[start:end],
             torch.from_numpy(self.local_homo[start:end]).float().to(self.device), self.obs_local_state[start:end], self.scale
