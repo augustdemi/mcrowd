@@ -68,7 +68,6 @@ class Solver(object):
         self.eps=1e-9
         self.sg_idx = np.array(range(12))
         self.sg_idx = np.flip(11-self.sg_idx[::(12//args.num_sg)])
-        print('>>>self.sg_idx:', self.sg_idx)
         self.no_convs_fcomb = args.no_convs_fcomb
         self.no_convs_per_block = args.no_convs_per_block
 
@@ -165,17 +164,16 @@ class Solver(object):
         self.num_layers = args.num_layers
         self.decoder_h_dim = args.decoder_h_dim
 
+        lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1.0_a_0.25_r_2.0_fb_0.5_anneal_e_10_load_e_1_pos_1.0_v1_0.0_2.0_v2_1.0_2.0_run_312'
+        lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_40200_lg_cvae.pt')
+        if self.device == 'cuda':
+            self.lg_cvae = torch.load(lg_cvae_path)
+        else:
+            self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
+        print(">>>>>>>>> Init: ", lg_cvae_path)
+
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
 
-            lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1.0_a_0.25_r_2.0_fb_0.8_anneal_e_10_load_e_3_run_101'
-            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_17000_lg_cvae.pt')
-
-            if self.device == 'cuda':
-                self.lg_cvae = torch.load(lg_cvae_path)
-            else:
-                self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
-
-            print(">>>>>>>>> Init: ", lg_cvae_path)
 
             num_filters = [32, 32, 64, 64, 64, 128]
             # input = env + 8 past + lg / output = env + sg(including lg)
@@ -186,15 +184,6 @@ class Solver(object):
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
             self.load_checkpoint()
-            lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_20_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_0.5_anneal_e_0_load_e_1_run_24'
-            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_57100_lg_cvae.pt')
-
-            if self.device == 'cuda':
-                self.lg_cvae = torch.load(lg_cvae_path)
-            else:
-                self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
-
-            print(">>>>>>>>> Init: ", lg_cvae_path)
             print('...done')
 
 
@@ -233,7 +222,7 @@ class Solver(object):
         self.recon_loss_with_logit = nn.BCEWithLogitsLoss(size_average = False, reduce=False, reduction=None)
 
 
-    def make_heatmap(self, local_ic, local_map):
+    def make_heatmap(self, local_ic, local_map, aug=False):
         heatmaps = []
         for i in range(len(local_ic)):
             ohm = [local_map[i, 0]]
@@ -263,6 +252,11 @@ class Solver(object):
             plt.imshow(heat_map_traj)
             '''
         heatmaps = torch.tensor(np.stack(heatmaps)).float().to(self.device)
+        if aug:
+            degree = np.random.choice([0, 90, 180, -90])
+            heatmaps = transforms.Compose([
+                transforms.RandomRotation(degrees=(degree, degree))
+            ])(heatmaps)
         return heatmaps[:,:2], heatmaps[:,2:], heatmaps[:,-1].unsqueeze(1)
 
     ####
@@ -295,7 +289,7 @@ class Solver(object):
              local_map, local_ic, local_homo, _) = next(iterator)
             batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
-            obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
+            obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map, aug=True)
 
             # -------- short term goal --------
             # obs_lg_heat = torch.cat([obs_heat_map, lg_heat_map[:,-1].unsqueeze(1)], dim=1)
@@ -375,6 +369,7 @@ class Solver(object):
 
         lg_recon = lg_kl = 0
         lg_fde=[]
+        lg_fde2=[]
         sg_recon=0
         sg_ade = []
         with torch.no_grad():
@@ -383,13 +378,13 @@ class Solver(object):
                 b+=1
                 (obs_traj, fut_traj, _, _, seq_start_end,
                  obs_frames, pred_frames, map_path, inv_h_t,
-                 local_map, local_ic, local_homo, _) = batch
+                 local_map, local_ic, local_homo, obs_local_state) = batch
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
                 obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
 
-                self.lg_cvae.forward(obs_heat_map, None, training=False)
+                self.lg_cvae.forward(obs_heat_map, obs_local_state, None, training=False)
                 pred_lg_wcs = []
                 pred_sg_wcs = []
                 for _ in range(20):
@@ -465,13 +460,20 @@ class Solver(object):
 
                 lg_fde.append(torch.sqrt(((torch.stack(pred_lg_wcs)
                                            - fut_traj[-1,:,:2].unsqueeze(0).repeat((20,1,1)))**2).sum(-1))) # 20, 3, 4, 2
+                lg_fde2.append(torch.sqrt(((torch.stack(pred_sg_wcs)[:,:,-1]
+                                           - fut_traj[-1,:,:2].unsqueeze(0).repeat((20,1,1)))**2).sum(-1)))
                 sg_ade.append(torch.sqrt(((torch.stack(pred_sg_wcs).permute(0, 2, 1, 3)
                                            - fut_traj[list(self.sg_idx), :, :2].unsqueeze(0).repeat(
                     (20, 1, 1, 1))) ** 2).sum(-1)).sum(1))
 
             lg_fde=torch.cat(lg_fde, dim=1).cpu().numpy() # all batches are concatenated
+            lg_fde2=torch.cat(lg_fde2, dim=1).cpu().numpy() # all batches are concatenated
             sg_ade=torch.cat(sg_ade, dim=1).cpu().numpy()
 
+
+            lg_fde_min2 = np.min(lg_fde2, axis=0).mean()
+            lg_fde_avg2 = np.mean(lg_fde2, axis=0).mean()
+            lg_fde_std2 = np.std(lg_fde2, axis=0).mean()
 
             lg_fde_min = np.min(lg_fde, axis=0).mean()
             lg_fde_avg = np.mean(lg_fde, axis=0).mean()
@@ -486,6 +488,7 @@ class Solver(object):
                    sg_recon/b, sg_ade_min, sg_ade_avg, sg_ade_std
         else:
             return lg_fde_min, lg_fde_avg, lg_fde_std, \
+                   lg_fde_min2, lg_fde_avg2, lg_fde_std2, \
                    sg_ade_min, sg_ade_avg, sg_ade_std
 
 
