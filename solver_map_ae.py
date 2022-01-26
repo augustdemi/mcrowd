@@ -16,6 +16,7 @@ import cv2
 import torch.nn.functional as F
 from torchvision import transforms
 
+
 ###############################################################################
 
 class Solver(object):
@@ -160,15 +161,25 @@ class Solver(object):
         print('...done')
 
 
+
     def preprocess_map(self, local_map, aug=False):
-        local_map = torch.from_numpy(local_map).to(self.device)
+        env=[]
+        down_size=256
+        for i in range(len(local_map)):
+            map_size = local_map[i][0].shape[0]
+            if map_size < down_size:
+                env.append(np.full((down_size,down_size),3))
+            else:
+                env.append(cv2.resize(local_map[i][0], dsize=(down_size, down_size)))
+
+        env = torch.tensor(env).float().to(self.device).unsqueeze(1)
 
         if aug:
             degree = np.random.choice([0,90,180, -90])
-            local_map = transforms.Compose([
+            env = transforms.Compose([
                 transforms.RandomRotation(degrees=(degree, degree))
-            ])(local_map)
-        return local_map
+            ])(env)
+        return env
 
 
 
@@ -199,7 +210,7 @@ class Solver(object):
 
             (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
              obs_frames, pred_frames, map_path, inv_h_t,
-             local_map, local_ic, local_homo, _) = next(iterator)
+             local_map, local_ic, local_homo) = next(iterator)
             batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
             local_map = self.preprocess_map(local_map, aug=True)
             recon_local_map = self.sg_unet.forward(local_map)
@@ -246,8 +257,8 @@ class Solver(object):
 
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
                  obs_frames, pred_frames, map_path, inv_h_t,
-                 local_map, local_ic, local_homo, _) = abatch
-                batch_size = obs_traj.size(1)  # =sum(seq_start_end[:,1] - seq_start_end[:,0])
+                 local_map, local_ic, local_homo) = abatch
+                batch_size = obs_traj.size(1)
                 local_map = self.preprocess_map(local_map, aug=False)
 
                 recon_local_map = self.sg_unet.forward(local_map)
@@ -366,7 +377,6 @@ class Solver(object):
                       title='Recon. map loss')
         )
 
-
         self.viz.line(
             X=iters, Y=test_map_loss, env=self.name + '/lines',
             win=self.win_id['test_map_loss'], update='append',
@@ -374,36 +384,6 @@ class Solver(object):
                       title='Recon. map loss - Test'),
         )
 
-
-    #
-    #
-    # def set_mode(self, train=True):
-    #
-    #     if train:
-    #         self.encoder.train()
-    #         self.decoder.train()
-    #     else:
-    #         self.encoder.eval()
-    #         self.decoder.eval()
-    #
-    # ####
-    # def save_checkpoint(self, iteration):
-    #
-    #     encoder_path = os.path.join(
-    #         self.ckpt_dir,
-    #         'iter_%s_encoder.pt' % iteration
-    #     )
-    #     decoder_path = os.path.join(
-    #         self.ckpt_dir,
-    #         'iter_%s_decoder.pt' % iteration
-    #     )
-    #
-    #
-    #     mkdirs(self.ckpt_dir)
-    #
-    #     torch.save(self.encoder, encoder_path)
-    #     torch.save(self.decoder, decoder_path)
-    ####
 
 
     def set_mode(self, train=True):
@@ -437,31 +417,3 @@ class Solver(object):
         else:
             self.sg_unet = torch.load(sg_unet_path, map_location='cpu')
          ####
-
-    #
-    # def load_checkpoint(self):
-    #
-    #     encoder_path = os.path.join(
-    #         self.ckpt_dir,
-    #         'iter_%s_encoder.pt' % self.ckpt_load_iter
-    #     )
-    #     decoder_path = os.path.join(
-    #         self.ckpt_dir,
-    #         'iter_%s_decoder.pt' % self.ckpt_load_iter
-    #     )
-    #
-    #     if self.device == 'cuda':
-    #         self.encoder = torch.load(encoder_path)
-    #         self.decoder = torch.load(decoder_path)
-    #     else:
-    #         self.encoder = torch.load(encoder_path, map_location='cpu')
-    #         self.decoder = torch.load(decoder_path, map_location='cpu')
-    #
-    # def load_map_weights(self, map_path):
-    #     if self.device == 'cuda':
-    #         loaded_map_w = torch.load(map_path)
-    #     else:
-    #         loaded_map_w = torch.load(map_path, map_location='cpu')
-    #     self.encoder.conv1.weight = loaded_map_w.map_net.conv1.weight
-    #     self.encoder.conv2.weight = loaded_map_w.map_net.conv2.weight
-    #     self.encoder.conv3.weight = loaded_map_w.map_net.conv3.weight
