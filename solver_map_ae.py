@@ -15,8 +15,7 @@ from unet.unet import Unet
 import cv2
 import torch.nn.functional as F
 from torchvision import transforms
-from data.nuscenes.config import Config
-from data.nuscenes_dataloader import data_generator
+
 
 ###############################################################################
 
@@ -150,26 +149,17 @@ class Solver(object):
 
         # prepare dataloader (iterable)
         print('Start loading data...')
-
         if self.ckpt_load_iter != self.max_iter:
-            cfg = Config('nuscenes_train', False, create_dirs=True)
-            torch.set_default_dtype(torch.float32)
-            log = open('log.txt', 'a+')
-            self.train_loader = data_generator(cfg, log, split='train', phase='training',
-                                               batch_size=args.batch_size, device=self.device, scale=args.scale, shuffle=True)
-
-            cfg = Config('nuscenes', False, create_dirs=True)
-            torch.set_default_dtype(torch.float32)
-            log = open('log.txt', 'a+')
-            self.val_loader = data_generator(cfg, log, split='test', phase='testing',
-                                             batch_size=args.batch_size, device=self.device, scale=args.scale, shuffle=False)
-
-            # self.train_loader = self.val_loader
+            print("Initializing train dataset")
+            _, self.train_loader = data_loader(self.args, args.dataset_dir, 'train', shuffle=True)
+            print("Initializing val dataset")
+            _, self.val_loader = data_loader(self.args, args.dataset_dir, 'test', shuffle=False)
 
             print(
-                'There are {} iterations per epoch'.format(len(self.train_loader.idx_list))
+                'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
             )
         print('...done')
+
 
 
     def preprocess_map(self, local_map, aug=False):
@@ -178,7 +168,7 @@ class Solver(object):
         for i in range(len(local_map)):
             map_size = local_map[i][0].shape[0]
             if map_size < down_size:
-                env = np.full((down_size,down_size),1)
+                env.append(np.full((down_size,down_size),3))
             else:
                 env.append(cv2.resize(local_map[i][0], dsize=(down_size, down_size)))
 
@@ -196,33 +186,31 @@ class Solver(object):
     ####
     def train(self):
         self.set_mode(train=True)
+        torch.autograd.set_detect_anomaly(True)
         data_loader = self.train_loader
+        self.N = len(data_loader.dataset)
+        iterator = iter(data_loader)
 
-        iter_per_epoch = len(data_loader.idx_list)
+        iter_per_epoch = len(iterator)
         start_iter = self.ckpt_load_iter + 1
         epoch = int(start_iter / iter_per_epoch)
 
-
         for iteration in range(start_iter, self.max_iter + 1):
-            data = data_loader.next_sample()
-            if data is None:
-                print(0)
-                continue
+
             # reset data iterators for each epoch
             if iteration % iter_per_epoch == 0:
-                if self.ckpt_load_iter > 0:
-                    data_loader.is_epoch_end(force=True)
-                else:
-                    data_loader.is_epoch_end()
                 print('==== epoch %d done ====' % epoch)
                 epoch +=1
+                iterator = iter(data_loader)
 
             # ============================================
             #          TRAIN THE VAE (ENC & DEC)
             # ============================================
-            (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-             maps, local_map, local_ic, local_homo) = data
 
+
+            (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
+             obs_frames, pred_frames, map_path, inv_h_t,
+             local_map, local_ic, local_homo) = next(iterator)
             batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
             local_map = self.preprocess_map(local_map, aug=True)
             recon_local_map = self.sg_unet.forward(local_map)
@@ -264,13 +252,12 @@ class Solver(object):
         loss=0
         b = 0
         with torch.no_grad():
-            while not self.val_loader.is_epoch_end():
-                data = self.val_loader.next_sample()
-                if data is None:
-                    continue
-                b+=1
+            for abatch in self.val_loader:
+                b += 1
+
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-                 maps, local_map, local_ic, local_homo) = data
+                 obs_frames, pred_frames, map_path, inv_h_t,
+                 local_map, local_ic, local_homo) = abatch
                 batch_size = obs_traj.size(1)
                 local_map = self.preprocess_map(local_map, aug=False)
 
