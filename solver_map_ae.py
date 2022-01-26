@@ -16,7 +16,6 @@ import cv2
 import torch.nn.functional as F
 from torchvision import transforms
 
-
 ###############################################################################
 
 class Solver(object):
@@ -61,7 +60,7 @@ class Solver(object):
         self.viz_on = args.viz_on
         if self.viz_on:
             self.win_id = dict(
-                map_loss='win_map_loss', test_map_loss='win_test_map_loss',  vel_loss='win_vel_loss', test_vel_loss='win_test_vel_loss'
+                map_loss='win_map_loss', test_map_loss='win_test_map_loss'
             )
             self.line_gather = DataGather(
                 'iter', 'loss', 'test_loss'
@@ -161,25 +160,15 @@ class Solver(object):
         print('...done')
 
 
-
     def preprocess_map(self, local_map, aug=False):
-        env=[]
-        down_size=256
-        for i in range(len(local_map)):
-            map_size = local_map[i][0].shape[0]
-            if map_size < down_size:
-                env.append(np.full((down_size,down_size),3))
-            else:
-                env.append(cv2.resize(local_map[i][0], dsize=(down_size, down_size)))
-
-        env = torch.tensor(env).float().to(self.device)
+        local_map = torch.from_numpy(local_map).to(self.device)
 
         if aug:
             degree = np.random.choice([0,90,180, -90])
-            env = transforms.Compose([
+            local_map = transforms.Compose([
                 transforms.RandomRotation(degrees=(degree, degree))
-            ])(env)
-        return env
+            ])(local_map)
+        return local_map
 
 
 
@@ -210,7 +199,7 @@ class Solver(object):
 
             (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
              obs_frames, pred_frames, map_path, inv_h_t,
-             local_map, local_ic, local_homo) = next(iterator)
+             local_map, local_ic, local_homo, _) = next(iterator)
             batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
             local_map = self.preprocess_map(local_map, aug=True)
             recon_local_map = self.sg_unet.forward(local_map)
@@ -220,7 +209,7 @@ class Solver(object):
             focal_loss = (self.alpha * local_map * torch.log(recon_local_map + self.eps) * ((1 - recon_local_map) ** self.gamma) \
                          + (1 - self.alpha) * (1 - local_map) * torch.log(1 - recon_local_map + self.eps) * (
                 recon_local_map ** self.gamma)).sum().div(batch_size)
-            
+
             self.optim_vae.zero_grad()
             focal_loss.backward()
             self.optim_vae.step()
@@ -257,8 +246,8 @@ class Solver(object):
 
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
                  obs_frames, pred_frames, map_path, inv_h_t,
-                 local_map, local_ic, local_homo) = abatch
-                batch_size = obs_traj.size(1)
+                 local_map, local_ic, local_homo, _) = abatch
+                batch_size = obs_traj.size(1)  # =sum(seq_start_end[:,1] - seq_start_end[:,0])
                 local_map = self.preprocess_map(local_map, aug=False)
 
                 recon_local_map = self.sg_unet.forward(local_map)
@@ -359,9 +348,7 @@ class Solver(object):
     ####
     def viz_init(self):
         self.viz.close(env=self.name + '/lines', win=self.win_id['test_map_loss'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['test_vel_loss'])
         self.viz.close(env=self.name + '/lines', win=self.win_id['map_loss'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['vel_loss'])
 
     ####
     def visualize_line(self):
@@ -369,10 +356,8 @@ class Solver(object):
         # prepare data to plot
         data = self.line_gather.data
         iters = torch.Tensor(data['iter'])
-        test_map_loss = torch.Tensor(np.array(data['test_loss'])[:,0])
-        test_vel_loss = torch.Tensor(np.array(data['test_loss'])[:,1])
-        map_loss = torch.Tensor(np.array(data['loss'])[:,0])
-        vel_loss = torch.Tensor(np.array(data['loss'])[:,1])
+        test_map_loss = torch.Tensor(data['test_loss'])
+        map_loss = torch.Tensor(data['loss'])
 
         self.viz.line(
             X=iters, Y=map_loss, env=self.name + '/lines',
@@ -381,12 +366,6 @@ class Solver(object):
                       title='Recon. map loss')
         )
 
-        self.viz.line(
-            X=iters, Y=vel_loss, env=self.name + '/lines',
-            win=self.win_id['vel_loss'], update='append',
-            opts=dict(xlabel='iter', ylabel='loss',
-                      title='Recon. vel loss')
-        )
 
         self.viz.line(
             X=iters, Y=test_map_loss, env=self.name + '/lines',
@@ -396,12 +375,6 @@ class Solver(object):
         )
 
 
-        self.viz.line(
-            X=iters, Y=test_vel_loss, env=self.name + '/lines',
-            win=self.win_id['test_vel_loss'], update='append',
-            opts=dict(xlabel='iter', ylabel='test_loss',
-                      title='Recon. vel loss - Test'),
-        )
     #
     #
     # def set_mode(self, train=True):
