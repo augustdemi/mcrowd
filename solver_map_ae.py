@@ -15,8 +15,7 @@ from unet.unet import Unet
 import cv2
 import torch.nn.functional as F
 from torchvision import transforms
-from data.nuscenes.config import Config
-from data.nuscenes_dataloader import data_generator
+from data.sdd_trajectories import seq_collate
 
 ###############################################################################
 
@@ -150,26 +149,17 @@ class Solver(object):
 
         # prepare dataloader (iterable)
         print('Start loading data...')
-
         if self.ckpt_load_iter != self.max_iter:
-            cfg = Config('nuscenes_train', False, create_dirs=True)
-            torch.set_default_dtype(torch.float32)
-            log = open('log.txt', 'a+')
-            self.train_loader = data_generator(cfg, log, split='train', phase='training',
-                                               batch_size=args.batch_size, device=self.device, scale=args.scale, shuffle=True)
-
-            cfg = Config('nuscenes', False, create_dirs=True)
-            torch.set_default_dtype(torch.float32)
-            log = open('log.txt', 'a+')
-            self.val_loader = data_generator(cfg, log, split='test', phase='testing',
-                                             batch_size=args.batch_size, device=self.device, scale=args.scale, shuffle=False)
-
-            # self.train_loader = self.val_loader
+            print("Initializing train dataset")
+            _, self.train_loader = data_loader(self.args, args.dataset_dir, 'train', shuffle=True)
+            print("Initializing val dataset")
+            _, self.val_loader = data_loader(self.args, args.dataset_dir, 'test', shuffle=False)
 
             print(
-                'There are {} iterations per epoch'.format(len(self.train_loader.idx_list))
+                'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
             )
         print('...done')
+
 
 
     def preprocess_map(self, local_map, aug=False):
@@ -178,7 +168,7 @@ class Solver(object):
         for i in range(len(local_map)):
             map_size = local_map[i][0].shape[0]
             if map_size < down_size:
-                env = np.full((down_size,down_size),1)
+                env.append(np.full((down_size,down_size),3))
             else:
                 env.append(cv2.resize(local_map[i][0], dsize=(down_size, down_size)))
 
@@ -196,37 +186,36 @@ class Solver(object):
     ####
     def train(self):
         self.set_mode(train=True)
+        torch.autograd.set_detect_anomaly(True)
         data_loader = self.train_loader
+        self.N = len(data_loader.dataset)
+        iterator = iter(data_loader)
 
-        iter_per_epoch = len(data_loader.idx_list)
+        iter_per_epoch = len(iterator)
         start_iter = self.ckpt_load_iter + 1
         epoch = int(start_iter / iter_per_epoch)
 
-
         for iteration in range(start_iter, self.max_iter + 1):
-            data = data_loader.next_sample()
-            if data is None:
-                print(0)
-                continue
+
             # reset data iterators for each epoch
             if iteration % iter_per_epoch == 0:
-                if self.ckpt_load_iter > 0:
-                    data_loader.is_epoch_end(force=True)
-                else:
-                    data_loader.is_epoch_end()
                 print('==== epoch %d done ====' % epoch)
                 epoch +=1
+                iterator = iter(data_loader)
 
             # ============================================
             #          TRAIN THE VAE (ENC & DEC)
             # ============================================
-            (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-             maps, local_map, local_ic, local_homo) = data
 
+
+            (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
+             obs_frames, pred_frames, map_path, inv_h_t,
+             local_map, local_ic, local_homo) = next(iterator)
             batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
-            local_map = self.preprocess_map(local_map, aug=True)
+            local_map = self.preprocess_map(local_map, aug=False) / 5
             recon_local_map = self.sg_unet.forward(local_map)
             recon_local_map = F.sigmoid(recon_local_map)
+
 
             focal_loss = F.mse_loss(recon_local_map, local_map).sum().div(batch_size)
 
@@ -261,27 +250,23 @@ class Solver(object):
         loss=0
         b = 0
         with torch.no_grad():
-            while not self.val_loader.is_epoch_end():
-                data = self.val_loader.next_sample()
-                if data is None:
-                    continue
-                b+=1
+            for abatch in self.val_loader:
+                b += 1
+
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-                 maps, local_map, local_ic, local_homo) = data
+                 obs_frames, pred_frames, map_path, inv_h_t,
+                 local_map, local_ic, local_homo) = abatch
                 batch_size = obs_traj.size(1)
-                local_map = self.preprocess_map(local_map, aug=False)
+                local_map = self.preprocess_map(local_map, aug=False) / 5
 
                 recon_local_map = self.sg_unet.forward(local_map)
                 recon_local_map = F.sigmoid(recon_local_map)
 
                 focal_loss = F.mse_loss(recon_local_map, local_map).sum().div(batch_size)
 
-
                 loss += focal_loss
         self.set_mode(train=True)
         return loss.div(b)
-
-    ####
 
     ####
     def recon(self, test_loader, train_loader):
@@ -290,56 +275,47 @@ class Solver(object):
         self.set_mode(train=False)
         with torch.no_grad():
 
-            test_range= list(range(len(test_loader.idx_list)))
+            test_range= list(range(len(test_loader.dataset)))
             np.random.shuffle(test_range)
 
             # train_range= range(len(train_loader.dataset))
             # np.random.shuffle(train_range)
+            n_sample = 10
             test_enc_feat = []
             train_enc_feat = []
-            s = 400
+            for k in range(50):
+                test_sample = []
+                train_sample = []
+                for i in test_range[n_sample*k:n_sample*(k+1)]:
+                    test_sample.append(test_loader.dataset.__getitem__(i))
+                    train_sample.append(train_loader.dataset.__getitem__(i))
 
-            n_sample = 0
-            for i in test_range:
-                test_loader.index = i
-                data = test_loader.next_sample()
-                if data is None:
-                    continue
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-                 maps, local_map, local_ic, local_homo) = data
-                local_map = self.preprocess_map(local_map, aug=False)
-                n_sample += len(local_map)
+                 obs_frames, pred_frames, map_path, inv_h_t,
+                 local_map, local_ic, local_homo) = seq_collate(test_sample)
+
+                local_map = self.preprocess_map(local_map, aug=False) /5
                 recon_local_map = self.sg_unet.forward(local_map)
                 # recon_local_map = F.sigmoid(recon_local_map)
                 # plt.imshow(recon_local_map[0, 0])
                 test_enc_feat.append(self.sg_unet.enc_feat.view(len(local_map), -1))
-                if n_sample >=s:
-                    break
 
-            n_sample = 0
-            for i in test_range:
-                train_loader.index = i
-                data = train_loader.next_sample()
-                if data is None:
-                    continue
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-                 maps, local_map, local_ic, local_homo) = data
-                local_map = self.preprocess_map(local_map, aug=False)
-                n_sample += len(local_map)
+                 obs_frames, pred_frames, map_path, inv_h_t,
+                 local_map, local_ic, local_homo) = seq_collate(train_sample)
+
+                local_map = self.preprocess_map(local_map, aug=False) / 5
                 recon_local_map = self.sg_unet.forward(local_map)
                 # recon_local_map = F.sigmoid(recon_local_map)
                 # plt.imshow(recon_local_map[0, 0])
                 train_enc_feat.append(self.sg_unet.enc_feat.view(len(local_map), -1))
-                if n_sample >=s:
-                    break
 
-            test_enc_feat = torch.cat(test_enc_feat)[:s]
-            train_enc_feat = torch.cat(train_enc_feat)[:s]
-
+            test_enc_feat = torch.cat(test_enc_feat)
+            train_enc_feat = torch.cat(train_enc_feat)
             tsne = TSNE(n_components=2, random_state=0)
             X_r2 = tsne.fit_transform(torch.cat([train_enc_feat, test_enc_feat]))
 
-            labels = np.concatenate([np.zeros(s), np.ones(s)])
+            labels = np.concatenate([np.zeros(500), np.ones(500)])
             # target_names = np.unique(labels)
             target_names = ['Training', 'Test']
             # colors = np.array(
@@ -367,19 +343,23 @@ class Solver(object):
 
         self.set_mode(train=True)
 
+
     def local_map_navi_ratio(self, test_loader):
         self.set_mode(train=False)
         loss=0
         b = 0
         ratio = []
         with torch.no_grad():
-            while not test_loader.is_epoch_end():
-                data = test_loader.next_sample()
-                if data is None:
-                    continue
+            for abatch in test_loader:
                 b+=1
-                local_map = self.preprocess_map(data[-3], aug=False).detach().numpy()
-                ratio.extend([len(np.where(m[0] ==0)[0]) / 256**2 for m in local_map])
+                for m in abatch[-3]:
+                    m = m[0]
+                    m[np.argwhere(m == 1)[:, 0], np.argwhere(m == 1)[:, 1]] = 1
+                    m[np.argwhere(m == 2)[:, 0], np.argwhere(m == 2)[:, 1]] = 1
+                    m[np.argwhere(m == 3)[:, 0], np.argwhere(m == 3)[:, 1]] = 0
+                    m[np.argwhere(m == 4)[:, 0], np.argwhere(m == 4)[:, 1]] = 1
+                    m[np.argwhere(m == 5)[:, 0], np.argwhere(m == 5)[:, 1]] = 1
+                    ratio.append(m.sum() / (m.shape[0] * m.shape[1]))
         print(np.array(ratio).mean())
 
 
@@ -442,6 +422,6 @@ class Solver(object):
         if self.device == 'cuda':
             self.sg_unet = torch.load(sg_unet_path)
         else:
-            sg_unet_path = 'd:\crowd\mcrowd\ckpts\mapae.nu_lr_0.001_a_0.25_r_2.0_run_2/iter_44940_sg_unet.pt'
+            sg_unet_path = 'd:\crowd\mcrowd\ckpts\mapae.sdd_lr_0.001_a_0.25_r_2.0_run_2/iter_31080_sg_unet.pt'
             self.sg_unet = torch.load(sg_unet_path, map_location='cpu')
          ####
