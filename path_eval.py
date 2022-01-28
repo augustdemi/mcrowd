@@ -1420,7 +1420,7 @@ class Solver(object):
 
                 n_sample += len(local_map)
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
-                test_enc_feat.append(self.lg_cvae.unet_enc_feat.view(len(local_map), -1))
+                test_enc_feat.append(self.lg_cvae.unet_enc_feat.view(len(local_map), -1).detach().cpu().numpy())
 
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
                  obs_frames, pred_frames, map_path, inv_h_t,
@@ -1430,13 +1430,13 @@ class Solver(object):
 
                 n_sample += len(local_map)
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
-                train_enc_feat.append(self.lg_cvae.unet_enc_feat.view(len(local_map), -1))
+                train_enc_feat.append(self.lg_cvae.unet_enc_feat.view(len(local_map), -1).detach().cpu().numpy())
 
-            test_enc_feat = torch.cat(test_enc_feat)
-            train_enc_feat = torch.cat(train_enc_feat)
+            test_enc_feat = np.concatenate(test_enc_feat)
+            train_enc_feat = np.concatenate(train_enc_feat)
 
             tsne = TSNE(n_components=2, random_state=0)
-            X_r2 = tsne.fit_transform(torch.cat([train_enc_feat, test_enc_feat]).detach().cpu().numpy())
+            X_r2 = tsne.fit_transform(np.concatenate([train_enc_feat, test_enc_feat]))
 
             np.save('path_tsne.npy', X_r2)
             '''
