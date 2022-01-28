@@ -154,7 +154,7 @@ class Solver(object):
         self.set_mode(train=False)
         with torch.no_grad():
 
-            test_range = list(range(len(test_loader.idx_list)))
+            test_range= list(range(len(test_loader.dataset)))
             np.random.shuffle(test_range)
 
             n_sample = 10
