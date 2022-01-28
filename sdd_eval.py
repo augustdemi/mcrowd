@@ -173,7 +173,6 @@ class Solver(object):
 
                 obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map, aug=False)
 
-                n_sample += len(local_map)
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 test_enc_feat.append(self.lg_cvae.unet_enc_feat.view(len(local_map), -1).detach().cpu().numpy())
 
@@ -183,7 +182,6 @@ class Solver(object):
 
                 obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map, aug=False)
 
-                n_sample += len(local_map)
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 train_enc_feat.append(self.lg_cvae.unet_enc_feat.view(len(local_map), -1).detach().cpu().numpy())
 
