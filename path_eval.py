@@ -1391,6 +1391,71 @@ class Solver(object):
 
 
 
+    def make_feat(self, test_loader, train_loader):
+        from sklearn.manifold import TSNE
+        from data.trajectories import seq_collate
+
+        self.set_mode(train=False)
+        with torch.no_grad():
+
+            test_range= list(range(len(test_loader.dataset)))
+            np.random.shuffle(test_range)
+
+            n_sample = 10
+            test_enc_feat = []
+            train_enc_feat = []
+            for k in range(50):
+                test_sample = []
+                train_sample = []
+                for i in test_range[n_sample*k:n_sample*(k+1)]:
+                    test_sample.append(test_loader.dataset.__getitem__(i))
+                    train_sample.append(train_loader.dataset.__getitem__(i))
+
+                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
+                 obs_frames, pred_frames, map_path, inv_h_t,
+                 local_map, local_ic, local_homo, _) = seq_collate(test_sample)
+
+
+                obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
+
+                n_sample += len(local_map)
+                self.lg_cvae.forward(obs_heat_map, None, training=False)
+                test_enc_feat.append(self.lg_cvae.unet_enc_feat.view(len(local_map), -1))
+
+                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
+                 obs_frames, pred_frames, map_path, inv_h_t,
+                 local_map, local_ic, local_homo, _) = seq_collate(train_sample)
+
+                obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
+
+                n_sample += len(local_map)
+                self.lg_cvae.forward(obs_heat_map, None, training=False)
+                train_enc_feat.append(self.lg_cvae.unet_enc_feat.view(len(local_map), -1))
+
+            test_enc_feat = torch.cat(test_enc_feat)
+            train_enc_feat = torch.cat(train_enc_feat)
+
+            tsne = TSNE(n_components=2, random_state=0)
+            X_r2 = tsne.fit_transform(torch.cat([train_enc_feat, test_enc_feat]).detach().cpu().numpy())
+
+            np.save('path_tsne.npy', X_r2)
+            '''
+
+            labels = np.concatenate([np.zeros(s), np.ones(s)])
+            target_names = ['Training', 'Test']
+            colors = np.array(['blue', 'red'])
+
+            fig = plt.figure(figsize=(5,4))
+            fig.tight_layout()
+
+            for color, i, target_name in zip(colors, np.unique(labels), target_names):
+                plt.scatter(X_r2[labels == i, 0], X_r2[labels == i, 1], alpha=.5, color=color,
+                            label=target_name, s=5)
+            fig.axes[0]._get_axis_list()[0].set_visible(False)
+            fig.axes[0]._get_axis_list()[1].set_visible(False)
+            plt.legend(loc=3, shadow=False, scatterpoints=1)
+            '''
+
     def set_mode(self, train=True):
 
         if train:
