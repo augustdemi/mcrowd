@@ -439,9 +439,80 @@ class Solver(object):
         # with open('sdd.pkl', 'rb') as f:
         #     a= pickle.load(f)
 
+    def make_feat(self, test_loader, train_loader):
+        from sklearn.manifold import TSNE
+
+        self.set_mode(train=False)
+        with torch.no_grad():
+
+            test_range= list(range(len(test_loader.idx_list)))
+            np.random.shuffle(test_range)
+
+            # train_range= range(len(train_loader.dataset))
+            # np.random.shuffle(train_range)
+            test_enc_feat = []
+            train_enc_feat = []
+            s = 500
+
+            n_sample = 0
+            for i in test_range:
+                test_loader.index = i
+                data = test_loader.next_sample()
+                if data is None:
+                    continue
+
+                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
+                 maps, local_map, local_ic, local_homo) = data
+
+                obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map, aug=False)
+
+                n_sample += len(local_map)
+                self.lg_cvae.forward(obs_heat_map, None, training=False)
+                test_enc_feat.append(self.lg_cvae.unet_enc_feat.view(len(local_map), -1))
+                if n_sample >=s:
+                    break
+
+            n_sample = 0
+            for i in test_range:
+                train_loader.index = i
+                data = train_loader.next_sample()
+                if data is None:
+                    continue
+                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
+                 maps, local_map, local_ic, local_homo) = data
+
+                obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map, aug=False)
+
+                n_sample += len(local_map)
+                self.lg_cvae.forward(obs_heat_map, None, training=False)
+                train_enc_feat.append(self.lg_cvae.unet_enc_feat.view(len(local_map), -1))
+                if n_sample >=s:
+                    break
 
 
+            test_enc_feat = torch.cat(test_enc_feat)[:s]
+            train_enc_feat = torch.cat(train_enc_feat)[:s]
 
+            tsne = TSNE(n_components=2, random_state=0)
+            X_r2 = tsne.fit_transform(torch.cat([train_enc_feat, test_enc_feat]).detach().cpu().numpy())
+
+            np.save('nu_tsne.npy', X_r2)
+            '''
+            
+            labels = np.concatenate([np.zeros(s), np.ones(s)])
+            target_names = ['Training', 'Test']
+            colors = np.array(['blue', 'red'])
+
+            fig = plt.figure(figsize=(5,4))
+            fig.tight_layout()
+
+            for color, i, target_name in zip(colors, np.unique(labels), target_names):
+                plt.scatter(X_r2[labels == i, 0], X_r2[labels == i, 1], alpha=.5, color=color,
+                            label=target_name, s=5)
+            fig.axes[0]._get_axis_list()[0].set_visible(False)
+            fig.axes[0]._get_axis_list()[1].set_visible(False)
+            plt.legend(loc=3, shadow=False, scatterpoints=1)
+            '''
 
     def check_feat(self, data_loader):
         self.set_mode(train=False)
@@ -1183,13 +1254,6 @@ class Solver(object):
         self.set_mode(train=False)
         total_traj = 0
 
-        total_coll5 = [0] * (lg_num * traj_num)
-        total_coll10 = [0] * (lg_num * traj_num)
-        total_coll15 = [0] * (lg_num * traj_num)
-        total_coll20 = [0] * (lg_num * traj_num)
-        total_coll25 = [0] * (lg_num * traj_num)
-        n_scene = 0
-
         all_ade =[]
         all_fde =[]
         sg_ade=[]
@@ -1301,7 +1365,6 @@ class Solver(object):
                         # -------- trajectories --------
                         # NO TF, pred_goals, z~prior
                         fut_rel_pos_dist_prior = self.decoderMy(
-                            seq_start_end,
                             obs_traj_st[-1],
                             obs_traj[-1, :, :2],
                             hx,
@@ -1312,14 +1375,7 @@ class Solver(object):
                         fut_rel_pos_dists.append(fut_rel_pos_dist_prior)
 
 
-
                 ade, fde = [], []
-                multi_coll5 = []
-                multi_coll10 = []
-                multi_coll15 = []
-                multi_coll20 = []
-                multi_coll25 = []
-                n_scene += sum([e-s for s, e in seq_start_end])
                 for dist in fut_rel_pos_dists:
                     pred_fut_traj=integrate_samples(dist.rsample() * self.scale, obs_traj[-1, :, :2], dt=self.dt)
                     ade.append(displacement_error(
@@ -1328,43 +1384,6 @@ class Solver(object):
                     fde.append(final_displacement_error(
                         pred_fut_traj[-1], fut_traj[-1,:,:2], mode='raw'
                     ))
-                    coll5 = 0
-                    coll10 = 0
-                    coll15 = 0
-                    coll20 = 0
-                    coll25 = 0
-                    for s, e in seq_start_end:
-                        num_ped = e - s
-                        if num_ped == 1:
-                            continue
-                        seq_traj = pred_fut_traj[:, s:e]
-                        for i in range(len(seq_traj)):
-                            curr1 = seq_traj[i].repeat(num_ped, 1)
-                            curr2 = self.repeat(seq_traj[i], num_ped)
-                            dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
-                            dist = dist.reshape(num_ped, num_ped)
-                            diff_agent_idx = np.triu_indices(num_ped, k=1)
-                            diff_agent_dist = dist[diff_agent_idx]
-                            coll5 += (diff_agent_dist < 1.0).sum()
-                            coll10 += (diff_agent_dist < 1.5).sum()
-                            coll15 += (diff_agent_dist < 2.0).sum()
-                            coll20 += (diff_agent_dist < 2.8).sum()
-                            coll25 += (diff_agent_dist < 0.5).sum()
-                    multi_coll5.append(coll5)
-                    multi_coll10.append(coll10)
-                    multi_coll15.append(coll15)
-                    multi_coll20.append(coll20)
-                    multi_coll25.append(coll25)
-
-
-                for i in range(lg_num * traj_num):
-                    total_coll5[i] += multi_coll5[i]
-                    total_coll10[i] += multi_coll10[i]
-                    total_coll15[i] += multi_coll15[i]
-                    total_coll20[i] += multi_coll20[i]
-                    total_coll25[i] += multi_coll25[i]
-
-
                 all_ade.append(torch.stack(ade))
                 all_fde.append(torch.stack(fde))
                 sg_ade.append(torch.sqrt(((torch.stack(pred_sg_wcs).permute(0, 2, 1, 3)
@@ -1391,21 +1410,6 @@ class Solver(object):
             lg_fde_min = np.min(lg_fde, axis=0).mean()
             lg_fde_avg = np.mean(lg_fde, axis=0).mean()
             lg_fde_std = np.std(lg_fde, axis=0).mean()
-
-
-            total_coll5=np.array(total_coll5)
-            total_coll10=np.array(total_coll10)
-            total_coll15=np.array(total_coll15)
-            total_coll20=np.array(total_coll20)
-            total_coll25=np.array(total_coll25)
-
-            print('total 5: ', np.min(total_coll5, axis=0).mean(), np.mean(total_coll5, axis=0).mean(), np.std(total_coll5, axis=0).mean())
-            print('total 10: ', np.min(total_coll10, axis=0).mean(), np.mean(total_coll10, axis=0).mean(), np.std(total_coll10, axis=0).mean())
-            print('total 15: ', np.min(total_coll15, axis=0).mean(), np.mean(total_coll15, axis=0).mean(), np.std(total_coll15, axis=0).mean())
-            print('total 20: ', np.min(total_coll20, axis=0).mean(), np.mean(total_coll20, axis=0).mean(), np.std(total_coll20, axis=0).mean())
-            print('total 25: ', np.min(total_coll25, axis=0).mean(), np.mean(total_coll25, axis=0).mean(), np.std(total_coll25, axis=0).mean())
-
-            print(n_scene)
 
         return ade_min, fde_min, \
                ade_avg, fde_avg, \
@@ -1580,37 +1584,15 @@ class Solver(object):
 
 
     def pretrain_load_checkpoint(self, traj, lg, sg):
-        # sg['iter']=30000
-        # lg['iter']=39000
-        # traj['ckpt_dir']='ckpts/nu.traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_0.07_scale_1.0_num_sg_3_run_5'
-        # traj['iter'] = 45000
-        #
-        # sg_unet_path = os.path.join(
-        #     'ckpts/nu.sg_lr_0.001_a_0.25_r_2.0_aug_1_num_sg_3_run_4',
-        #     'iter_%s_sg_unet.pt' % sg['iter']
-        # )
-        # encoderMx_path = os.path.join(
-        #     traj['ckpt_dir'],
-        #     'iter_%s_encoderMx.pt' % traj['iter']
-        # )
-        # encoderMy_path = os.path.join(
-        #     traj['ckpt_dir'],
-        #     'iter_%s_encoderMy.pt' % traj['iter']
-        # )
-        # decoderMy_path = os.path.join(
-        #     traj['ckpt_dir'],
-        #     'iter_%s_decoderMy.pt' %  traj['iter']
-        # )
-        # lg_cvae_path = os.path.join(
-        #     'ckpts/nu.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_3.0_anneal_e_10_aug_1_llprior_0.0_run_4',
-        #     'iter_%s_lg_cvae.pt' %  lg['iter']
-        # )
+        sg['iter']=30000
+        lg['iter']=39000
+        traj['ckpt_dir']='ckpts/nu.traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_0.07_scale_1.0_num_sg_3_run_5'
+        traj['iter'] = 45000
 
         sg_unet_path = os.path.join(
-            sg['ckpt_dir'],
+            'ckpts/nu.sg_lr_0.001_a_0.25_r_2.0_aug_1_num_sg_3_run_4',
             'iter_%s_sg_unet.pt' % sg['iter']
         )
-
         encoderMx_path = os.path.join(
             traj['ckpt_dir'],
             'iter_%s_encoderMx.pt' % traj['iter']
@@ -1624,9 +1606,10 @@ class Solver(object):
             'iter_%s_decoderMy.pt' %  traj['iter']
         )
         lg_cvae_path = os.path.join(
-            lg['ckpt_dir'],
+            'ckpts/nu.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_3.0_anneal_e_10_aug_1_llprior_0.0_run_4',
             'iter_%s_lg_cvae.pt' %  lg['iter']
         )
+
 
         if self.device == 'cuda':
             self.encoderMx = torch.load(encoderMx_path)
