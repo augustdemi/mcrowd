@@ -179,8 +179,9 @@ class Solver(object):
         for i in range(len(local_map)):
             map_size = local_map[i].shape[0]
             if map_size < down_size:
-                env = np.full((down_size,down_size),1)
-                env[half-map_size//2:half+map_size//2, half-map_size//2:half+map_size//2] = local_map[i]
+                tmp = np.full((down_size,down_size),1)
+                tmp[half-map_size//2:half+map_size//2, half-map_size//2:half+map_size//2] = local_map[i]
+                env.append(tmp)
             else:
                 env.append(cv2.resize(local_map[i], dsize=(down_size, down_size)))
 
@@ -226,7 +227,7 @@ class Solver(object):
              maps, local_map, local_ic, local_homo) = data
 
             batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
-            local_map = self.preprocess_map(local_map, aug=True)
+            local_map = self.preprocess_map(local_map, aug=False)
             recon_local_map = self.sg_unet.forward(local_map)
             recon_local_map = F.sigmoid(recon_local_map)
 
