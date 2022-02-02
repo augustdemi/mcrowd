@@ -926,7 +926,7 @@ class Solver(object):
                     obs_vec = local_ic[0, self.obs_len - 1] - local_ic[0, self.obs_len - 2]
                     pred_vec = local_ic[0, self.obs_len - 1]- pred_lg_ic.detach().cpu().numpy().squeeze(0)
                     cos_sim = dot(obs_vec, pred_vec) / (norm(obs_vec) * norm(pred_vec))
-                    if cos_sim > 0.5:
+                    if cos_sim > theta:
                         # print(cos_sim)
                         continue
 
@@ -940,7 +940,6 @@ class Solver(object):
                         # -------- short term goal --------
                         heat_map_traj = np.zeros((160, 160))
                         heat_map_traj[int(pred_lg_ic[0,0].item()), int(pred_lg_ic[0,1].item())] = 1
-                        print(pred_lg_ic)
                         heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
                         pred_lg_heat_from_ic = torch.tensor(heat_map_traj).unsqueeze(0).unsqueeze(0).float().to(self.device)
 
