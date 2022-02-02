@@ -916,37 +916,33 @@ class Solver(object):
                 pred_sg_wcs = []
 
                 ####### long term goals and the corresponding (deterministic) short term goals ########
+
                 while len(pred_lg_wcs) < lg_num :
                     # -------- long term goal --------
                     w_prior = self.lg_cvae.prior_latent_space.sample()
                     pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True, z_prior=w_prior))
                 # for pred_lg_heat in mmm:
-                    pred_lg_ics = []
                     pred_lg_ic = (pred_lg_heat[0,0] == torch.max(pred_lg_heat[0,0])).nonzero()[0].unsqueeze(0).float()
                     obs_vec = local_ic[0, self.obs_len - 1] - local_ic[0, self.obs_len - 2]
                     pred_vec = local_ic[0, self.obs_len - 1]- pred_lg_ic.detach().cpu().numpy().squeeze(0)
                     cos_sim = dot(obs_vec, pred_vec) / (norm(obs_vec) * norm(pred_vec))
-                    if cos_sim > theta:
+                    if cos_sim > 0.5:
                         # print(cos_sim)
                         continue
-                    pred_lg_ics.append(pred_lg_ic)
 
                     back_wc = torch.matmul(
                         torch.cat([pred_lg_ic, torch.ones((len(pred_lg_ic), 1)).to(self.device)], dim=1),
                         torch.transpose(local_homo[0].float().to(self.device), 1, 0))
-                    pred_lg_wcs.append(back_wc[0, :2] / back_wc[0, 2])
+                    pred_lg_wcs.append((back_wc[0, :2] / back_wc[0, 2]).unsqueeze(0))
 
 
                     if generate_heat:
                         # -------- short term goal --------
-                        pred_lg_heat_from_ic = []
-                        for coord in pred_lg_ics:
-                            heat_map_traj = np.zeros((160, 160))
-                            heat_map_traj[int(coord[0, 0]), int(coord[0, 1])] = 1
-                            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-                            pred_lg_heat_from_ic.append(heat_map_traj)
-                        pred_lg_heat_from_ic = torch.tensor(np.stack(pred_lg_heat_from_ic)).unsqueeze(1).float().to(
-                            self.device)
+                        heat_map_traj = np.zeros((160, 160))
+                        heat_map_traj[int(pred_lg_ic[0,0].item()), int(pred_lg_ic[0,1].item())] = 1
+                        print(pred_lg_ic)
+                        heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+                        pred_lg_heat_from_ic = torch.tensor(heat_map_traj).unsqueeze(0).unsqueeze(0).float().to(self.device)
 
                         pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1)))
                     else:
@@ -954,12 +950,9 @@ class Solver(object):
 
 
                     pred_sg_ic = []
-                    i=-1
                     for heat_map in pred_sg_heat[0]:
-                        i+=1
-                        map_size = local_map[i][0].shape
                         argmax_idx = heat_map.argmax()
-                        argmax_idx = [argmax_idx//map_size[0], argmax_idx%map_size[0]]
+                        argmax_idx = [argmax_idx//160, argmax_idx%160]
                         pred_sg_ic.append(argmax_idx)
                     pred_sg_ic = torch.tensor(pred_sg_ic).float().to(self.device)
 
@@ -969,6 +962,7 @@ class Solver(object):
                         torch.transpose(local_homo[0].float().to(self.device), 1, 0))
                     back_wc /= back_wc[:, 2].unsqueeze(1)
                     pred_sg_wcs.append(back_wc[:, :2].unsqueeze(0))
+
 
                 ##### trajectories per long&short goal ####
 
