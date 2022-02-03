@@ -91,7 +91,6 @@ class EncoderX(nn.Module):
         hx = F.dropout(F.relu(hx),
                       p=self.dropout_mlp,
                       training=train)
-        stats = self.fc_latent(hx)
 
         # map enc
         local_map_feat = local_map_feat.view(-1, self.map_h_dim)
@@ -104,6 +103,7 @@ class EncoderX(nn.Module):
 
         # map and traj
         hx = self.fc_hidden(torch.cat((hx, map_feat), dim=-1)) # 64(32 without attn) to z dim
+        stats = self.fc_latent(hx)
 
         return hx, stats[:,:self.zS_dim], stats[:,self.zS_dim:]
 
@@ -134,7 +134,7 @@ class EncoderY(nn.Module):
         )
 
         self.fc1 = nn.Linear(4*enc_h_dim, mlp_dim)
-        self.fc2 = nn.Linear(mlp_dim, zS_dim*2)
+        self.fc2 = nn.Linear(2*mlp_dim, zS_dim*2)
 
     def forward(self, last_obs_traj, fut_vel, seq_start_end, obs_enc_feat, train=False):
         """
@@ -162,10 +162,11 @@ class EncoderY(nn.Module):
 
         # final distribution
         stats = self.fc1(final_encoder_h.reshape(-1, 4 * self.enc_h_dim))
+
         stats = F.dropout(F.relu(stats),
                       p=self.dropout_mlp,
                       training=train)
-        stats = self.fc2(stats)
+        stats = self.fc2(torch.cat([obs_enc_feat, stats], 1))
 
         return stats[:,:self.zS_dim], stats[:,self.zS_dim:]
 
