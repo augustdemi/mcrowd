@@ -66,14 +66,8 @@ class EncoderX(nn.Module):
         self.fc_hidden = nn.Linear(mlp_dim + map_feat_dim, mlp_dim)
         self.fc_latent = nn.Linear(mlp_dim, zS_dim*2)
 
-        # self.local_map_feat_dim = np.prod([*a])
-        self.map_h_dim = 64*16*16
 
-        self.map_fc1 = nn.Linear(self.map_h_dim + 9, map_mlp_dim)
-        self.map_fc2 = nn.Linear(map_mlp_dim, map_feat_dim)
-
-
-    def forward(self, obs_traj, seq_start_end, local_map_feat, local_homo, train=False):
+    def forward(self, obs_traj, seq_start_end, train=False):
         """
         Inputs:
         - obs_traj: Tensor of shape (obs_len, batch, 2)
@@ -91,21 +85,9 @@ class EncoderX(nn.Module):
         hx = F.dropout(F.relu(hx),
                       p=self.dropout_mlp,
                       training=train)
-
-        # map enc
-        local_map_feat = local_map_feat.view(-1, self.map_h_dim)
-        local_homo = local_homo.view(-1, 9)
-        map_feat = self.map_fc1(torch.cat((local_map_feat, local_homo), dim=-1))
-        map_feat = F.dropout(F.relu(map_feat),
-                      p=self.dropout_mlp,
-                      training=train)
-        map_feat = self.map_fc2(map_feat)
-
-        # map and traj
-        hx = self.fc_hidden(torch.cat((hx, map_feat), dim=-1)) # 64(32 without attn) to z dim
         stats = self.fc_latent(hx)
 
-        return hx, map_feat, stats[:,:self.zS_dim], stats[:,self.zS_dim:]
+        return hx, stats[:,:self.zS_dim], stats[:,self.zS_dim:]
 
 
 class EncoderY(nn.Module):
@@ -134,9 +116,9 @@ class EncoderY(nn.Module):
         )
 
         self.fc1 = nn.Linear(4*enc_h_dim, mlp_dim)
-        self.fc2 = nn.Linear(mlp_dim + 32, zS_dim*2)
+        self.fc2 = nn.Linear(mlp_dim, zS_dim*2)
 
-    def forward(self, last_obs_traj, fut_vel, seq_start_end, map_feat, train=False):
+    def forward(self, last_obs_traj, fut_vel, seq_start_end, obs_enc_feat, train=False):
         """
         Inputs:
         - obs_traj: Tensor of shape (obs_len, batch, 2)
@@ -162,11 +144,10 @@ class EncoderY(nn.Module):
 
         # final distribution
         stats = self.fc1(final_encoder_h.reshape(-1, 4 * self.enc_h_dim))
-
         stats = F.dropout(F.relu(stats),
                       p=self.dropout_mlp,
                       training=train)
-        stats = self.fc2(torch.cat([map_feat, stats], 1))
+        stats = self.fc2(stats)
 
         return stats[:,:self.zS_dim], stats[:,self.zS_dim:]
 
