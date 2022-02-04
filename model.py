@@ -63,7 +63,7 @@ class EncoderX(nn.Module):
 
         self.fc_map1 = nn.Linear(map_feat_dim + 9, map_mlp_dim)
         self.fc_map2 = nn.Linear(map_mlp_dim, map_feat_dim)
-        self.fc_hidden = nn.Linear(map_mlp_dim + enc_h_dim, mlp_dim)
+        self.fc_hidden = nn.Linear(map_feat_dim + enc_h_dim, mlp_dim)
         self.fc_latent = nn.Linear(mlp_dim, zS_dim*2)
 
 
