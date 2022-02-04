@@ -44,7 +44,7 @@ def normal_init(m):
 class EncoderX(nn.Module):
     """Encoder:spatial emb -> lstm -> pooling -> fc for posterior / conditional prior"""
     def __init__(
-        self, zS_dim, enc_h_dim=64, mlp_dim=32, map_feat_dim=64, map_mlp_dim=32,
+        self, zS_dim, enc_h_dim=64, mlp_dim=32, map_feat_dim=32, map_mlp_dim=32,
             num_layers=1, dropout_mlp=0.0, dropout_rnn=0.0, device='cpu'
     ):
         super(EncoderX, self).__init__()
@@ -61,12 +61,17 @@ class EncoderX(nn.Module):
             input_size=n_state, hidden_size=enc_h_dim
         )
 
-        # self.fc_map = nn.Linear(map_feat_dim + 9, map_mlp_dim)
-        self.fc_hidden = nn.Linear(map_feat_dim + enc_h_dim, mlp_dim)
+
+        self.fc1 = nn.Linear(enc_h_dim, mlp_dim)
+        self.fc_hidden = nn.Linear(mlp_dim + map_feat_dim, mlp_dim)
         self.fc_latent = nn.Linear(mlp_dim, zS_dim*2)
 
+        # self.local_map_feat_dim = np.prod([*a])
+        self.map_h_dim = 64*16*16
 
-    def forward(self, obs_traj, seq_start_end, map_feat, local_homo, train=False):
+
+
+    def forward(self, obs_traj, seq_start_end, train=False):
         """
         Inputs:
         - obs_traj: Tensor of shape (obs_len, batch, 2)
@@ -77,36 +82,24 @@ class EncoderX(nn.Module):
 
         # traj rnn enc
         _, (final_encoder_h, _) = self.rnn_encoder(obs_traj) # [8, 656, 16], 두개의 [1, 656, 32]
-        obs_feat = F.dropout(final_encoder_h,
+        final_encoder_h = F.dropout(final_encoder_h,
                             p=self.dropout_rnn,
-                            training=train).view(-1, self.enc_h_dim)
-
-        # map enc
-        map_feat = torch.mean(map_feat, dim=2, keepdim=True)
-        map_feat = torch.mean(map_feat, dim=3, keepdim=True).squeeze(-1).squeeze(-1)
-
-        # map_feat = self.fc_map(torch.cat((map_feat, local_homo.view(-1, 9)), dim=-1))
-        # map_feat = F.dropout(F.relu(map_feat),
-        #               p=self.dropout_mlp,
-        #               training=train)
-
-        # map and traj
-        hx = torch.cat((obs_feat, map_feat), dim=-1) # 64(32 without attn) to z dim
-        prior_stat = self.fc_hidden(hx)
-        prior_stat = F.dropout(F.relu(prior_stat),
+                            training=train)  # [bs, max_time, enc_rnn_dim]
+        hx = self.fc1(final_encoder_h.view(-1, self.enc_h_dim))
+        hx = F.dropout(F.relu(hx),
                       p=self.dropout_mlp,
                       training=train)
 
-        prior_stat = self.fc_latent(prior_stat)
+        stats = self.fc_latent(hx)
 
-        return hx, map_feat, prior_stat[:,:self.zS_dim], prior_stat[:,self.zS_dim:]
+        return hx, stats[:,:self.zS_dim], stats[:,self.zS_dim:]
 
 
 class EncoderY(nn.Module):
     """Encoder:spatial emb -> lstm -> pooling -> fc for posterior / conditional prior"""
 
     def __init__(
-            self, zS_dim, enc_h_dim=64, mlp_dim=32, map_feat_dim=128,
+            self, zS_dim, enc_h_dim=64, mlp_dim=32,
             num_layers=1, dropout_mlp=0.0, dropout_rnn=0.0,
             device='cpu'
     ):
@@ -127,10 +120,10 @@ class EncoderY(nn.Module):
             input_size=n_pred_state, hidden_size=enc_h_dim, num_layers=1, bidirectional=True
         )
 
-        self.fc_hidden = nn.Linear(map_feat_dim + 4*enc_h_dim, mlp_dim)
-        self.fc_latent = nn.Linear(mlp_dim, zS_dim*2)
+        self.fc1 = nn.Linear(4*enc_h_dim, mlp_dim)
+        self.fc2 = nn.Linear(2*mlp_dim, zS_dim*2)
 
-    def forward(self, last_obs_traj, fut_vel, seq_start_end, map_feat, train=False):
+    def forward(self, last_obs_traj, fut_vel, seq_start_end, obs_enc_feat, train=False):
         """
         Inputs:
         - obs_traj: Tensor of shape (obs_len, batch, 2)
@@ -149,26 +142,26 @@ class EncoderY(nn.Module):
         _, state = self.rnn_encoder(fut_vel, state_tuple)
 
         final_encoder_h = torch.cat(state, dim=0).permute(1, 0, 2)  # 2,81,32두개 -> 4, 81,32 -> 81,4,32
-        fut_feat = F.dropout(final_encoder_h,
+        final_encoder_h = F.dropout(final_encoder_h,
                                     p=self.dropout_rnn,
                                     training=train)  # [bs, max_time, enc_rnn_dim]
 
 
         # final distribution
-        fut_feat = fut_feat.reshape(-1, 4 * self.enc_h_dim)
+        stats = self.fc1(final_encoder_h.reshape(-1, 4 * self.enc_h_dim))
 
-        post_stat = self.fc_hidden(torch.cat([map_feat, fut_feat], -1))
-        post_stat = F.dropout(F.relu(post_stat),
+        stats = F.dropout(F.relu(stats),
                       p=self.dropout_mlp,
                       training=train)
-        post_stat = self.fc_latent(post_stat)
-        return post_stat[:,:self.zS_dim], post_stat[:,self.zS_dim:]
+        stats = self.fc2(torch.cat([obs_enc_feat, stats], 1))
+
+        return stats[:,:self.zS_dim], stats[:,self.zS_dim:]
 
 
 class Decoder(nn.Module):
     """Decoder is part of TrajectoryGenerator"""
     def __init__(
-        self, seq_len, dec_h_dim=128, mlp_dim=1024, num_layers=1, map_feat_dim=128,
+        self, seq_len, dec_h_dim=128, mlp_dim=1024, num_layers=1,
         dropout_rnn=0.0, enc_h_dim=32, z_dim=32,
         device='cpu', scale=1, dt=0.4
     ):
@@ -185,11 +178,11 @@ class Decoder(nn.Module):
         self.scale = scale
         self.dt = dt
 
-        self.dec_hidden = nn.Linear(map_feat_dim + enc_h_dim + z_dim, dec_h_dim)
+        self.dec_hidden = nn.Linear(mlp_dim + z_dim, dec_h_dim)
         self.to_vel = nn.Linear(n_state, n_pred_state)
 
         self.rnn_decoder = nn.GRUCell(
-            input_size=map_feat_dim + enc_h_dim + z_dim + 2*n_pred_state, hidden_size=dec_h_dim
+            input_size=mlp_dim + z_dim + 2*n_pred_state, hidden_size=dec_h_dim
         )
 
         self.fc_mu = nn.Linear(dec_h_dim, n_pred_state)
@@ -200,12 +193,12 @@ class Decoder(nn.Module):
         self.sg_fc = nn.Linear(4*enc_h_dim, n_pred_state)
 
 
-    def forward(self, last_obs_st, last_obs_pos, hx, z, sg, sg_update_idx, fut_vel_st=None):
+    def forward(self, last_obs_st, last_obs_pos, enc_h_feat, z, sg, sg_update_idx, fut_vel_st=None):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
         - last_obs_st: Tensor of shape (batch, 6)
-        - hx: hidden feature from the encoder
+        - enc_h_feat: hidden feature from the encoder
         - z: sample from the posterior/prior dist.
         - sg: sg position (batch, # sg, 2)
         - seq_start_end: A list of tuples which delimit sequences within batch
@@ -214,7 +207,7 @@ class Decoder(nn.Module):
         """
 
         # x_feat+z(=zx) initial state생성(FC)
-        zx = torch.cat([hx, z], dim=1) # 493, 89(64+25)
+        zx = torch.cat([enc_h_feat, z], dim=1) # 493, 89(64+25)
         decoder_h=self.dec_hidden(zx) # 493, 128
         # Infer initial action state for node from current state
         pred_vel = self.to_vel(last_obs_st)
