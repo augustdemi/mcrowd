@@ -99,14 +99,14 @@ class EncoderX(nn.Module):
 
         prior_stat = self.fc_latent(prior_stat)
 
-        return hx, map_feat, prior_stat[:,:self.zS_dim], prior_stat[:,self.zS_dim:]
+        return hx, prior_stat[:,:self.zS_dim], prior_stat[:,self.zS_dim:]
 
 
 class EncoderY(nn.Module):
     """Encoder:spatial emb -> lstm -> pooling -> fc for posterior / conditional prior"""
 
     def __init__(
-            self, zS_dim, enc_h_dim=64, mlp_dim=32, map_feat_dim=128,
+            self, zS_dim, enc_h_dim=64, mlp_dim=32, hx_dim=128,
             num_layers=1, dropout_mlp=0.0, dropout_rnn=0.0,
             device='cpu'
     ):
@@ -127,10 +127,10 @@ class EncoderY(nn.Module):
             input_size=n_pred_state, hidden_size=enc_h_dim, num_layers=1, bidirectional=True
         )
 
-        self.fc_hidden = nn.Linear(map_feat_dim + 4*enc_h_dim, mlp_dim)
+        self.fc_hidden = nn.Linear(hx_dim + 4*enc_h_dim, mlp_dim)
         self.fc_latent = nn.Linear(mlp_dim, zS_dim*2)
 
-    def forward(self, last_obs_traj, fut_vel, seq_start_end, map_feat, train=False):
+    def forward(self, last_obs_traj, fut_vel, seq_start_end, hx, train=False):
         """
         Inputs:
         - obs_traj: Tensor of shape (obs_len, batch, 2)
@@ -157,7 +157,7 @@ class EncoderY(nn.Module):
         # final distribution
         fut_feat = fut_feat.reshape(-1, 4 * self.enc_h_dim)
 
-        post_stat = self.fc_hidden(torch.cat([map_feat, fut_feat], -1))
+        post_stat = self.fc_hidden(torch.cat([hx, fut_feat], -1))
         post_stat = F.dropout(F.relu(post_stat),
                       p=self.dropout_mlp,
                       training=train)
@@ -168,7 +168,7 @@ class EncoderY(nn.Module):
 class Decoder(nn.Module):
     """Decoder is part of TrajectoryGenerator"""
     def __init__(
-        self, seq_len, dec_h_dim=128, mlp_dim=1024, num_layers=1, map_feat_dim=128,
+        self, seq_len, dec_h_dim=128, mlp_dim=1024, num_layers=1, hx_dim=128,
         dropout_rnn=0.0, enc_h_dim=32, z_dim=32,
         device='cpu', scale=1, dt=0.4
     ):
@@ -185,11 +185,11 @@ class Decoder(nn.Module):
         self.scale = scale
         self.dt = dt
 
-        self.dec_hidden = nn.Linear(map_feat_dim + enc_h_dim + z_dim, dec_h_dim)
+        self.dec_hidden = nn.Linear(hx_dim + z_dim, dec_h_dim)
         self.to_vel = nn.Linear(n_state, n_pred_state)
 
         self.rnn_decoder = nn.GRUCell(
-            input_size=map_feat_dim + enc_h_dim + z_dim + 2*n_pred_state, hidden_size=dec_h_dim
+            input_size=hx_dim + z_dim + 2*n_pred_state, hidden_size=dec_h_dim
         )
 
         self.fc_mu = nn.Linear(dec_h_dim, n_pred_state)
