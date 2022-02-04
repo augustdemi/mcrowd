@@ -170,7 +170,7 @@ class Solver(object):
                 self.map_ae = torch.load(map_ae_path, map_location='cpu')
             print(">>>>>>>>> Init: ", map_ae_path)
 
-            args.map_feat_dim = 64
+            args.map_feat_dim = 64 + 9
             hx_dim = args.encoder_h_dim + args.map_feat_dim
             self.encoderMx = EncoderX(
                 args.zS_dim,

@@ -84,8 +84,9 @@ class EncoderX(nn.Module):
         # map enc
         map_feat = torch.mean(map_feat, dim=2, keepdim=True)
         map_feat = torch.mean(map_feat, dim=3, keepdim=True).squeeze(-1).squeeze(-1)
+        map_feat = torch.cat((map_feat, local_homo.view(-1, 9)), dim=-1)
 
-        # map_feat = self.fc_map(torch.cat((map_feat, local_homo.view(-1, 9)), dim=-1))
+        # map_feat = self.fc_map()
         # map_feat = F.dropout(F.relu(map_feat),
         #               p=self.dropout_mlp,
         #               training=train)
