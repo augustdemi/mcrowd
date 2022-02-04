@@ -240,7 +240,7 @@ class Decoder(nn.Module):
             if fut_vel_st is not None:
                 pred_vel = fut_vel_st[i]
             else:
-                if(i == sg_update_idx[j]):
+                if (i == sg_update_idx[j]) and (j < len(sg_update_idx)-1):
                     pred_vel = sg_state[j+1,:,2:4]
                     j += 1
                 else:
