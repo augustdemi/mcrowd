@@ -185,11 +185,11 @@ class Decoder(nn.Module):
         self.scale = scale
         self.dt = dt
 
-        self.dec_hidden = nn.Linear(map_feat_dim + z_dim, dec_h_dim)
+        self.dec_hidden = nn.Linear(map_feat_dim + enc_h_dim + z_dim, dec_h_dim)
         self.to_vel = nn.Linear(n_state, n_pred_state)
 
         self.rnn_decoder = nn.GRUCell(
-            input_size=map_feat_dim + z_dim + 2*n_pred_state, hidden_size=dec_h_dim
+            input_size=map_feat_dim + enc_h_dim + z_dim + 2*n_pred_state, hidden_size=dec_h_dim
         )
 
         self.fc_mu = nn.Linear(dec_h_dim, n_pred_state)
