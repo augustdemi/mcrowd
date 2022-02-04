@@ -337,6 +337,8 @@ class Solver(object):
                 obs_traj_st[-1],
                 hx,
                 q_dist.rsample(),
+                self.sg_idx,
+                sg_state,
                 fut_vel_st # TF
             )
 
@@ -346,6 +348,8 @@ class Solver(object):
                 obs_traj_st[-1],
                 hx,
                 p_dist.rsample(),
+                self.sg_idx,
+                sg_state,
             )
 
 
@@ -474,6 +478,8 @@ class Solver(object):
                         obs_traj_st[-1],
                         hx,
                         p_dist.rsample(),
+                        self.sg_idx,
+                        sg_state,
                     )
                     fut_rel_pos_dist20.append(fut_rel_pos_dist_prior)
 
