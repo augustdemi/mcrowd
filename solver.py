@@ -171,7 +171,7 @@ class Solver(object):
             print(">>>>>>>>> Init: ", map_ae_path)
 
             args.map_feat_dim = 64
-            hx_dim = args.encoder_h_dim + args.map_mlp_dim
+            hx_dim = args.encoder_h_dim + args.map_feat_dim
             self.encoderMx = EncoderX(
                 args.zS_dim,
                 enc_h_dim=args.encoder_h_dim,
