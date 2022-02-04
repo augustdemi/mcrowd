@@ -171,7 +171,6 @@ class Solver(object):
             print(">>>>>>>>> Init: ", map_ae_path)
 
             args.map_feat_dim = 64
-            hx_dim = args.encoder_h_dim + args.map_feat_dim
             self.encoderMx = EncoderX(
                 args.zS_dim,
                 enc_h_dim=args.encoder_h_dim,
@@ -186,7 +185,7 @@ class Solver(object):
                 args.zS_dim,
                 enc_h_dim=args.encoder_h_dim,
                 mlp_dim=args.mlp_dim,
-                hx_dim=hx_dim,
+                map_feat_dim=args.map_feat_dim,
                 num_layers=args.num_layers,
                 dropout_mlp=args.dropout_mlp,
                 dropout_rnn=args.dropout_rnn,
@@ -196,7 +195,7 @@ class Solver(object):
                 dec_h_dim=self.decoder_h_dim,
                 enc_h_dim=args.encoder_h_dim,
                 mlp_dim=args.mlp_dim,
-                hx_dim=hx_dim,
+                map_feat_dim=args.map_feat_dim,
                 z_dim=args.zS_dim,
                 num_layers=args.num_layers,
                 device=args.device,
