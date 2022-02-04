@@ -170,8 +170,8 @@ class Solver(object):
                 self.map_ae = torch.load(map_ae_path, map_location='cpu')
             print(">>>>>>>>> Init: ", map_ae_path)
 
-
-
+            args.map_feat_dim = 64
+            hx_dim = args.encoder_h_dim*2 + args.map_feat_dim
             self.encoderMx = EncoderX(
                 args.zS_dim,
                 enc_h_dim=args.encoder_h_dim,
@@ -186,6 +186,7 @@ class Solver(object):
                 args.zS_dim,
                 enc_h_dim=args.encoder_h_dim,
                 mlp_dim=args.mlp_dim,
+                hx_dim=hx_dim,
                 num_layers=args.num_layers,
                 dropout_mlp=args.dropout_mlp,
                 dropout_rnn=args.dropout_rnn,
@@ -195,6 +196,7 @@ class Solver(object):
                 dec_h_dim=self.decoder_h_dim,
                 enc_h_dim=args.encoder_h_dim,
                 mlp_dim=args.mlp_dim,
+                hx_dim=hx_dim,
                 z_dim=args.zS_dim,
                 num_layers=args.num_layers,
                 device=args.device,
@@ -297,9 +299,30 @@ class Solver(object):
              maps, local_map, local_ic, local_homo) = data
             batch_size = fut_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
+            local_map =  self.preprocess_map(local_map)
+
+            #-------- map encoding from lgvae --------
+            unet_enc_feat = self.map_ae.down_forward(local_map)
+            #-------- sg state --------
+
+            ### make six states
+            dt = self.dt * (12 / len(self.sg_idx))
+            sg = fut_traj[list(self.sg_idx), :, :2] # sg_num, bs, 2
+            last_ob_sg = torch.cat([obs_traj[-1:, :, :2], sg], dim=0).permute(1,0,2).detach().cpu().numpy()
+            last_ob_sg = (last_ob_sg - last_ob_sg[:, :1]) / self.scale  # bs, 4(last obs + # sg), 2
+
+            sg_state = []
+            for pos in last_ob_sg:
+                vx = np.gradient(pos[:, 0], dt)
+                vy = np.gradient(pos[:, 1], dt)
+                ax = np.gradient(vx, dt)
+                ay = np.gradient(vy, dt)
+                sg_state.append(np.array([pos[:, 0], pos[:, 1], vx, vy, ax, ay]))
+            sg_state = torch.tensor(np.stack(sg_state)).permute((2, 0, 1)).float().to(self.device)
+
             #-------- trajectories --------
             (hx, mux, log_varx) \
-                = self.encoderMx(obs_traj_st, seq_start_end, train=True)
+                = self.encoderMx(obs_traj_st, seq_start_end, unet_enc_feat, sg_state, train=True)
 
 
             (muy, log_vary) \
@@ -312,11 +335,8 @@ class Solver(object):
             # TF, goals, z~posterior
             fut_rel_pos_dist_tf_post = self.decoderMy(
                 obs_traj_st[-1],
-                obs_traj[-1, :, :2],
                 hx,
                 q_dist.rsample(),
-                fut_traj[list(self.sg_idx), :, :2].permute(1,0,2), # goal
-                self.sg_idx,
                 fut_vel_st # TF
             )
 
@@ -324,11 +344,8 @@ class Solver(object):
             # NO TF, predicted goals, z~prior
             fut_rel_pos_dist_prior = self.decoderMy(
                 obs_traj_st[-1],
-                obs_traj[-1, :, :2],
                 hx,
                 p_dist.rsample(),
-                fut_traj[list(self.sg_idx), :, :2].permute(1, 0, 2),  # goal
-                self.sg_idx,
             )
 
 
@@ -425,9 +442,29 @@ class Solver(object):
                 batch_size = fut_traj.size(1)
                 total_traj += fut_traj.size(1)
 
+                local_map = self.preprocess_map(local_map)
+
+                # -------- map encoding from lgvae --------
+                unet_enc_feat = self.map_ae.down_forward(local_map)
+
+                ### make six states
+                dt = self.dt * (12 / len(self.sg_idx))
+                sg = fut_traj[list(self.sg_idx), :, :2]  # sg_num, bs, 2
+                last_ob_sg = torch.cat([obs_traj[-1:, :, :2], sg], dim=0).permute(1, 0, 2).detach().cpu().numpy()
+                last_ob_sg = (last_ob_sg - last_ob_sg[:, :1]) / self.scale  # bs, 4(last obs + # sg), 2
+
+                sg_state = []
+                for pos in last_ob_sg:
+                    vx = np.gradient(pos[:, 0], dt)
+                    vy = np.gradient(pos[:, 1], dt)
+                    ax = np.gradient(vx, dt)
+                    ay = np.gradient(vy, dt)
+                    sg_state.append(np.array([pos[:, 0], pos[:, 1], vx, vy, ax, ay]))
+                sg_state = torch.tensor(np.stack(sg_state)).permute((2, 0, 1)).float().to(self.device)
+
                 # -------- trajectories --------
                 (hx, mux, log_varx) \
-                    = self.encoderMx(obs_traj_st, seq_start_end)
+                    = self.encoderMx(obs_traj_st, seq_start_end, unet_enc_feat, sg_state)
                 p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
 
                 fut_rel_pos_dist20 = []
@@ -435,11 +472,8 @@ class Solver(object):
                     # NO TF, pred_goals, z~prior
                     fut_rel_pos_dist_prior = self.decoderMy(
                         obs_traj_st[-1],
-                        obs_traj[-1,:,:2],
                         hx,
                         p_dist.rsample(),
-                        fut_traj[list(self.sg_idx), :, :2].permute(1, 0, 2),  # goal
-                        self.sg_idx,
                     )
                     fut_rel_pos_dist20.append(fut_rel_pos_dist_prior)
 
