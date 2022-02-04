@@ -171,7 +171,6 @@ class Solver(object):
             print(">>>>>>>>> Init: ", map_ae_path)
 
             args.map_feat_dim = 64
-            hx_dim = args.encoder_h_dim + args.map_feat_dim
             self.encoderMx = EncoderX(
                 args.zS_dim,
                 enc_h_dim=args.encoder_h_dim,
@@ -186,7 +185,7 @@ class Solver(object):
                 args.zS_dim,
                 enc_h_dim=args.encoder_h_dim,
                 mlp_dim=args.mlp_dim,
-                hx_dim=hx_dim,
+                map_feat_dim=args.map_feat_dim,
                 num_layers=args.num_layers,
                 dropout_mlp=args.dropout_mlp,
                 dropout_rnn=args.dropout_rnn,
@@ -196,7 +195,7 @@ class Solver(object):
                 dec_h_dim=self.decoder_h_dim,
                 enc_h_dim=args.encoder_h_dim,
                 mlp_dim=args.mlp_dim,
-                hx_dim=hx_dim,
+                map_feat_dim=args.map_feat_dim,
                 z_dim=args.zS_dim,
                 num_layers=args.num_layers,
                 device=args.device,
@@ -304,12 +303,12 @@ class Solver(object):
             #-------- map encoding from lgvae --------
             unet_enc_feat = self.map_ae.down_forward(local_map)
             #-------- trajectories --------
-            (hx, mux, log_varx) \
+            (hx, map_feat, mux, log_varx) \
                 = self.encoderMx(obs_traj_st, seq_start_end, unet_enc_feat, local_homo, train=True)
 
 
             (muy, log_vary) \
-                = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, hx, train=True)
+                = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, map_feat, train=True)
 
             p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
             q_dist = Normal(muy, torch.sqrt(torch.exp(log_vary)))
@@ -436,7 +435,7 @@ class Solver(object):
                 # -------- map encoding from lgvae --------
                 unet_enc_feat = self.map_ae.down_forward(local_map)
                 # -------- trajectories --------
-                (hx, mux, log_varx) \
+                (hx, map_feat, mux, log_varx) \
                     = self.encoderMx(obs_traj_st, seq_start_end, unet_enc_feat, local_homo)
                 p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
 
@@ -456,7 +455,7 @@ class Solver(object):
                 if loss:
 
                     (muy, log_vary) \
-                        = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, hx, train=False)
+                        = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, map_feat, train=False)
                     q_dist = Normal(muy, torch.sqrt(torch.exp(log_vary)))
 
                     loss_recon -= fut_rel_pos_dist_prior.log_prob(fut_vel_st).sum().div(batch_size)
