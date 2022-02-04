@@ -61,8 +61,8 @@ class EncoderX(nn.Module):
             input_size=n_state, hidden_size=enc_h_dim
         )
 
-        # self.fc_map = nn.Linear(map_feat_dim + 9, map_mlp_dim)
-        self.fc_hidden = nn.Linear(map_feat_dim + enc_h_dim, mlp_dim)
+        self.fc_map = nn.Linear(map_feat_dim + 9, map_mlp_dim)
+        self.fc_hidden = nn.Linear(map_mlp_dim + enc_h_dim, mlp_dim)
         self.fc_latent = nn.Linear(mlp_dim, zS_dim*2)
 
 
@@ -84,12 +84,7 @@ class EncoderX(nn.Module):
         # map enc
         map_feat = torch.mean(map_feat, dim=2, keepdim=True)
         map_feat = torch.mean(map_feat, dim=3, keepdim=True).squeeze(-1).squeeze(-1)
-        map_feat = torch.cat((map_feat, local_homo.view(-1, 9)), dim=-1)
-
-        # map_feat = self.fc_map()
-        # map_feat = F.dropout(F.relu(map_feat),
-        #               p=self.dropout_mlp,
-        #               training=train)
+        map_feat = self.fc_map(torch.cat((map_feat, local_homo.view(-1, 9)), dim=-1))
 
         # map and traj
         hx = torch.cat((obs_feat, map_feat), dim=-1) # 64(32 without attn) to z dim
