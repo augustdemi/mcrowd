@@ -1352,6 +1352,7 @@ class Solver(object):
                 ##### trajectories per long&short goal ####
 
                 # -------- trajectories --------
+                unet_enc_feat = self.map_ae.down_forward(obs_heat_map[:,:1])
 
                 for pred_sg_wc in pred_sg_wcs:
                     dt = self.dt * (12 / len(self.sg_idx))
@@ -1369,7 +1370,7 @@ class Solver(object):
 
                     # -------- trajectories --------
                     (hx, mux, log_varx) \
-                        = self.encoderMx(obs_traj_st, seq_start_end, self.lg_cvae.unet_enc_feat, sg_state)
+                        = self.encoderMx(obs_traj_st, seq_start_end, unet_enc_feat, sg_state)
                     p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
 
                     # -------- trajectories --------
@@ -1527,6 +1528,7 @@ class Solver(object):
                 ##### trajectories per long&short goal ####
 
                 # -------- trajectories --------
+                unet_enc_feat = self.map_ae.down_forward(obs_heat_map[:,:1])
 
                 for pred_sg_wc in pred_sg_wcs:
                     ### make six states
@@ -1545,7 +1547,7 @@ class Solver(object):
 
                     # -------- trajectories --------
                     (hx, mux, log_varx) \
-                        = self.encoderMx(obs_traj_st, seq_start_end, self.lg_cvae.unet_enc_feat, sg_state)
+                        = self.encoderMx(obs_traj_st, seq_start_end, unet_enc_feat, sg_state)
                     p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
 
                     # -------- trajectories --------
@@ -1639,6 +1641,15 @@ class Solver(object):
             self.decoderMy = torch.load(decoderMy_path, map_location='cpu')
             self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
             self.sg_unet = torch.load(sg_unet_path, map_location='cpu')
+
+        map_ae_path = 'mapae.nu_lr_0.001_a_0.25_r_2.0_run_3'
+        map_ae_path = os.path.join('ckpts', map_ae_path, 'iter_11984_sg_unet.pt')
+
+        if self.device == 'cuda':
+            self.map_ae = torch.load(map_ae_path)
+        else:
+            self.map_ae = torch.load(map_ae_path, map_location='cpu')
+        print(">>>>>>>>> map Init: ", map_ae_path)
 
 
     def set_mode(self, train=True):
