@@ -301,219 +301,6 @@ class Solver(object):
         tensor = tensor.view(-1, col_len)
         return tensor
 
-
-
-
-    def make_pred(self, data_loader, lg_num=5, traj_num=4, generate_heat=True):
-        self.set_mode(train=False)
-
-        all_gt=[]
-        all_pred = []
-        all_scene_name = []
-        with torch.no_grad():
-            b=0
-            while not data_loader.is_epoch_end():
-                data = data_loader.next_sample()
-                if data is None:
-                    continue
-                b+=1
-                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-                 maps, local_map, local_ic, local_homo, scene_name) = data
-                batch_size = obs_traj.size(1)
-                obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
-
-                self.lg_cvae.forward(obs_heat_map, None, training=False)
-                fut_rel_pos_dists = []
-                pred_lg_wcs = []
-                pred_sg_wcs = []
-
-                ####### long term goals and the corresponding (deterministic) short term goals ########
-                w_priors = []
-                for _ in range(lg_num):
-                    w_priors.append(self.lg_cvae.prior_latent_space.sample())
-
-                for w_prior in w_priors:
-                    # -------- long term goal --------
-                    pred_lg_heat = F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, w_prior))
-                    pred_lg_ics = []
-                    pred_lg_wc = []
-                    for i in range(batch_size):
-                        map_size = local_map[i].shape
-                        pred_lg_ic = []
-                        for heat_map in pred_lg_heat[i]:
-                            # heat_map = nnf.interpolate(heat_map.unsqueeze(0), size=map_size, mode='nearest')
-                            heat_map = nnf.interpolate(heat_map.unsqueeze(0).unsqueeze(0),
-                                                       size=map_size, mode='bicubic',
-                                                       align_corners=False).squeeze(0).squeeze(0)
-                            argmax_idx = heat_map.argmax()
-                            argmax_idx = [argmax_idx // map_size[0], argmax_idx % map_size[0]]
-                            pred_lg_ic.append(argmax_idx)
-
-                        pred_lg_ic = torch.tensor(pred_lg_ic).float().to(self.device)
-
-                        pred_lg_ics.append(pred_lg_ic)
-
-                        # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
-                        back_wc = torch.matmul(
-                            torch.cat([pred_lg_ic, torch.ones((len(pred_lg_ic), 1)).to(self.device)], dim=1),
-                            torch.transpose(local_homo[i], 1, 0))
-                        pred_lg_wc.append(back_wc[0, :2] / back_wc[0, 2])
-                        # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
-                    pred_lg_wc = torch.stack(pred_lg_wc)
-                    pred_lg_wcs.append(pred_lg_wc)
-                    # -------- short term goal --------
-
-                    if generate_heat:
-                        pred_lg_heat_from_ic = []
-                        for i in range(len(pred_lg_ics)):
-                            pred_lg_heat_from_ic.append(self.make_one_heatmap(local_map[i], pred_lg_ics[i][
-                                0].detach().cpu().numpy().astype(int)))
-                        pred_lg_heat_from_ic = torch.tensor(np.stack(pred_lg_heat_from_ic)).unsqueeze(1).float().to(
-                            self.device)
-                        pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1)))
-                    else:
-                        pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat], dim=1)))
-
-                    pred_sg_wc = []
-                    for i in range(batch_size):
-                        map_size = local_map[i].shape
-                        pred_sg_ic = []
-                        for heat_map in pred_sg_heat[i]:
-                            heat_map = nnf.interpolate(heat_map.unsqueeze(0).unsqueeze(0),
-                                                       size=map_size, mode='bicubic',
-                                                       align_corners=False).squeeze(0).squeeze(0)
-                            argmax_idx = heat_map.argmax()
-                            argmax_idx = [argmax_idx // map_size[0], argmax_idx % map_size[0]]
-                            pred_sg_ic.append(argmax_idx)
-                        pred_sg_ic = torch.tensor(pred_sg_ic).float().to(self.device)
-                        # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
-                        back_wc = torch.matmul(
-                            torch.cat([pred_sg_ic, torch.ones((len(pred_sg_ic), 1)).to(self.device)], dim=1),
-                            torch.transpose(local_homo[i], 1, 0))
-                        back_wc /= back_wc[:, 2].unsqueeze(1)
-                        pred_sg_wc.append(back_wc[:, :2])
-                        # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
-                    pred_sg_wc = torch.stack(pred_sg_wc)
-                    pred_sg_wcs.append(pred_sg_wc)
-
-                    ################
-
-
-                ##### trajectories per long&short goal ####
-
-                # -------- trajectories --------
-                (hx, mux, log_varx) \
-                    = self.encoderMx(obs_traj_st, seq_start_end, self.lg_cvae.unet_enc_feat, local_homo)
-
-                p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
-                z_priors = []
-                for _ in range(traj_num):
-                    z_priors.append(p_dist.sample())
-
-                for pred_sg_wc in pred_sg_wcs:
-                    for z_prior in z_priors:
-                        # -------- trajectories --------
-                        # NO TF, pred_goals, z~prior
-                        fut_rel_pos_dist_prior = self.decoderMy(
-                            obs_traj_st[-1],
-                            obs_traj[-1, :, :2],
-                            hx,
-                            z_prior,
-                            pred_sg_wc,  # goal
-                            self.sg_idx
-                        )
-                        fut_rel_pos_dists.append(fut_rel_pos_dist_prior)
-
-                pred = []
-                for dist in fut_rel_pos_dists:
-                    pred_fut_traj=integrate_samples(dist.rsample() * self.scale, obs_traj[-1, :, :2], dt=self.dt)
-                    pred.append(pred_fut_traj)
-                all_pred.append(torch.stack(pred).detach().cpu().numpy())
-                all_gt.append(fut_traj[:,:,:2].unsqueeze(0).detach().cpu().numpy())
-                all_scene_name.append(scene_name)
-
-        import pickle
-        data = [np.concatenate(all_pred, -2).transpose(0,2,1,3), np.concatenate(all_gt, -2).transpose(0,2,1,3), np.concatenate(all_scene_name)]
-        with open('./nu_scene_' + str(traj_num*lg_num) + '.pkl', 'wb') as handle:
-            pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
-        # with open('sdd.pkl', 'rb') as f:
-        #     a= pickle.load(f)
-
-    def make_feat(self, test_loader, train_loader):
-        from sklearn.manifold import TSNE
-
-        self.set_mode(train=False)
-        with torch.no_grad():
-
-            test_range= list(range(len(test_loader.idx_list)))
-            np.random.shuffle(test_range)
-
-            # train_range= range(len(train_loader.dataset))
-            # np.random.shuffle(train_range)
-            test_enc_feat = []
-            train_enc_feat = []
-            s = 500
-
-            n_sample = 0
-            for i in test_range:
-                test_loader.index = i
-                data = test_loader.next_sample()
-                if data is None:
-                    continue
-
-                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-                 maps, local_map, local_ic, local_homo) = data
-
-                obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map, aug=False)
-
-                n_sample += len(local_map)
-                self.lg_cvae.forward(obs_heat_map, None, training=False)
-                test_enc_feat.append(self.lg_cvae.unet_enc_feat.view(len(local_map), -1))
-                if n_sample >=s:
-                    break
-
-            n_sample = 0
-            for i in test_range:
-                train_loader.index = i
-                data = train_loader.next_sample()
-                if data is None:
-                    continue
-                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-                 maps, local_map, local_ic, local_homo) = data
-
-                obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map, aug=False)
-
-                n_sample += len(local_map)
-                self.lg_cvae.forward(obs_heat_map, None, training=False)
-                train_enc_feat.append(self.lg_cvae.unet_enc_feat.view(len(local_map), -1))
-                if n_sample >=s:
-                    break
-
-
-            test_enc_feat = torch.cat(test_enc_feat)[:s]
-            train_enc_feat = torch.cat(train_enc_feat)[:s]
-
-            tsne = TSNE(n_components=2, random_state=0)
-            X_r2 = tsne.fit_transform(torch.cat([train_enc_feat, test_enc_feat]).detach().cpu().numpy())
-
-            np.save('nu_tsne.npy', X_r2)
-            '''
-            
-            labels = np.concatenate([np.zeros(s), np.ones(s)])
-            target_names = ['Training', 'Test']
-            colors = np.array(['blue', 'red'])
-
-            fig = plt.figure(figsize=(5,4))
-            fig.tight_layout()
-
-            for color, i, target_name in zip(colors, np.unique(labels), target_names):
-                plt.scatter(X_r2[labels == i, 0], X_r2[labels == i, 1], alpha=.5, color=color,
-                            label=target_name, s=5)
-            fig.axes[0]._get_axis_list()[0].set_visible(False)
-            fig.axes[0]._get_axis_list()[1].set_visible(False)
-            plt.legend(loc=3, shadow=False, scatterpoints=1)
-            '''
-
     def check_feat(self, data_loader):
         self.set_mode(train=False)
 
@@ -526,8 +313,6 @@ class Solver(object):
                 b+=1
 
                 idx = 412
-                idx = 1926
-                idx = 2542
                 data_loader.index = idx
                 data = data_loader.next_sample()
 
@@ -536,13 +321,18 @@ class Solver(object):
                 plt.imshow(local_map[0])
                 plt.scatter(local_ic[0,:,1], local_ic[0,:,0], s=1, c='r')
                 plt.show()
+                #
+                # batch = data_loader.dataset.__getitem__(143)
+                # (obs_traj, fut_traj,
+                #  obs_frames, pred_frames, map_path, inv_h_t,
+                #  local_map, local_ic, local_homo) = batch
 
                 obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
 
-                #########################intro ##########################
-                i = tmp_idx = 0
+                ###################################################
+                i = 0
 
                 # ori_map = maps[0].data.transpose(1,2,0)
                 # plt.imshow(ori_map)
@@ -554,100 +344,7 @@ class Solver(object):
                 #
                 # plt.imshow()
 
-                import matplotlib.patheffects as pe
-
-                env = np.expand_dims((1 - local_map[i]), 2).repeat(3, 2)
-
-                idx = 7
-                fig = plt.figure(figsize=(7, 7))
-                ax = fig.add_subplot(1,1,1)
-                plt.tight_layout()
-                ax.imshow(env)
-                ax.axis('off')
-
-                ax.plot(local_ic[0, :4, 1], local_ic[0, :4, 0],
-                        '--o',
-                        c='royalblue',
-                        linewidth=1,
-                        markersize=1.5,
-                        zorder=500,
-                        path_effects=[pe.Stroke(linewidth=1, foreground='k'), pe.Normal()], label='GT past')
-                ax.plot(local_ic[0, 4:, 1], local_ic[0, 4:, 0],
-                        '--o',
-                        c='darkorange',
-                        linewidth=1,
-                        markersize=1.5,
-                        zorder=500,
-                        path_effects=[pe.Stroke(linewidth=1, foreground='k'), pe.Normal()], label='GT future')
-
-                ax.plot(local_ic[0, [7,11,15], 1], local_ic[0, [7,11,15], 0],
-                        'x',
-                        c='darkorange',
-                        linewidth=1,
-                        markersize=10,
-                        zorder=500,
-                        path_effects=[pe.Stroke(linewidth=2, foreground='k'), pe.Normal()], label='GT past')
-
-
-
-                # -------- short term goal --------
-
-                pred_lg_heat = pred_lg_heats[idx]
-                pred_lg_ics = []
-                for j in range(len(obs_heat_map)):
-                    map_size = local_map[j].shape
-                    pred_lg_ic = []
-                    for heat_map in pred_lg_heat[j]:
-                        # heat_map = nnf.interpolate(heat_map.unsqueeze(0), size=map_size, mode='nearest')
-                        heat_map = nnf.interpolate(heat_map.unsqueeze(0).unsqueeze(0),
-                                                   size=map_size, mode='bicubic',
-                                                   align_corners=False).squeeze(0).squeeze(0)
-                        argmax_idx = heat_map.argmax()
-                        argmax_idx = [argmax_idx // map_size[0], argmax_idx % map_size[0]]
-                        pred_lg_ic.append(argmax_idx)
-
-                    pred_lg_ic = torch.tensor(pred_lg_ic).float().to(self.device)
-                    pred_lg_ics.append(pred_lg_ic)
-
-                pred_lg_heat_from_ic = []
-                for lg_idx in range(len(pred_lg_ics)):
-                    pred_lg_heat_from_ic.append(self.make_one_heatmap(local_map[lg_idx], pred_lg_ics[
-                        lg_idx].detach().cpu().numpy().astype(int)[0]))
-                pred_lg_heat_from_ic = torch.tensor(np.stack(pred_lg_heat_from_ic)).unsqueeze(1).float().to(
-                    self.device)
-                pred_sg = F.sigmoid(
-                    self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1)))
-
-                m = pred_sg.detach().cpu().numpy().copy()[i]
-                m = nnf.interpolate(torch.tensor(m).unsqueeze(0),
-                                    size=local_map[i].shape, mode='bicubic',
-                                    align_corners=False).squeeze(0).detach().cpu().numpy().copy()
-
-                ax.imshow(env, alpha=0.3)
-
-                c = m[0] / m[0].max()
-                d = np.stack([1 - c, 1 - c, np.ones_like(c)]).transpose(1, 2, 0)
-                ax.imshow(d, alpha=0.2)
-
-                c = m[1] / m[1].max()
-                d = np.stack([1 - c, 1 - c, np.ones_like(c)]).transpose(1, 2, 0)
-                ax.imshow(d, alpha=0.2)
-
-                c = m[2] / m[2].max()
-                d = np.stack([1 - c, 1 - c, np.ones_like(c)]).transpose(1, 2, 0)
-                ax.imshow(d, alpha=0.1)
-
-                # a = pred_lg_heats[idx][i, 0]
-                # a = nnf.interpolate(torch.tensor(a).unsqueeze(0).unsqueeze(0),
-                #                     size=local_map[i].shape, mode='bicubic',
-                #                     align_corners=False).squeeze(0).squeeze(0).detach().cpu().numpy().copy()
-                #
-                # c = a / a.max()
-                # d = np.stack([1 - c, np.ones_like(c), np.ones_like(c)]).transpose(1, 2, 0)
-                # ax.imshow(d, alpha=0.7)
-
-
-                        ####################### LG ############################
+                ####################### LG ############################
 
                 zs = []
                 for _ in range(10):
@@ -894,30 +591,6 @@ class Solver(object):
 
                 pred_data = np.expand_dims(np.stack(pred_data),1) #  (20, 1, 16, 2)
 
-
-                p = []
-                for pred in multi_sample_pred:
-                    p.append(integrate_samples(pred * self.scale, obs_traj[-1, :, :2], dt=self.dt))
-                p = torch.stack(p).transpose(2,1).numpy()
-                g = fut_traj[:,:,:2].transpose(1,0).unsqueeze(0).repeat((10,1,1,1)).numpy()
-
-                pred = []
-                for pp in p:
-                    batch_seq_pix = []
-                    wc = pp[0]
-                    batch_seq_pix.append(maps[o].to_map_points(wc).astype(int))
-                    pred.append(np.expand_dims(np.stack(batch_seq_pix), 1))
-                pred = np.concatenate(pred, 1)
-
-                all_maps=[]
-                for o, (s,e) in enumerate(seq_start_end):
-                    m = 1 - maps[o].data / 255
-                    m = 1 - m[0] * m[1] * m[2]
-                    for _ in range(s,e):
-                        all_maps.append(m)
-                compute_ECFL(pred, all_maps)
-
-
                 #---------- plot gif
                 '''
                 i = tmp_idx
@@ -1021,15 +694,15 @@ class Solver(object):
                         zorder=650,
                         path_effects=[pe.Stroke(linewidth=2, foreground='k'), pe.Normal()], label='GT past')
 
-                # ax.legend(loc='upper left')
+                ax.legend(loc='upper left')
 
 
                 ################### LG ##############################
                 # ------- plot -----------
                 env = np.expand_dims((1 - local_map[i]), 2).repeat(3, 2)
-                idx_list = [2,3,5]
 
                 fig = plt.figure(figsize=(12, 10))
+                idx_list = [2,3,5]
                 # idx_list = [7,8,9]
                 # idx_list = [4,5,6]
                 for h in range(3):
@@ -1153,8 +826,8 @@ class Solver(object):
                     ######################
                     # AF
                     import pickle5
-                    with open('C:\dataset\AgentFormer nuscenes k=10\AgentFormer nuscenes k=10/nuscenes_10.pkl', 'rb') as f:
-                    # with open('D:\crowd/modified_ynet_nu_k102.pkl', 'rb') as f:
+                    # with open('C:\dataset\AgentFormer nuscenes k=10\AgentFormer nuscenes k=10/nuscenes_10.pkl', 'rb') as f:
+                    with open('D:\crowd/modified_ynet_nu_k102.pkl', 'rb') as f:
                     # with open('C:\dataset/t++\experiments/nuScenes/t_nu10.pkl', 'rb') as f:
                         aa = pickle5.load(f)
                     # gt = aa[1][0, 818]
@@ -1167,27 +840,8 @@ class Solver(object):
                     gt = aa[1][0, idx]
                     gt - our_gt
                     af_pred = aa[0][:, idx]
-                    bp = np.expand_dims(af_pred, 1)
-                    bg = np.expand_dims(np.expand_dims(gt, 0), 0).repeat(10, 0)
 
 
-                    #####################ECFL #########################
-                    pred = []
-                    for pp in bp:
-                        batch_seq_pix = []
-                        wc = pp[0]
-                        batch_seq_pix.append(maps[o].to_map_points(wc).astype(int))
-                        pred.append(np.expand_dims(np.stack(batch_seq_pix), 1))
-                    pred = np.concatenate(pred, 1)
-
-                    all_maps = []
-                    for o, (s, e) in enumerate(seq_start_end):
-                        m = 1 - maps[o].data / 255
-                        m = 1 - m[0] * m[1] * m[2]
-                        for _ in range(s, e):
-                            all_maps.append(m)
-                    compute_ECFL(pred, all_maps)
-                    ##############################################
 
                     ## pixel data
                     af_pred_data = []
@@ -1258,6 +912,8 @@ class Solver(object):
         all_fde =[]
         sg_ade=[]
         lg_fde=[]
+        pred_c = []
+
         with torch.no_grad():
             b=0
             while not data_loader.is_epoch_end():
@@ -1352,39 +1008,31 @@ class Solver(object):
                 ##### trajectories per long&short goal ####
 
                 # -------- trajectories --------
-                unet_enc_feat = self.map_ae.down_forward(obs_heat_map[:,:1])
+                (hx, mux, log_varx) \
+                    = self.encoderMx(obs_traj_st, seq_start_end, self.lg_cvae.unet_enc_feat, local_homo)
+
+                p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
+                z_priors = []
+                for _ in range(traj_num):
+                    z_priors.append(p_dist.sample())
 
                 for pred_sg_wc in pred_sg_wcs:
-                    dt = self.dt * (12 / len(self.sg_idx))
-                    last_ob_sg = torch.cat([obs_traj[-1:, :, :2].permute(1, 0, 2), pred_sg_wc], dim=1).detach().cpu().numpy()
-                    last_ob_sg = (last_ob_sg - last_ob_sg[:, :1]) / self.scale  # bs, 4(last obs + # sg), 2
+                    for z_prior in z_priors:
+                        # -------- trajectories --------
+                        # NO TF, pred_goals, z~prior
+                        fut_rel_pos_dist_prior = self.decoderMy(
+                            obs_traj_st[-1],
+                            obs_traj[-1, :, :2],
+                            hx,
+                            z_prior,
+                            pred_sg_wc,  # goal
+                            self.sg_idx
+                        )
+                        fut_rel_pos_dists.append(fut_rel_pos_dist_prior)
 
-                    sg_state = []
-                    for pos in last_ob_sg:
-                        vx = np.gradient(pos[:, 0], dt)
-                        vy = np.gradient(pos[:, 1], dt)
-                        ax = np.gradient(vx, dt)
-                        ay = np.gradient(vy, dt)
-                        sg_state.append(np.array([pos[:, 0], pos[:, 1], vx, vy, ax, ay]))
-                    sg_state = torch.tensor(np.stack(sg_state)).permute((2, 0, 1)).float().to(self.device)
-
-                    # -------- trajectories --------
-                    (hx, mux, log_varx) \
-                        = self.encoderMx(obs_traj_st, seq_start_end, unet_enc_feat, sg_state)
-                    p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
-
-                    # -------- trajectories --------
-                    # NO TF, pred_goals, z~prior
-                    fut_rel_pos_dist_prior = self.decoderMy(
-                        obs_traj_st[-1],
-                        hx,
-                        p_dist.rsample(),
-                        self.sg_idx,
-                        sg_state,
-                    )
-                    fut_rel_pos_dists.append(fut_rel_pos_dist_prior)
 
                 ade, fde = [], []
+                pred = []
                 for dist in fut_rel_pos_dists:
                     pred_fut_traj=integrate_samples(dist.rsample() * self.scale, obs_traj[-1, :, :2], dt=self.dt)
                     ade.append(displacement_error(
@@ -1393,12 +1041,33 @@ class Solver(object):
                     fde.append(final_displacement_error(
                         pred_fut_traj[-1], fut_traj[-1,:,:2], mode='raw'
                     ))
+                    batch_seq_pix = []
+                    for o, (s, e) in enumerate(seq_start_end):
+                        for idx in range(s, e):
+                            wc = pred_fut_traj.transpose(1, 0)[idx].detach().cpu().numpy()
+                            batch_seq_pix.append(maps[o].to_map_points(wc).astype(int))
+                    pred.append(np.expand_dims(np.stack(batch_seq_pix), 1))
+
+                # collision
+                pred = np.concatenate(pred, 1)
+                all_maps = []
+                for o, (s, e) in enumerate(seq_start_end):
+                    m = 1 - maps[o].data / 255
+                    m = 1 - m[0] * m[1] * m[2]
+                    for _ in range(s, e):
+                        all_maps.append(m)
+                pred_c.append(compute_ECFL(pred, all_maps))
+
+                # ade / fde
                 all_ade.append(torch.stack(ade))
                 all_fde.append(torch.stack(fde))
                 sg_ade.append(torch.sqrt(((torch.stack(pred_sg_wcs).permute(0, 2, 1, 3)
                                            - fut_traj[list(self.sg_idx),:,:2].unsqueeze(0).repeat((lg_num,1,1,1)))**2).sum(-1)).sum(1)) # 20, 3, 4, 2
                 lg_fde.append(torch.sqrt(((torch.stack(pred_lg_wcs)
                                            - fut_traj[-1,:,:2].unsqueeze(0).repeat((lg_num,1,1)))**2).sum(-1))) # 20, 3, 4, 2
+
+
+            print("PRED ECFLS: ", np.array(pred_c).mean())
 
             all_ade=torch.cat(all_ade, dim=1).cpu().numpy()
             all_fde=torch.cat(all_fde, dim=1).cpu().numpy()
@@ -1528,38 +1197,27 @@ class Solver(object):
                 ##### trajectories per long&short goal ####
 
                 # -------- trajectories --------
-                unet_enc_feat = self.map_ae.down_forward(obs_heat_map[:,:1])
+                (hx, mux, log_varx) \
+                    = self.encoderMx(obs_traj_st, seq_start_end, self.lg_cvae.unet_enc_feat, local_homo)
+
+                p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
+                z_priors = []
+                for _ in range(traj_num):
+                    z_priors.append(p_dist.sample())
 
                 for pred_sg_wc in pred_sg_wcs:
-                    ### make six states
-                    dt = self.dt * (12 / len(self.sg_idx))
-                    last_ob_sg = torch.cat([obs_traj[-1:, :, :2].permute(1, 0, 2), pred_sg_wc], dim=1).detach().cpu().numpy()
-                    last_ob_sg = (last_ob_sg - last_ob_sg[:, :1]) / self.scale  # bs, 4(last obs + # sg), 2
-
-                    sg_state = []
-                    for pos in last_ob_sg:
-                        vx = np.gradient(pos[:, 0], dt)
-                        vy = np.gradient(pos[:, 1], dt)
-                        ax = np.gradient(vx, dt)
-                        ay = np.gradient(vy, dt)
-                        sg_state.append(np.array([pos[:, 0], pos[:, 1], vx, vy, ax, ay]))
-                    sg_state = torch.tensor(np.stack(sg_state)).permute((2, 0, 1)).float().to(self.device)
-
-                    # -------- trajectories --------
-                    (hx, mux, log_varx) \
-                        = self.encoderMx(obs_traj_st, seq_start_end, unet_enc_feat, sg_state)
-                    p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
-
-                    # -------- trajectories --------
-                    # NO TF, pred_goals, z~prior
-                    fut_rel_pos_dist_prior = self.decoderMy(
-                        obs_traj_st[-1],
-                        hx,
-                        p_dist.rsample(),
-                        self.sg_idx,
-                        sg_state,
-                    )
-                    fut_rel_pos_dists.append(fut_rel_pos_dist_prior)
+                    for z_prior in z_priors:
+                        # -------- trajectories --------
+                        # NO TF, pred_goals, z~prior
+                        fut_rel_pos_dist_prior = self.decoderMy(
+                            obs_traj_st[-1],
+                            obs_traj[-1, :, :2],
+                            hx,
+                            z_prior,
+                            pred_sg_wc,  # goal
+                            self.sg_idx
+                        )
+                        fut_rel_pos_dists.append(fut_rel_pos_dist_prior)
 
                 pred = []
                 for dist in fut_rel_pos_dists:
@@ -1604,12 +1262,15 @@ class Solver(object):
 
 
     def pretrain_load_checkpoint(self, traj, lg, sg):
+        sg['iter']=30000
+        lg['iter']=39000
+        traj['ckpt_dir']='ckpts/nu.traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_0.07_scale_1.0_num_sg_3_run_5'
+        traj['iter'] = 45000
 
         sg_unet_path = os.path.join(
-            sg['ckpt_dir'],
+            'ckpts/nu.sg_lr_0.001_a_0.25_r_2.0_aug_1_num_sg_3_run_4',
             'iter_%s_sg_unet.pt' % sg['iter']
         )
-
         encoderMx_path = os.path.join(
             traj['ckpt_dir'],
             'iter_%s_encoderMx.pt' % traj['iter']
@@ -1623,7 +1284,7 @@ class Solver(object):
             'iter_%s_decoderMy.pt' %  traj['iter']
         )
         lg_cvae_path = os.path.join(
-            lg['ckpt_dir'],
+            'ckpts/nu.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_3.0_anneal_e_10_aug_1_llprior_0.0_run_4',
             'iter_%s_lg_cvae.pt' %  lg['iter']
         )
 
@@ -1641,15 +1302,6 @@ class Solver(object):
             self.decoderMy = torch.load(decoderMy_path, map_location='cpu')
             self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
             self.sg_unet = torch.load(sg_unet_path, map_location='cpu')
-
-        map_ae_path = 'mapae.nu_lr_0.001_a_0.25_r_2.0_run_3'
-        map_ae_path = os.path.join('ckpts', map_ae_path, 'iter_11984_sg_unet.pt')
-
-        if self.device == 'cuda':
-            self.map_ae = torch.load(map_ae_path)
-        else:
-            self.map_ae = torch.load(map_ae_path, map_location='cpu')
-        print(">>>>>>>>> map Init: ", map_ae_path)
 
 
     def set_mode(self, train=True):
