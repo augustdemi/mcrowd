@@ -1369,7 +1369,7 @@ class Solver(object):
 
                     # -------- trajectories --------
                     (hx, mux, log_varx) \
-                        = self.encoderMx(obs_traj_st, seq_start_end, sg_state)
+                        = self.encoderMx(obs_traj_st, seq_start_end, self.lg_cvae.unet_enc_feat, sg_state)
                     p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
 
                     # -------- trajectories --------
@@ -1545,7 +1545,7 @@ class Solver(object):
 
                     # -------- trajectories --------
                     (hx, mux, log_varx) \
-                        = self.encoderMx(obs_traj_st, seq_start_end, sg_state)
+                        = self.encoderMx(obs_traj_st, seq_start_end, self.lg_cvae.unet_enc_feat, sg_state)
                     p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
 
                     # -------- trajectories --------

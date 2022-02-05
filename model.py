@@ -67,11 +67,11 @@ class EncoderX(nn.Module):
 
 
         # self.fc_map = nn.Linear(map_feat_dim + 9, map_mlp_dim)
-        self.fc_hidden = nn.Linear(2 * enc_h_dim, mlp_dim)
+        self.fc_hidden = nn.Linear(map_feat_dim + 2 * enc_h_dim, mlp_dim)
         self.fc_latent = nn.Linear(mlp_dim, zS_dim*2)
 
 
-    def forward(self, obs_traj, seq_start_end, sg_state, train=False):
+    def forward(self, obs_traj, seq_start_end, map_feat, sg_state, train=False):
         """
         Inputs:
         - obs_traj: Tensor of shape (obs_len, batch, 2)
@@ -86,6 +86,9 @@ class EncoderX(nn.Module):
                             p=self.dropout_rnn,
                             training=train).view(-1, self.enc_h_dim)
 
+        # map enc
+        map_feat = torch.mean(map_feat, dim=2, keepdim=True)
+        map_feat = torch.mean(map_feat, dim=3, keepdim=True).squeeze(-1).squeeze(-1)
 
         ### sg encoding
         _, sg_h = self.sg_rnn_enc(sg_state) # [8, 656, 16], 두개의 [1, 656, 32]
@@ -98,7 +101,7 @@ class EncoderX(nn.Module):
         sg_feat = self.fc_sg(sg_h.reshape(-1, 4 * self.enc_h_dim))
 
         #traj, map, SG
-        hx = torch.cat((obs_feat, sg_feat), dim=-1) # 64(32 without attn) to z dim
+        hx = torch.cat((obs_feat, map_feat, sg_feat), dim=-1) # 64(32 without attn) to z dim
         prior_stat = self.fc_hidden(hx)
         prior_stat = F.dropout(F.relu(prior_stat),
                       p=self.dropout_mlp,
