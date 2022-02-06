@@ -1008,8 +1008,10 @@ class Solver(object):
                 ##### trajectories per long&short goal ####
 
                 # -------- trajectories --------
+                unet_enc_feat = self.map_ae.down_forward(obs_heat_map[:,:1])
+
                 (hx, mux, log_varx) \
-                    = self.encoderMx(obs_traj_st, seq_start_end, self.lg_cvae.unet_enc_feat, local_homo)
+                    = self.encoderMx(obs_traj_st, seq_start_end, unet_enc_feat, local_homo)
 
                 p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
                 z_priors = []
@@ -1262,15 +1264,11 @@ class Solver(object):
 
 
     def pretrain_load_checkpoint(self, traj, lg, sg):
-        sg['iter']=30000
-        lg['iter']=39000
-        traj['ckpt_dir']='ckpts/nu.traj_zD_20_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_0.07_scale_1.0_num_sg_3_run_5'
-        traj['iter'] = 45000
-
         sg_unet_path = os.path.join(
-            'ckpts/nu.sg_lr_0.001_a_0.25_r_2.0_aug_1_num_sg_3_run_4',
+            sg['ckpt_dir'],
             'iter_%s_sg_unet.pt' % sg['iter']
         )
+
         encoderMx_path = os.path.join(
             traj['ckpt_dir'],
             'iter_%s_encoderMx.pt' % traj['iter']
@@ -1284,9 +1282,18 @@ class Solver(object):
             'iter_%s_decoderMy.pt' %  traj['iter']
         )
         lg_cvae_path = os.path.join(
-            'ckpts/nu.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_3.0_anneal_e_10_aug_1_llprior_0.0_run_4',
+            lg['ckpt_dir'],
             'iter_%s_lg_cvae.pt' %  lg['iter']
         )
+
+        map_ae_path = 'mapae.nu_lr_0.001_a_0.25_r_2.0_run_3'
+        map_ae_path = os.path.join('ckpts', map_ae_path, 'iter_11984_sg_unet.pt')
+
+        if self.device == 'cuda':
+            self.map_ae = torch.load(map_ae_path)
+        else:
+            self.map_ae = torch.load(map_ae_path, map_location='cpu')
+        print(">>>>>>>>> map Init: ", map_ae_path)
 
 
         if self.device == 'cuda':
@@ -1295,7 +1302,6 @@ class Solver(object):
             self.decoderMy = torch.load(decoderMy_path)
             self.lg_cvae = torch.load(lg_cvae_path)
             self.sg_unet = torch.load(sg_unet_path)
-
         else:
             self.encoderMx = torch.load(encoderMx_path, map_location='cpu')
             self.encoderMy = torch.load(encoderMy_path, map_location='cpu')
