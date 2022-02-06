@@ -159,17 +159,16 @@ class Solver(object):
         self.num_layers = args.num_layers
         self.decoder_h_dim = args.decoder_h_dim
 
+        map_ae_path = 'mapae.nu_lr_0.001_a_0.25_r_2.0_run_3'
+        map_ae_path = os.path.join('ckpts', map_ae_path, 'iter_11984_sg_unet.pt')
+
+        if self.device == 'cuda':
+            self.map_ae = torch.load(map_ae_path)
+        else:
+            self.map_ae = torch.load(map_ae_path, map_location='cpu')
+        print(">>>>>>>>> Init: ", map_ae_path)
+
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
-            map_ae_path = 'mapae.nu_lr_0.001_a_0.25_r_2.0_run_3'
-            map_ae_path = os.path.join('ckpts', map_ae_path, 'iter_11984_sg_unet.pt')
-
-
-            if self.device == 'cuda':
-                self.map_ae = torch.load(map_ae_path)
-            else:
-                self.map_ae = torch.load(map_ae_path, map_location='cpu')
-            print(">>>>>>>>> Init: ", map_ae_path)
-
             args.map_feat_dim = 64
             hx_dim = args.encoder_h_dim*2 + args.map_feat_dim
             self.encoderMx = EncoderX(
