@@ -171,7 +171,7 @@ class Solver(object):
             print(">>>>>>>>> Init: ", map_ae_path)
 
             args.map_feat_dim = 64
-            hx_dim = args.encoder_h_dim*2
+            hx_dim = args.encoder_h_dim*2 + args.map_feat_dim
             self.encoderMx = EncoderX(
                 args.zS_dim,
                 enc_h_dim=args.encoder_h_dim,
@@ -299,6 +299,11 @@ class Solver(object):
              maps, local_map, local_ic, local_homo) = data
             batch_size = fut_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
+            local_map =  self.preprocess_map(local_map)
+
+            #-------- map encoding from lgvae --------
+            unet_enc_feat = self.map_ae.down_forward(local_map)
+            #-------- sg state --------
 
             ### make six states
             dt = self.dt * (12 / len(self.sg_idx))
@@ -317,7 +322,7 @@ class Solver(object):
 
             #-------- trajectories --------
             (hx, mux, log_varx) \
-                = self.encoderMx(obs_traj_st, seq_start_end, sg_state, train=True)
+                = self.encoderMx(obs_traj_st, seq_start_end, unet_enc_feat, sg_state, train=True)
 
 
             (muy, log_vary) \
@@ -441,6 +446,10 @@ class Solver(object):
                 batch_size = fut_traj.size(1)
                 total_traj += fut_traj.size(1)
 
+                local_map = self.preprocess_map(local_map)
+
+                # -------- map encoding from lgvae --------
+                unet_enc_feat = self.map_ae.down_forward(local_map)
 
                 ### make six states
                 dt = self.dt * (12 / len(self.sg_idx))
@@ -459,7 +468,7 @@ class Solver(object):
 
                 # -------- trajectories --------
                 (hx, mux, log_varx) \
-                    = self.encoderMx(obs_traj_st, seq_start_end, sg_state)
+                    = self.encoderMx(obs_traj_st, seq_start_end, unet_enc_feat, sg_state)
                 p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
 
                 fut_rel_pos_dist20 = []
