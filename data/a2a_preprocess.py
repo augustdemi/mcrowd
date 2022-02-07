@@ -112,7 +112,7 @@ class TrajectoryDataset(Dataset):
     """Dataloder for the Trajectory datasets"""
 
     def __init__(
-            self, data_dir, data_split, device='cpu', scale=1
+            self, data_dir, data_split, device='cpu', scale=1, coll_th=0.2
     ):
         """
         Args:
@@ -139,10 +139,10 @@ class TrajectoryDataset(Dataset):
         min_ped = 0
         data_dir = data_dir.replace('\\', '/')
 
-        if data_split == 'train':
-            max_num_file = 40
-        else:
-            max_num_file = 5
+        # if data_split == 'train':
+        #     max_num_file = 40
+        # else:
+        #     max_num_file = 5
 
         self.seq_len = self.obs_len + self.pred_len
 
@@ -154,19 +154,15 @@ class TrajectoryDataset(Dataset):
             prev_file = ''
             num_file = 0
             for f in files:
-                # if 'biwi' not in f:
-                #    continue
-                if f.split('\\')[:-1] == prev_file and num_file == max_num_file:
-                    continue
-                elif f.split('\\')[:-1] != prev_file:
-                    print('/'.join(prev_file))
-                    print(num_file)
+                if f.split('\\')[:-1] != prev_file:
+                    # print('/'.join(prev_file))
+                    # print(num_file)
                     num_file = 0
                     prev_file = f.split('\\')[:-1]
                 num_file += 1
                 all_files.append(f.rstrip().replace('\\', '/'))
-            print('/'.join(prev_file))
-            print(num_file)
+            # print('/'.join(prev_file))
+            # print(num_file)
 
         self.inv_h_t = {}
         self.maps = {}
@@ -260,9 +256,38 @@ class TrajectoryDataset(Dataset):
                     num_peds_considered += 1
 
                 if num_peds_considered > min_ped:  # 주어진 하나의 sliding(16초)동안 등장한 agent수가 min_ped보다 큼을 만족하는 경우에만 이 slide데이터를 채택
+                    seq_traj = curr_seq[:num_peds_considered][:,:2]
+
+                    exclude_idx = []
+                    for i in range(20):
+                        curr1 = seq_traj[:,:,i].repeat(num_peds_considered, 0) # AAABBBCCC
+                        curr2 = np.stack([seq_traj[:,:,i]] * num_peds_considered).reshape(-1,2) # ABCABC
+                        dist = np.linalg.norm(curr1 - curr2, axis=1)
+                        dist = dist.reshape(num_peds_considered, num_peds_considered)
+
+                        diff_agent_idx = np.triu_indices(num_peds_considered, k=1)
+                        dist[diff_agent_idx] = 0
+                        under_th_idx = np.array(np.where((dist > 0) & (dist < coll_th)))
+                        # under_th_idx = np.where((dist > 0) & (dist < coll_th))
+
+                        # for elt in np.unique(under_th_idx):
+                        #     np.count_nonzero(under_th_idx == elt)
+                        for j in range(len(under_th_idx[0])):
+                            idx_pair = under_th_idx[:,j]
+                            exclude_idx.append(idx_pair[0])
+                    exclude_idx = np.unique(exclude_idx)
+
+                    if len(exclude_idx) == num_peds_considered:
+                        continue
+                    if len(exclude_idx) > 0:
+                        print(len(exclude_idx), '/', num_peds_considered)
+                        valid_idx = [i for i in range(num_peds_considered) if i not in exclude_idx]
+                        num_peds_considered = len(valid_idx)
+                        seq_list.append(curr_seq[valid_idx])
+                    else:
+                        seq_list.append(curr_seq[:num_peds_considered])
+
                     num_peds_in_seq.append(num_peds_considered)
-                    # 다음 list의 initialize는 peds_in_curr_seq만큼 해뒀었지만, 조건을 만족하는 slide의 agent만 차례로 append 되었기 때문에 num_peds_considered만큼만 잘라서 씀
-                    seq_list.append(curr_seq[:num_peds_considered])
                     obs_frame_num.append(np.ones((num_peds_considered, self.obs_len)) * frames[idx:idx + self.obs_len])
                     fut_frame_num.append(
                         np.ones((num_peds_considered, self.pred_len)) * frames[idx + self.obs_len:idx + self.seq_len])
@@ -270,7 +295,7 @@ class TrajectoryDataset(Dataset):
                     data_files.append(path)
             cum_start_idx = [0] + np.cumsum(num_peds_in_seq).tolist()
             aa = np.array([(start, end) for start, end in zip(cum_start_idx, cum_start_idx[1:])])
-            print(path, aa[-1][1], np.round((aa[:, 1] - aa[:, 0]).mean(), 2))
+            print(path, aa[-1][1], np.round((aa[:, 1] - aa[:, 0]).mean(), 2), np.round((aa[:, 1] - aa[:, 0]).max(), 2))
 
         seq_list = np.concatenate(seq_list, axis=0)  # (32686, 2, 16)
         self.obs_frame_num = np.concatenate(obs_frame_num, axis=0)
@@ -350,6 +375,18 @@ class TrajectoryDataset(Dataset):
         with open(save_path, 'wb') as handle:
             pickle5.dump(all_data, handle, protocol=pickle5.HIGHEST_PROTOCOL)
 
+
+    def repeat(self, pos, num_reps):
+        """
+        Inputs:
+        -tensor: 2D tensor of any shape
+        -num_reps: Number of times to repeat each row
+        Outpus:
+        -repeat_tensor: Repeat each row such that: R1, R1, R2, R2
+        """
+        tensor = pos.unsqueeze(dim=1).repeat(1, num_reps, 1)
+        tensor = tensor.view(-1, 2)
+        return tensor
 
 
     def get_local_map_ic(self, global_map, inv_h_t, map_traj, all_traj, zoom=10, radius=8, compute_local_homo=False):
@@ -440,10 +477,12 @@ class TrajectoryDataset(Dataset):
 
 
 if __name__ == '__main__':
-    # 'C:\dataset\HTP-benchmark\A2A Data'
-    # '../../datasets/A2A'
+    # path= 'C:\dataset\HTP-benchmark\A2A Data'
+    path = '../../datasets/A2A'
+    coll_th = 0.2
     traj = TrajectoryDataset(
-            data_dir='../../datasets/A2A',
-            data_split='test',
+            data_dir=path,
+            data_split='test_threshold' +  str(coll_th) ,
             device='cpu',
-            scale=1)
+            scale=1,
+            coll_th=coll_th)
