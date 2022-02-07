@@ -371,7 +371,7 @@ class TrajectoryDataset(Dataset):
              'local_homo': self.local_homo,
              }
 
-        save_path = os.path.join(data_dir, data_split + '.pkl')
+        save_path = os.path.join(data_dir, data_split + '_threshold' +  str(coll_th) + '.pkl')
         with open(save_path, 'wb') as handle:
             pickle5.dump(all_data, handle, protocol=pickle5.HIGHEST_PROTOCOL)
 
@@ -482,7 +482,7 @@ if __name__ == '__main__':
     coll_th = 0.2
     traj = TrajectoryDataset(
             data_dir=path,
-            data_split='test_threshold' +  str(coll_th) ,
+            data_split='test' ,
             device='cpu',
             scale=1,
             coll_th=coll_th)
