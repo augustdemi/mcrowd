@@ -735,30 +735,29 @@ class Solver(object):
 
 
 
-    def collision_stat(self, data_loader, threshold=0.2):
+    def collision_stat(self, data_loader):
         self.set_mode(train=False)
 
+        total_coll1 = 0
+        total_coll2 = 0
+        total_coll3 = 0
+        total_coll4 = 0
         total_coll5 = 0
-        total_coll10 = 0
-        total_coll15 = 0
-        total_coll20 = 0
-        total_coll25 = 0
+        total_coll6 = 0
         n_scene = 0
         total_ped = []
         e_ped = []
         avg_dist = 0
+        min_dist = 10000
         n_agent = 0
 
         with torch.no_grad():
             b=0
-            while not data_loader.is_epoch_end():
-                data = data_loader.next_sample()
-                if data is None:
-                    continue
+            for batch in data_loader:
                 b+=1
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-                 maps, local_map, local_ic, local_homo) = data
-
+                 obs_frames, fut_frames, map_path, inv_h_t,
+                 local_map, local_ic, local_homo) = batch
                 for s, e in seq_start_end:
                     n_scene +=1
                     num_ped = e - s
@@ -776,21 +775,25 @@ class Solver(object):
                         diff_agent_idx = np.triu_indices(num_ped, k=1)
                         diff_agent_dist = dist[diff_agent_idx]
                         avg_dist += diff_agent_dist.sum()
+                        min_dist = min(min_dist, diff_agent_dist.min())
                         n_agent += len(diff_agent_dist)
-                        total_coll5 += (diff_agent_dist < 2.5).sum()
-                        total_coll10 += (diff_agent_dist < 2.6).sum()
-                        total_coll15 += (diff_agent_dist < 2.7).sum()
-                        total_coll20 += (diff_agent_dist < 2.8).sum()
-                        total_coll25 += (diff_agent_dist < 2.4).sum()
+                        total_coll1 += (diff_agent_dist < 0.05).sum()
+                        total_coll2 += (diff_agent_dist < 0.1).sum()
+                        total_coll3 += (diff_agent_dist < 0.2).sum()
+                        total_coll4 += (diff_agent_dist < 0.3).sum()
+                        total_coll5 += (diff_agent_dist < 0.4).sum()
+                        total_coll6 += (diff_agent_dist < 0.5).sum()
+        print('total_coll1: ', total_coll1)
+        print('total_coll2: ', total_coll2)
+        print('total_coll3: ', total_coll3)
+        print('total_coll4: ', total_coll4)
         print('total_coll5: ', total_coll5)
-        print('total_coll10: ', total_coll10)
-        print('total_coll15: ', total_coll15)
-        print('total_coll20: ', total_coll20)
-        print('total_coll25: ', total_coll25)
+        print('total_coll6: ', total_coll6)
         print('n_scene: ', n_scene)
         print('e_ped:', len(e_ped))
         print('total_ped:', len(total_ped))
         print('avg_dist:', avg_dist/n_agent)
+        print('min_dist:', avg_dist/n_agent)
         print('e_ped:', np.array(e_ped).mean())
         print('total_ped:', np.array(total_ped).mean())
 
