@@ -65,7 +65,7 @@ def create_parser():
     parser.add_argument('--ckpt_load_iter', default=0, type=int,
                         help='iter# to load the previously saved model ' +
                              '(default=0 to start from the scratch)')
-    parser.add_argument('--max_iter', default=10, type=float,
+    parser.add_argument('--max_iter', default=100, type=float,
                         help='maximum number of batch iterations')
     parser.add_argument('--ckpt_save_iter', default=100, type=int,
                         help='checkpoint saved every # iters')
@@ -143,8 +143,7 @@ def create_parser():
     parser.add_argument('--coll_th', default=5.0, type=float)
     parser.add_argument('--w_coll', default=5.0, type=float)
     parser.add_argument('--beta', default=1, type=float)
-    parser.add_argument('--n_gen', default=8, type=int)
-    parser.add_argument('--eps', default=0.05, type=float)
+    parser.add_argument('--coloss_e', default=0, type=int)
 
 
 
@@ -169,7 +168,8 @@ def main(args):
         # log = open('log.txt', 'a+')
         # test_loader = data_generator(cfg, log, split='test', phase='testing',
         #                              batch_size=args.batch_size, device=args.device, scale=args.scale, shuffle=False)
-        #
+
+
         _, test_loader = data_loader(args, args.dataset_dir, 'test', shuffle=False)
 
 
