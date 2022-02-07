@@ -139,10 +139,10 @@ class TrajectoryDataset(Dataset):
         min_ped = 0
         data_dir = data_dir.replace('\\', '/')
 
-        # if data_split == 'train':
-        #     max_num_file = 40
-        # else:
-        #     max_num_file = 5
+        if data_split == 'train':
+            max_num_file = 40
+        else:
+            max_num_file = 10
 
         self.seq_len = self.obs_len + self.pred_len
 
@@ -154,7 +154,9 @@ class TrajectoryDataset(Dataset):
             prev_file = ''
             num_file = 0
             for f in files:
-                if f.split('\\')[:-1] != prev_file:
+                if f.split('\\')[:-1] == prev_file and num_file == max_num_file:
+                    continue
+                elif f.split('\\')[:-1] != prev_file:
                     # print('/'.join(prev_file))
                     # print(num_file)
                     num_file = 0
