@@ -206,7 +206,7 @@ class Solver(object):
                 h_dim=args.decoder_h_dim,
                 context_dim=args.context_dim,
                 dropout=args.dropout_mlp
-            )
+            ).to(self.device)
             print('>>> Init traj: ', encoderMx_path)
 
 
