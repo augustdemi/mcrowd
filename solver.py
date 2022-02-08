@@ -207,6 +207,7 @@ class Solver(object):
                 context_dim=args.context_dim,
                 dropout=args.dropout_mlp
             ).to(self.device)
+            self.decoderMy.mlp_context = nn.Linear(args.decoder_h_dim + args.context_dim, args.decoder_h_dim).to(self.device)
             print('>>> Init traj: ', encoderMx_path)
 
 
