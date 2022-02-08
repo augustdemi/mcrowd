@@ -201,6 +201,7 @@ class Solver(object):
                 self.encoderMx = torch.load(encoderMx_path, map_location='cpu')
                 self.encoderMy = torch.load(encoderMy_path, map_location='cpu')
                 self.decoderMy = torch.load(decoderMy_path, map_location='cpu')
+            self.decoderMy.context_dim=args.context_dim
             self.decoderMy.pool_net = PoolHiddenNet(
                 h_dim=args.decoder_h_dim,
                 context_dim=args.context_dim,
@@ -408,40 +409,25 @@ class Solver(object):
             total_coll = 0
             n_scene = 0
 
-            pred_fut_traj = integrate_samples(fut_rel_pos_dist_prior.rsample() * self.scale, obs_traj[-1, :, :2],
-                                              dt=self.dt)
-
-            pred_fut_traj_post = integrate_samples(fut_rel_pos_dist_tf_post.rsample() * self.scale, obs_traj[-1, :, :2],
-                                              dt=self.dt)
-            for s, e in seq_start_end:
-                n_scene +=1
-                num_ped = e - s
-                if num_ped == 1:
-                    continue
-                seq_traj = pred_fut_traj[:, s:e]
-                for t in range(len(seq_traj)):
-                    curr1 = seq_traj[t].repeat(num_ped, 1)
-                    curr2 = self.repeat(seq_traj[t], num_ped)
-                    dist = torch.norm(curr1 - curr2, dim=1)
-                    dist = dist.reshape(num_ped, num_ped)
-                    diff_agent_dist = dist[torch.where(dist > 0)]
-                    if len(diff_agent_dist) > 0:
-                        # diff_agent_dist[torch.where(diff_agent_dist > self.coll_th)] += self.beta
-                        coll_loss += (torch.sigmoid(-(diff_agent_dist - self.coll_th) * self.beta)).sum()
-                        total_coll += (len(torch.where(diff_agent_dist < self.coll_th)[0]) /2)
-
-                seq_traj_post = pred_fut_traj_post[:, s:e]
-                for t in range(len(seq_traj_post)):
-                    curr1_post = seq_traj_post[t].repeat(num_ped, 1)
-                    curr2_post = self.repeat(seq_traj_post[t], num_ped)
-                    dist_post = torch.norm(curr1_post - curr2_post, dim=1)
-                    dist_post = dist_post.reshape(num_ped, num_ped)
-                    diff_agent_dist_post = dist_post[torch.where(dist_post > 0)]
-                    if len(diff_agent_dist_post) > 0:
-                        # diff_agent_dist[torch.where(diff_agent_dist > self.coll_th)] += self.beta
-                        coll_loss += (torch.sigmoid(-(diff_agent_dist_post - self.coll_th) * self.beta)).sum()
-                        total_coll += (len(torch.where(diff_agent_dist_post < self.coll_th)[0]) /2)
-
+            if (self.coloss_e >= 0) and (epoch >= self.coloss_e):
+                pred_fut_traj = integrate_samples(fut_rel_pos_dist_prior.rsample() * self.scale, obs_traj[-1, :, :2],
+                                                  dt=self.dt)
+                for s, e in seq_start_end:
+                    n_scene +=1
+                    num_ped = e - s
+                    if num_ped == 1:
+                        continue
+                    seq_traj = pred_fut_traj[:, s:e]
+                    for t in range(len(seq_traj)):
+                        curr1 = seq_traj[t].repeat(num_ped, 1)
+                        curr2 = self.repeat(seq_traj[t], num_ped)
+                        dist = torch.norm(curr1 - curr2, dim=1)
+                        dist = dist.reshape(num_ped, num_ped)
+                        diff_agent_dist = dist[torch.where(dist > 0)]
+                        if len(diff_agent_dist) > 0:
+                            # diff_agent_dist[torch.where(diff_agent_dist > self.coll_th)] += self.beta
+                            coll_loss += (torch.sigmoid(-(diff_agent_dist - self.coll_th) * self.beta)).sum()
+                            total_coll += (len(torch.where(diff_agent_dist < self.coll_th)[0]) /2)
 
 
             loss = - traj_elbo + self.w_coll * coll_loss
