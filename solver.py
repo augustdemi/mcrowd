@@ -48,10 +48,10 @@ class Solver(object):
         self.args = args
         args.num_sg = args.load_e
         self.name = '%s_zD_%s_dr_mlp_%s_dr_rnn_%s_enc_hD_%s_dec_hD_%s_mlpD_%s_map_featD_%s_map_mlpD_%s_lr_%s_klw_%s_ll_prior_w_%s_zfb_%s_scale_%s_num_sg_%s' \
-                    'ctxtD_%s_coll_th_%s_w_coll_%s_beta_%s_coloss_e_%s' % \
+                    'ctxtD_%s_coll_th_%s_w_coll_%s_beta_%s_lr_e_%s' % \
                     (args.dataset_name, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
                      args.decoder_h_dim, args.mlp_dim, args.map_feat_dim , args.map_mlp_dim, args.lr_VAE, args.kl_weight,
-                     args.ll_prior_w, args.fb, args.scale, args.num_sg, args.context_dim, args.coll_th, args.w_coll, args.beta, args.coloss_e)
+                     args.ll_prior_w, args.fb, args.scale, args.num_sg, args.context_dim, args.coll_th, args.w_coll, args.beta, args.lr_e)
 
         # to be appended by run_id
 
@@ -68,7 +68,6 @@ class Solver(object):
         self.beta = args.beta
         self.context_dim = args.context_dim
         self.w_coll = args.w_coll
-        self.coloss_e = args.coloss_e
 
 
         self.z_fb = args.fb
@@ -225,6 +224,14 @@ class Solver(object):
             lr=self.lr_VAE,
             betas=[self.beta1_VAE, self.beta2_VAE]
         )
+
+        # self.scheduler = optim.lr_scheduler.LambdaLR(optimizer=self.optim_vae,
+        #                                         lr_lambda=lambda epoch: 0.95 ** epoch,
+        #                                         last_epoch=-1,
+        #                                         verbose=False)
+        # self.scheduler = optim.lr_scheduler.MultiStepLR(self.optim_vae, milestones=[30, 80], gamma=0.5)
+        self.scheduler = optim.lr_scheduler.StepLR(self.optim_vae, step_size=args.lr_e, gamma=0.5)
+
         # self.lg_optimizer = torch.optim.Adam(, lr=self., weight_decay=0)
 
         # prepare dataloader (iterable)
@@ -234,9 +241,9 @@ class Solver(object):
 
 
         if self.ckpt_load_iter != self.max_iter:
-            train_file_name = 'trainall'
+            train_file_name = 'train_threshold0.5'
             # train_file_name = 'test'
-            test_file_name = 'test10'
+            test_file_name = 'test5_threshold0.5'
             # test_file_name = 'test'
 
             print("Initializing train dataset from ", train_file_name)
@@ -336,6 +343,8 @@ class Solver(object):
                 print('==== epoch %d done ====' % epoch)
                 epoch +=1
                 iterator = iter(data_loader)
+                self.scheduler.step()
+                print("lr: ", self.optim_vae.param_groups[0]['lr'])
 
             # ============================================
             #          TRAIN THE VAE (ENC & DEC)
@@ -406,7 +415,7 @@ class Solver(object):
             total_coll = 0
             n_scene = 0
 
-            if (self.coloss_e >= 0) and (epoch >= self.coloss_e):
+            if self.w_coll > 0:
                 pred_fut_traj = integrate_samples(fut_rel_pos_dist_prior.rsample() * self.scale, obs_traj[-1, :, :2],
                                                   dt=self.dt)
                 for s, e in seq_start_end:

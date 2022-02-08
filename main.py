@@ -143,7 +143,7 @@ def create_parser():
     parser.add_argument('--coll_th', default=5.0, type=float)
     parser.add_argument('--w_coll', default=5.0, type=float)
     parser.add_argument('--beta', default=1, type=float)
-    parser.add_argument('--coloss_e', default=0, type=int)
+    parser.add_argument('--lr_e', default=0, type=int)
 
 
 
