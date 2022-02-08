@@ -174,43 +174,39 @@ class Solver(object):
             self.lg_cvae = torch.load(lg_cvae_path)
         else:
             self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
-        print(">>>>>>>>> Init map: ", lg_cvae_path)
+        print(">>>>>>>>> Init: ", lg_cvae_path)
 
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
-            path = 'ckpts/a2a.traj_zD_32_dr_mlp_0.3_dr_rnn_0.25_enc_hD_64_dec_hD_128_mlpD_256_map_featD_32_map_mlpD_256_lr_0.001_klw_50.0_ll_prior_w_1.0_zfb_2.0_scale_1.0_num_sg_3' \
-                   'ctxtD_0_coll_th_0.2_w_coll_1.0_beta_10.0_coloss_e_-1_run_13'
-            iteration = '26290'
-            encoderMx_path = os.path.join(
-                path,
-                'iter_%s_encoderMx.pt' % iteration
-            )
-            encoderMy_path = os.path.join(
-                path,
-                'iter_%s_encoderMy.pt' % iteration
-            )
-            decoderMy_path = os.path.join(
-                path,
-                'iter_%s_decoderMy.pt' % iteration
-            )
-
-            if self.device == 'cuda':
-                self.encoderMx = torch.load(encoderMx_path)
-                self.encoderMy = torch.load(encoderMy_path)
-                self.decoderMy = torch.load(decoderMy_path)
-            else:
-                self.encoderMx = torch.load(encoderMx_path, map_location='cpu')
-                self.encoderMy = torch.load(encoderMy_path, map_location='cpu')
-                self.decoderMy = torch.load(decoderMy_path, map_location='cpu')
-            self.decoderMy.context_dim=args.context_dim
-            self.decoderMy.pool_net = PoolHiddenNet(
-                h_dim=args.decoder_h_dim,
-                context_dim=args.context_dim,
-                dropout=args.dropout_mlp
-            ).to(self.device)
-            self.decoderMy.mlp_context = nn.Linear(args.decoder_h_dim + args.context_dim, args.decoder_h_dim).to(self.device)
-            print('>>> Init traj: ', encoderMx_path)
-
-
+            self.encoderMx = EncoderX(
+                args.zS_dim,
+                enc_h_dim=args.encoder_h_dim,
+                mlp_dim=args.mlp_dim,
+                map_mlp_dim=args.map_mlp_dim,
+                map_feat_dim=args.map_feat_dim,
+                num_layers=args.num_layers,
+                dropout_mlp=args.dropout_mlp,
+                dropout_rnn=args.dropout_rnn,
+                device=self.device).to(self.device)
+            self.encoderMy = EncoderY(
+                args.zS_dim,
+                enc_h_dim=args.encoder_h_dim,
+                mlp_dim=args.mlp_dim,
+                num_layers=args.num_layers,
+                dropout_mlp=args.dropout_mlp,
+                dropout_rnn=args.dropout_rnn,
+                device=self.device).to(self.device)
+            self.decoderMy = Decoder(
+                args.pred_len,
+                dec_h_dim=self.decoder_h_dim,
+                enc_h_dim=args.encoder_h_dim,
+                mlp_dim=args.mlp_dim,
+                z_dim=args.zS_dim,
+                num_layers=args.num_layers,
+                device=args.device,
+                dropout_rnn=args.dropout_rnn,
+                scale=args.scale,
+                dt=self.dt,
+                context_dim=args.context_dim).to(self.device)
 
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
@@ -238,9 +234,9 @@ class Solver(object):
 
 
         if self.ckpt_load_iter != self.max_iter:
-            train_file_name = 'train_threshold0.5'
+            train_file_name = 'trainall'
             # train_file_name = 'test'
-            test_file_name = 'test5_threshold0.5'
+            test_file_name = 'test10'
             # test_file_name = 'test'
 
             print("Initializing train dataset from ", train_file_name)
