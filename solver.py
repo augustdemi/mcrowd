@@ -225,12 +225,10 @@ class Solver(object):
             betas=[self.beta1_VAE, self.beta2_VAE]
         )
 
-        # self.scheduler = optim.lr_scheduler.LambdaLR(optimizer=self.optim_vae,
-        #                                         lr_lambda=lambda epoch: 0.95 ** epoch,
-        #                                         last_epoch=-1,
-        #                                         verbose=False)
         # self.scheduler = optim.lr_scheduler.MultiStepLR(self.optim_vae, milestones=[30, 80], gamma=0.5)
-        self.scheduler = optim.lr_scheduler.StepLR(self.optim_vae, step_size=args.lr_e, gamma=0.5)
+        # self.scheduler = optim.lr_scheduler.StepLR(self.optim_vae, step_size=args.lr_e, gamma=0.5)
+        self.scheduler = optim.lr_scheduler.LambdaLR(optimizer=self.optim_vae,
+                                        lr_lambda=lambda epoch: args.lr_e ** epoch)
 
         # self.lg_optimizer = torch.optim.Adam(, lr=self., weight_decay=0)
 
