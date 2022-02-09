@@ -428,6 +428,9 @@ class Solver(object):
                 pred_fut_traj = integrate_samples(fut_rel_pos_dist_prior.rsample() * self.scale, obs_traj[-1, :, :2],
                                                   dt=self.dt)
 
+                pred_fut_traj_post = integrate_samples(fut_rel_pos_dist_tf_post.rsample() * self.scale,
+                                                       obs_traj[-1, :, :2],
+                                                       dt=self.dt)
                 for s, e in seq_start_end:
                     n_scene += 1
                     num_ped = e - s
@@ -441,8 +444,15 @@ class Solver(object):
                         dist = dist.reshape(num_ped, num_ped)
                         diff_agent_dist = dist[torch.where(dist > 0)]
                         coll_loss += (torch.sigmoid(-(diff_agent_dist - self.coll_th) * self.beta)).sum()
-                        total_coll += (len(torch.where(diff_agent_dist < 0.5)[0]) / 2)
-
+                        total_coll += (len(torch.where(diff_agent_dist < self.coll_th)[0]) / 2)
+                        ## posterior
+                        curr1_post = pred_fut_traj_post[t, s:e].repeat(num_ped, 1)
+                        curr2_post = self.repeat(pred_fut_traj_post[t, s:e], num_ped)
+                        dist_post = torch.norm(curr1_post - curr2_post, dim=1)
+                        dist_post = dist_post.reshape(num_ped, num_ped)
+                        diff_agent_dist_post = dist_post[torch.where(dist_post > 0)]
+                        coll_loss += (torch.sigmoid(-(diff_agent_dist_post - self.coll_th) * self.beta)).sum()
+                        total_coll += (len(torch.where(diff_agent_dist_post < self.coll_th)[0]) / 2)
 
             loss = - traj_elbo + self.w_coll * coll_loss
             e_coll_loss +=coll_loss.item()
