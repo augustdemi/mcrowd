@@ -239,10 +239,10 @@ class Solver(object):
 
 
         if self.ckpt_load_iter != self.max_iter:
-            train_file_name = 'train_threshold0.5'
-            # train_file_name = 'test'
-            test_file_name = 'test5_threshold0.5'
-            # test_file_name = 'test'
+            # train_file_name = 'train_threshold0.5'
+            train_file_name = 'test'
+            # test_file_name = 'test5_threshold0.5'
+            test_file_name = 'test'
 
             print("Initializing train dataset from ", train_file_name)
             _, self.train_loader = data_loader(self.args, args.dataset_dir, train_file_name, shuffle=True)
@@ -346,7 +346,9 @@ class Solver(object):
                 iterator = iter(data_loader)
                 if self.optim_vae.param_groups[0]['lr'] > 1e-5:
                     self.scheduler.step()
-                print("lr: ", self.optim_vae.param_groups[0]['lr'])
+                if epoch > 0 and epoch % 5 ==0:
+                    self.w_coll +=1
+                print("lr: ", self.optim_vae.param_groups[0]['lr'], ' // w_coll: ', self.w_coll)
                 print('e_coll_loss: ', e_coll_loss, ' // e_total_coll: ', e_total_coll)
                 e_coll_loss = 0
                 e_total_coll = 0
@@ -439,20 +441,16 @@ class Solver(object):
                         dist = torch.norm(curr1 - curr2, dim=1)
                         dist = dist.reshape(num_ped, num_ped)
                         diff_agent_dist = dist[torch.where(dist > 0)]
-                        if len(diff_agent_dist) > 0:
-                            # diff_agent_dist[torch.where(diff_agent_dist > self.coll_th)] += self.beta
-                            coll_loss += (torch.sigmoid(-(diff_agent_dist - self.coll_th) * self.beta)).sum()
-                            total_coll += (len(torch.where(diff_agent_dist < self.coll_th)[0]) / 2)
+                        coll_loss += (torch.sigmoid(-(diff_agent_dist - self.coll_th) * self.beta)).sum()
+                        total_coll += (len(torch.where(diff_agent_dist < self.coll_th)[0]) / 2)
                         ## posterior
                         curr1_post = pred_fut_traj_post[t, s:e].repeat(num_ped, 1)
                         curr2_post = self.repeat(pred_fut_traj_post[t, s:e], num_ped)
                         dist_post = torch.norm(curr1_post - curr2_post, dim=1)
                         dist_post = dist_post.reshape(num_ped, num_ped)
                         diff_agent_dist_post = dist_post[torch.where(dist_post > 0)]
-                        if len(diff_agent_dist_post) > 0:
-                            # diff_agent_dist[torch.where(diff_agent_dist > self.coll_th)] += self.beta
-                            coll_loss += (torch.sigmoid(-(diff_agent_dist_post - self.coll_th) * self.beta)).sum()
-                            total_coll += (len(torch.where(diff_agent_dist_post < self.coll_th)[0]) / 2)
+                        coll_loss += (torch.sigmoid(-(diff_agent_dist_post - self.coll_th) * self.beta)).sum()
+                        total_coll += (len(torch.where(diff_agent_dist_post < self.coll_th)[0]) / 2)
 
             loss = - traj_elbo + self.w_coll * coll_loss
             e_coll_loss +=coll_loss.item()
