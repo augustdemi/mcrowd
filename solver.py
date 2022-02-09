@@ -334,6 +334,9 @@ class Solver(object):
         start_iter = self.ckpt_load_iter + 1
         epoch = int(start_iter / iter_per_epoch)
 
+        e_coll_loss = 0
+        e_total_coll = 0
+
         for iteration in range(start_iter, self.max_iter + 1):
 
             # reset data iterators for each epoch
@@ -341,8 +344,12 @@ class Solver(object):
                 print('==== epoch %d done ====' % epoch)
                 epoch +=1
                 iterator = iter(data_loader)
-                self.scheduler.step()
+                if self.optim_vae.param_groups[0]['lr'] > 1e-5:
+                    self.scheduler.step()
                 print("lr: ", self.optim_vae.param_groups[0]['lr'])
+                print('e_coll_loss: ', e_coll_loss, ' // e_total_coll: ', e_total_coll)
+                e_coll_loss = 0
+                e_total_coll = 0
 
             # ============================================
             #          TRAIN THE VAE (ENC & DEC)
@@ -416,25 +423,40 @@ class Solver(object):
             if self.w_coll > 0:
                 pred_fut_traj = integrate_samples(fut_rel_pos_dist_prior.rsample() * self.scale, obs_traj[-1, :, :2],
                                                   dt=self.dt)
+
+                pred_fut_traj_post = integrate_samples(fut_rel_pos_dist_tf_post.rsample() * self.scale,
+                                                       obs_traj[-1, :, :2],
+                                                       dt=self.dt)
                 for s, e in seq_start_end:
-                    n_scene +=1
+                    n_scene += 1
                     num_ped = e - s
                     if num_ped == 1:
                         continue
-                    seq_traj = pred_fut_traj[:, s:e]
-                    for t in range(len(seq_traj)):
-                        curr1 = seq_traj[t].repeat(num_ped, 1)
-                        curr2 = self.repeat(seq_traj[t], num_ped)
+                    for t in range(self.pred_len):
+                        ## prior
+                        curr1 = pred_fut_traj[t, s:e].repeat(num_ped, 1)
+                        curr2 = self.repeat(pred_fut_traj[t, s:e], num_ped)
                         dist = torch.norm(curr1 - curr2, dim=1)
                         dist = dist.reshape(num_ped, num_ped)
                         diff_agent_dist = dist[torch.where(dist > 0)]
                         if len(diff_agent_dist) > 0:
                             # diff_agent_dist[torch.where(diff_agent_dist > self.coll_th)] += self.beta
                             coll_loss += (torch.sigmoid(-(diff_agent_dist - self.coll_th) * self.beta)).sum()
-                            total_coll += (len(torch.where(diff_agent_dist < self.coll_th)[0]) /2)
-
+                            total_coll += (len(torch.where(diff_agent_dist < self.coll_th)[0]) / 2)
+                        ## posterior
+                        curr1_post = pred_fut_traj_post[t, s:e].repeat(num_ped, 1)
+                        curr2_post = self.repeat(pred_fut_traj_post[t, s:e], num_ped)
+                        dist_post = torch.norm(curr1_post - curr2_post, dim=1)
+                        dist_post = dist_post.reshape(num_ped, num_ped)
+                        diff_agent_dist_post = dist_post[torch.where(dist_post > 0)]
+                        if len(diff_agent_dist_post) > 0:
+                            # diff_agent_dist[torch.where(diff_agent_dist > self.coll_th)] += self.beta
+                            coll_loss += (torch.sigmoid(-(diff_agent_dist_post - self.coll_th) * self.beta)).sum()
+                            total_coll += (len(torch.where(diff_agent_dist_post < self.coll_th)[0]) / 2)
 
             loss = - traj_elbo + self.w_coll * coll_loss
+            e_coll_loss +=coll_loss.item()
+            e_total_coll +=total_coll
 
             self.optim_vae.zero_grad()
             loss.backward()
@@ -462,8 +484,8 @@ class Solver(object):
                                             loss_recon=-ll_tf_post.item(),
                                             loss_recon_prior=-ll_prior.item(),
                                             loss_kl=loss_kl.item(),
-                                            loss_coll=coll_loss.item(),
-                                            total_coll=total_coll,
+                                            loss_coll=e_coll_loss,
+                                            total_coll=e_total_coll,
                                             test_loss_recon=test_loss_recon.item(),
                                             test_loss_kl=test_loss_kl.item(),
                                             test_loss_coll=test_loss_coll.item(),
