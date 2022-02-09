@@ -388,7 +388,7 @@ class PoolHiddenNet(nn.Module):
             # mlp_h_input = torch.cat([curr_rel_embedding, curr_hidden_1], dim=1) #(repeated data, 64+128)
             mlp_h_input = torch.cat([curr_rel_pos, curr_hidden_1, curr_hidden_2], dim=1) #(repeated data, 64+128)
             curr_pool_h = self.mlp_pre_pool(mlp_h_input) # 64+128 -> 512 -> (repeated data, bottleneck_dim)
-            curr_pool_h = curr_pool_h.view(num_ped, num_ped, -1).sum(1)[0] # (sqrt(repeated data), sqrt(repeated data), 1024) 로 바꾼후, 각 agent별로 상대와의 거리가 가장 큰걸 골라냄. (argmax말로 value를)
+            curr_pool_h = curr_pool_h.view(num_ped, num_ped, -1).sum(1) # (sqrt(repeated data), sqrt(repeated data), 1024) 로 바꾼후, 각 agent별로 상대와의 거리가 가장 큰걸 골라냄. (argmax말로 value를)
             pool_h.append(curr_pool_h)
         pool_h = torch.cat(pool_h, dim=0)
         return pool_h
