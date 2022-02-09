@@ -364,14 +364,9 @@ class Solver(object):
              local_map, local_ic, local_homo) = next(iterator)
             batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
-            obs_heat_map =  self.make_heatmap(local_ic, local_map, aug=False, only_obs=True)
-
-            #-------- map encoding from lgvae --------
-            unet_enc_feat = self.lg_cvae.unet.down_forward(obs_heat_map)
-
             #-------- trajectories --------
             (hx, mux, log_varx) \
-                = self.encoderMx(obs_traj_st, seq_start_end, unet_enc_feat, local_homo, train=True)
+                = self.encoderMx(obs_traj_st, seq_start_end, train=True)
 
 
             (muy, log_vary) \
@@ -444,7 +439,7 @@ class Solver(object):
                         dist = dist.reshape(num_ped, num_ped)
                         diff_agent_dist = dist[torch.where(dist > 0)]
                         coll_loss += (torch.sigmoid(-(diff_agent_dist - self.coll_th) * self.beta)).sum()
-                        total_coll += (len(torch.where(diff_agent_dist < self.coll_th)[0]) / 2)
+                        total_coll += (len(torch.where(diff_agent_dist < 0.5)[0]) / 2)
                         ## posterior
                         curr1_post = pred_fut_traj_post[t, s:e].repeat(num_ped, 1)
                         curr2_post = self.repeat(pred_fut_traj_post[t, s:e], num_ped)
@@ -452,7 +447,7 @@ class Solver(object):
                         dist_post = dist_post.reshape(num_ped, num_ped)
                         diff_agent_dist_post = dist_post[torch.where(dist_post > 0)]
                         coll_loss += (torch.sigmoid(-(diff_agent_dist_post - self.coll_th) * self.beta)).sum()
-                        total_coll += (len(torch.where(diff_agent_dist_post < self.coll_th)[0]) / 2)
+                        total_coll += (len(torch.where(diff_agent_dist_post < 0.5)[0]) / 2)
 
             loss = - traj_elbo + self.w_coll * coll_loss
             e_coll_loss +=coll_loss.item()
@@ -540,14 +535,10 @@ class Solver(object):
                 batch_size = fut_traj.size(1)
                 total_traj += fut_traj.size(1)
 
-                obs_heat_map = self.make_heatmap(local_ic, local_map, aug=False, only_obs=True)
-
-                # -------- map encoding from lgvae --------
-                unet_enc_feat = self.lg_cvae.unet.down_forward(obs_heat_map)
 
                 # -------- trajectories --------
                 (hx, mux, log_varx) \
-                    = self.encoderMx(obs_traj_st, seq_start_end, unet_enc_feat, local_homo)
+                    = self.encoderMx(obs_traj_st, seq_start_end)
                 p_dist = Normal(mux, torch.clamp(torch.sqrt(torch.exp(log_varx)), min=1e-8))
 
                 fut_rel_pos_dist20 = []
