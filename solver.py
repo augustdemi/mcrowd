@@ -239,10 +239,10 @@ class Solver(object):
 
 
         if self.ckpt_load_iter != self.max_iter:
-            # train_file_name = 'train_threshold0.5'
-            train_file_name = 'test'
-            # test_file_name = 'test5_threshold0.5'
-            test_file_name = 'test'
+            train_file_name = 'train_threshold0.5'
+            # train_file_name = 'test'
+            test_file_name = 'test5_threshold0.5'
+            # test_file_name = 'test'
 
             print("Initializing train dataset from ", train_file_name)
             _, self.train_loader = data_loader(self.args, args.dataset_dir, train_file_name, shuffle=True)
@@ -350,6 +350,8 @@ class Solver(object):
                     self.w_coll +=1
                 print("lr: ", self.optim_vae.param_groups[0]['lr'], ' // w_coll: ', self.w_coll)
                 print('e_coll_loss: ', e_coll_loss, ' // e_total_coll: ', e_total_coll)
+                prev_e_coll_loss = e_coll_loss
+                prev_e_total_coll = e_total_coll
                 e_coll_loss = 0
                 e_total_coll = 0
 
@@ -426,9 +428,6 @@ class Solver(object):
                 pred_fut_traj = integrate_samples(fut_rel_pos_dist_prior.rsample() * self.scale, obs_traj[-1, :, :2],
                                                   dt=self.dt)
 
-                pred_fut_traj_post = integrate_samples(fut_rel_pos_dist_tf_post.rsample() * self.scale,
-                                                       obs_traj[-1, :, :2],
-                                                       dt=self.dt)
                 for s, e in seq_start_end:
                     n_scene += 1
                     num_ped = e - s
@@ -442,15 +441,8 @@ class Solver(object):
                         dist = dist.reshape(num_ped, num_ped)
                         diff_agent_dist = dist[torch.where(dist > 0)]
                         coll_loss += (torch.sigmoid(-(diff_agent_dist - self.coll_th) * self.beta)).sum()
-                        total_coll += (len(torch.where(diff_agent_dist < self.coll_th)[0]) / 2)
-                        ## posterior
-                        curr1_post = pred_fut_traj_post[t, s:e].repeat(num_ped, 1)
-                        curr2_post = self.repeat(pred_fut_traj_post[t, s:e], num_ped)
-                        dist_post = torch.norm(curr1_post - curr2_post, dim=1)
-                        dist_post = dist_post.reshape(num_ped, num_ped)
-                        diff_agent_dist_post = dist_post[torch.where(dist_post > 0)]
-                        coll_loss += (torch.sigmoid(-(diff_agent_dist_post - self.coll_th) * self.beta)).sum()
-                        total_coll += (len(torch.where(diff_agent_dist_post < self.coll_th)[0]) / 2)
+                        total_coll += (len(torch.where(diff_agent_dist < 0.5)[0]) / 2)
+
 
             loss = - traj_elbo + self.w_coll * coll_loss
             e_coll_loss +=coll_loss.item()
@@ -482,8 +474,8 @@ class Solver(object):
                                             loss_recon=-ll_tf_post.item(),
                                             loss_recon_prior=-ll_prior.item(),
                                             loss_kl=loss_kl.item(),
-                                            loss_coll=e_coll_loss,
-                                            total_coll=e_total_coll,
+                                            loss_coll=prev_e_coll_loss,
+                                            total_coll=prev_e_total_coll,
                                             test_loss_recon=test_loss_recon.item(),
                                             test_loss_kl=test_loss_kl.item(),
                                             test_loss_coll=test_loss_coll.item(),
