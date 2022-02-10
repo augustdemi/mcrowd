@@ -440,7 +440,7 @@ class Solver(object):
                         dist = dist.reshape(num_ped, num_ped)
                         diff_agent_dist = dist[torch.where((dist > 0) & (dist< self.coll_th))]
                         if len(diff_agent_dist) > 0:
-                            coll_loss += torch.clamp(((self.coll_th - diff_agent_dist + 1) * self.beta) **2, max=100).sum().div(batch_size)
+                            coll_loss += torch.clamp(((self.coll_th - diff_agent_dist + 1) * self.beta) **2, max=1000).sum().div(batch_size)
                             total_coll += (len(torch.where((dist > 0) & (dist< 0.5))[0]) / 2)
                         ## posterior
                         curr1_post = pred_fut_traj_post[t, s:e].repeat(num_ped, 1)
@@ -449,7 +449,7 @@ class Solver(object):
                         dist_post = dist_post.reshape(num_ped, num_ped)
                         diff_agent_dist_post = dist_post[torch.where((dist_post > 0) & (dist_post< self.coll_th))]
                         if len(diff_agent_dist_post) > 0:
-                            coll_loss += torch.clamp(((self.coll_th - diff_agent_dist_post + 1) * self.beta) **2, max=100).sum().div(batch_size)
+                            coll_loss += torch.clamp(((self.coll_th - diff_agent_dist_post + 1) * self.beta) **2, max=1000).sum().div(batch_size)
                             total_coll += (len(torch.where((dist_post > 0) & (dist_post< 0.5))[0]) / 2)
 
             loss = - traj_elbo + self.w_coll * coll_loss
