@@ -435,17 +435,17 @@ class Solver(object):
                         curr2 = self.repeat(pred_fut_traj[t, s:e], num_ped)
                         dist = torch.norm(curr1 - curr2, dim=1)
                         dist = dist.reshape(num_ped, num_ped)
-                        diff_agent_dist = dist[torch.where(dist > 0)]
+                        diff_agent_dist = dist[torch.where((dist > 0) and (dist <= self.coll_th))]
                         coll_loss += (torch.sigmoid(-(diff_agent_dist - self.coll_th) * self.beta)).sum()
-                        total_coll += (len(torch.where(diff_agent_dist < 0.5)[0]) / 2)
+                        total_coll += (len(torch.where((dist > 0) and (dist < 0.5))[0]) / 2)
                         ## posterior
                         curr1_post = pred_fut_traj_post[t, s:e].repeat(num_ped, 1)
                         curr2_post = self.repeat(pred_fut_traj_post[t, s:e], num_ped)
                         dist_post = torch.norm(curr1_post - curr2_post, dim=1)
                         dist_post = dist_post.reshape(num_ped, num_ped)
-                        diff_agent_dist_post = dist_post[torch.where(dist_post > 0)]
+                        diff_agent_dist_post = dist_post[torch.where((dist_post > 0) and (dist_post <= self.coll_th))]
                         coll_loss += (torch.sigmoid(-(diff_agent_dist_post - self.coll_th) * self.beta)).sum()
-                        total_coll += (len(torch.where(diff_agent_dist_post < 0.5)[0]) / 2)
+                        total_coll += (len(torch.where((dist_post > 0) and (dist_post < 0.5))[0]) / 2)
 
             loss = - traj_elbo + self.w_coll * coll_loss
             e_coll_loss +=coll_loss.item()
@@ -576,10 +576,9 @@ class Solver(object):
                             curr2 = self.repeat(seq_traj[i], num_ped)
                             dist = torch.norm(curr1 - curr2, dim=1)
                             dist = dist.reshape(num_ped, num_ped)
-                            diff_agent_dist = dist[torch.where(dist > 0)]
-                            # diff_agent_dist[torch.where(diff_agent_dist > self.coll_th)] += self.beta
+                            diff_agent_dist = dist[torch.where((dist > 0) and (dist <= self.coll_th))]
                             coll_loss += (torch.sigmoid(-(diff_agent_dist - self.coll_th) * self.beta)).sum()
-                            total_coll += (len(torch.where(diff_agent_dist < 0.2)[0])/2)
+                            total_coll += (len(torch.where((dist > 0) and (dist < 0.2))[0]) / 2)
 
                 ade, fde = [], []
                 for dist in fut_rel_pos_dist20:
