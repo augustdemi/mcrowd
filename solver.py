@@ -346,8 +346,6 @@ class Solver(object):
                 iterator = iter(data_loader)
                 if self.optim_vae.param_groups[0]['lr'] > 1e-5:
                     self.scheduler.step()
-                if epoch > 0 and epoch % 5 ==0:
-                    self.w_coll +=1
                 print("lr: ", self.optim_vae.param_groups[0]['lr'], ' // w_coll: ', self.w_coll)
                 print('e_coll_loss: ', e_coll_loss, ' // e_total_coll: ', e_total_coll)
                 prev_e_coll_loss = e_coll_loss
@@ -579,10 +577,9 @@ class Solver(object):
                             dist = torch.norm(curr1 - curr2, dim=1)
                             dist = dist.reshape(num_ped, num_ped)
                             diff_agent_dist = dist[torch.where(dist > 0)]
-                            if len(diff_agent_dist) > 0:
-                                # diff_agent_dist[torch.where(diff_agent_dist > self.coll_th)] += self.beta
-                                coll_loss += (torch.sigmoid(-(diff_agent_dist - self.coll_th) * self.beta)).sum()
-                                total_coll += (len(torch.where(diff_agent_dist < 0.2)[0])/2)
+                            # diff_agent_dist[torch.where(diff_agent_dist > self.coll_th)] += self.beta
+                            coll_loss += (torch.sigmoid(-(diff_agent_dist - self.coll_th) * self.beta)).sum()
+                            total_coll += (len(torch.where(diff_agent_dist < 0.2)[0])/2)
 
                 ade, fde = [], []
                 for dist in fut_rel_pos_dist20:
