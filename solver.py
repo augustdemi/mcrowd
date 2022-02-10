@@ -436,8 +436,7 @@ class Solver(object):
                         dist = torch.norm(curr1 - curr2, dim=1)
                         dist = dist.reshape(num_ped, num_ped)
                         diff_agent_dist = dist[torch.where(dist > 0)]
-                        coll_loss += torch.clamp(torch.exp(-(diff_agent_dist - self.coll_th) * self.beta),
-                                                 max=1e4).sum().div(num_ped*(num_ped-1))
+                        coll_loss += (torch.sigmoid(-(diff_agent_dist - self.coll_th) * self.beta)).sum()
                         total_coll += (len(torch.where(diff_agent_dist < 0.5)[0]) / 2)
                         ## posterior
                         curr1_post = pred_fut_traj_post[t, s:e].repeat(num_ped, 1)
@@ -445,11 +444,9 @@ class Solver(object):
                         dist_post = torch.norm(curr1_post - curr2_post, dim=1)
                         dist_post = dist_post.reshape(num_ped, num_ped)
                         diff_agent_dist_post = dist_post[torch.where(dist_post > 0)]
-                        coll_loss += torch.clamp(torch.exp(-(diff_agent_dist_post - self.coll_th) * self.beta),
-                                                 max=1e4).sum().div(num_ped*(num_ped-1))
+                        coll_loss += (torch.sigmoid(-(diff_agent_dist_post - self.coll_th) * self.beta)).sum()
                         total_coll += (len(torch.where(diff_agent_dist_post < 0.5)[0]) / 2)
 
-            coll_loss = coll_loss.div(self.pred_len * len(seq_start_end))
             loss = - traj_elbo + self.w_coll * coll_loss
             e_coll_loss +=coll_loss.item()
             e_total_coll +=total_coll
@@ -580,8 +577,8 @@ class Solver(object):
                             dist = torch.norm(curr1 - curr2, dim=1)
                             dist = dist.reshape(num_ped, num_ped)
                             diff_agent_dist = dist[torch.where(dist > 0)]
-                            coll_loss += torch.clamp(torch.exp(-(diff_agent_dist - self.coll_th) * self.beta),
-                                                     max=1e4).sum().div(num_ped * (num_ped - 1)*len(seq_start_end))
+                            # diff_agent_dist[torch.where(diff_agent_dist > self.coll_th)] += self.beta
+                            coll_loss += (torch.sigmoid(-(diff_agent_dist - self.coll_th) * self.beta)).sum()
                             total_coll += (len(torch.where(diff_agent_dist < 0.2)[0])/2)
 
                 ade, fde = [], []
@@ -612,7 +609,7 @@ class Solver(object):
             return ade_min, fde_min, \
                    ade_avg, fde_avg, \
                    ade_std, fde_std, \
-                   loss_recon/b, loss_kl/b, coll_loss/(b*self.pred_len), total_coll
+                   loss_recon/b, loss_kl/b, coll_loss/b, total_coll
         else:
             return ade_min, fde_min, \
                    ade_avg, fde_avg, \
