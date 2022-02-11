@@ -264,6 +264,10 @@ class Solver(object):
         return heat_maps[:,:2], heat_maps[:,2:]
 
 
+    def temmp(self):
+        aa = torch.zeros((120, 2, 256, 256)).to(self.device)
+        self.lg_cvae.unet.down_forward(aa)
+
     ####
     def train(self):
         self.set_mode(train=True)
