@@ -216,10 +216,10 @@ class Solver(object):
             plt.scatter(local_ic[i,:8,1], local_ic[i,:8,0], s=1, c='b')
             plt.scatter(local_ic[i,8:,1], local_ic[i,8:,0], s=1, c='r')
             '''
-            map_size = local_map[i][0].shape[0]
-            env = cv2.resize(local_map[i][0], dsize=(down_size, down_size))
+            map_size = local_map[i].shape[0]
+            env = cv2.resize(local_map[i], dsize=(down_size, down_size))
             ohm = [env]
-            heat_map_traj = np.zeros_like(local_map[i][0])
+            heat_map_traj = np.zeros_like(local_map[i])
             heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 100
 
             if map_size > 1000:
@@ -242,7 +242,7 @@ class Solver(object):
                                        size=local_map[i][0].shape,  mode='bicubic',
                                               align_corners = False).squeeze(0).squeeze(0)
             '''
-            heat_map_traj = np.zeros_like(local_map[i][0])
+            heat_map_traj = np.zeros_like(local_map[i])
             heat_map_traj[local_ic[i, -1, 0], local_ic[i, -1, 1]] = 1000
             if map_size > 1000:
                 heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2),
