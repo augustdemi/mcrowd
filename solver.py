@@ -265,8 +265,7 @@ class Solver(object):
 
 
     def temmp(self):
-        aa = torch.zeros((120, 2, 256, 256)).to(self.device)
-        self.lg_cvae.unet.down_forward(aa)
+        print()
 
     ####
     def train(self):
@@ -405,7 +404,7 @@ class Solver(object):
 
                     pred_lg_wc = []
                     for i in range(batch_size):
-                        map_size = local_map[i][0].shape
+                        map_size = local_map[i].shape
                         h = local_homo[i]
                         pred_lg_ic = []
                         for heat_map in pred_lg_heat[i]:
