@@ -277,7 +277,7 @@ class Solver(object):
 
 
     def make_one_heatmap(self, local_map, local_ic):
-        map_size = local_map[0].shape[0]
+        map_size = local_map.shape[0]
         down_size=256
         heat_map_traj = np.zeros_like(local_map)
         heat_map_traj[local_ic[0], local_ic[1]] = 1000
