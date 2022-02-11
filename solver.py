@@ -171,7 +171,7 @@ class Solver(object):
         print(">>>>>>>>> Init: ", lg_cvae_path)
 
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
-            num_filters = [32, 32, 64, 64, 64, 128]
+            num_filters = [32, 32, 64, 64, 64]
             # input = env + 8 past + lg / output = env + sg(including lg)
             self.sg_unet = Unet(input_channels=3, num_classes=len(self.sg_idx), num_filters=num_filters,
                              apply_last_layer=True, padding=True).to(self.device)
