@@ -208,6 +208,10 @@ class Solver(object):
             lr=self.lr_VAE,
             betas=[self.beta1_VAE, self.beta2_VAE]
         )
+
+        self.scheduler = optim.lr_scheduler.LambdaLR(optimizer=self.optim_vae,
+                                        lr_lambda=lambda epoch: args.lr_e ** epoch)
+
         # self.lg_optimizer = torch.optim.Adam(, lr=self., weight_decay=0)
 
         # prepare dataloader (iterable)
@@ -318,6 +322,9 @@ class Solver(object):
                 if self.anneal_epoch > 0:
                     lg_kl_weight = min(self.lg_kl_weight * (epoch / self.anneal_epoch), self.lg_kl_weight)
                     print('>>>>>>>> kl_w: ', lg_kl_weight)
+                if self.optim_vae.param_groups[0]['lr'] > 1e-5:
+                    self.scheduler.step()
+                print("lr: ", self.optim_vae.param_groups[0]['lr'])
 
                 iterator = iter(data_loader)
 
