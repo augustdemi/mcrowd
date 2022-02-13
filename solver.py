@@ -367,10 +367,10 @@ class Solver(object):
                     data_loader.is_epoch_end()
                 print('==== epoch %d done ====' % epoch)
                 epoch +=1
-                if self.optim_vae.param_groups[0]['lr'] > 5e-4:
+                if self.optim_vae.param_groups[0]['lr'] > 5e-5:
                     self.scheduler.step()
                 else:
-                    self.optim_vae.param_groups[0]['lr'] = 5e-4
+                    self.optim_vae.param_groups[0]['lr'] = 5e-5
                 print("lr: ", self.optim_vae.param_groups[0]['lr'], ' // w_coll: ', self.w_coll)
                 print('e_coll_loss: ', e_coll_loss, ' // e_total_coll: ', e_total_coll)
                 prev_e_coll_loss = e_coll_loss
