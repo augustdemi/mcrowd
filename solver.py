@@ -239,10 +239,10 @@ class Solver(object):
 
 
         if self.ckpt_load_iter != self.max_iter:
-            # train_file_name = 'train_threshold0.5'
-            train_file_name = 'test'
-            # test_file_name = 'test5_threshold0.5'
-            test_file_name = 'test'
+            train_file_name = 'train_threshold0.5'
+            # train_file_name = 'test'
+            test_file_name = 'test5_threshold0.5'
+            # test_file_name = 'test'
 
             print("Initializing train dataset from ", train_file_name)
             _, self.train_loader = data_loader(self.args, args.dataset_dir, train_file_name, shuffle=True)
