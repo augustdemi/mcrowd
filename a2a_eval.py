@@ -44,6 +44,39 @@ def integrate_samples(v, p_0, dt=1):
 #     nn.BCEWithLogitsLoss(size_average = False, reduce=False, reduction=None)
 
 
+def compute_ECFL(output_traj, binary_navmaps, local_homo):
+    '''
+    :param output_traj: (# scenes, # samples, # frames, # coordinates) # all sample number, 20, 12, 2
+    :param binary_navmaps: (# scenes, # height/y, # width/x)
+        1 indicates navigable; 0 indicates non-navigable
+    :return: avgECFL
+    '''
+
+    ecfl = 0.0
+    for i in range(output_traj.shape[0]):
+        for k in range(output_traj.shape[1]):
+            collided = False
+            wc = output_traj[i, k]
+            all_pixel_local = np.matmul(np.concatenate([wc, np.ones((len(wc), 1))], axis=1),
+                                        np.linalg.pinv(np.transpose(local_homo[i])))
+            all_pixel_local /= np.expand_dims(all_pixel_local[:, 2], 1)
+            all_pixel_local = np.round(all_pixel_local).astype(int)[:, :2]
+
+            for t in range(output_traj.shape[2]):
+                pos = all_pixel_local[t]
+                if pos[1] < 0 or pos[1] >= binary_navmaps[i].shape[0] or pos[0] < 0 or pos[0] >= \
+                        binary_navmaps[i].shape[1]:
+                    collided = True
+                    break
+
+                if binary_navmaps[i][pos[0], pos[1]] == 0:
+                    collided = True
+                    break
+
+            if not collided:
+                ecfl += 1.0 / output_traj.shape[1]
+
+    return ecfl / output_traj.shape[0]
 
 
 class Solver(object):
@@ -1001,6 +1034,7 @@ class Solver(object):
         all_fde =[]
         sg_ade=[]
         lg_fde=[]
+        pred_c = []
         with torch.no_grad():
             b=0
             for batch in data_loader:
@@ -1094,7 +1128,8 @@ class Solver(object):
 
                 # -------- trajectories --------
                 (hx, mux, log_varx) \
-                    = self.encoderMx(obs_traj_st, seq_start_end, self.lg_cvae.unet_enc_feat, local_homo)
+                    = self.encoderMx(obs_traj_st, seq_start_end)
+                    # = self.encoderMx(obs_traj_st, seq_start_end, self.lg_cvae.unet_enc_feat, local_homo)
 
                 p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
                 z_priors = []
@@ -1125,6 +1160,8 @@ class Solver(object):
                 multi_coll25 = []
                 multi_coll30 = []
                 n_scene += sum([e-s for s, e in seq_start_end])
+                pred=[]
+
                 for dist in fut_rel_pos_dists:
                     pred_fut_traj=integrate_samples(dist.rsample() * self.scale, obs_traj[-1, :, :2], dt=self.dt)
                     ade.append(displacement_error(
@@ -1164,7 +1201,17 @@ class Solver(object):
                     multi_coll25.append(coll25)
                     multi_coll30.append(coll30)
 
+                    # batch_seq_pix = []
+                    # for idx in range(batch_size):
+                    #     wc = pred_fut_traj.transpose(1, 0)[idx].detach().cpu().numpy()
+                    #     map_traj = np.matmul(np.concatenate([wc, np.ones((len(wc), 1))], 1), np.transpose(local_homo[idx].cpu().numpy()))
+                    #     map_traj /= np.expand_dims(map_traj[:, 2], 1)
+                    #     batch_seq_pix.append(map_traj[:,:2])
+                    # pred.append(np.expand_dims(np.array(batch_seq_pix), 1))
+                    pred.append(pred_fut_traj.transpose(1, 0).detach().cpu().numpy())
 
+
+                # a2a collision
                 for i in range(lg_num * traj_num):
                     total_coll5[i] += multi_coll5[i]
                     total_coll10[i] += multi_coll10[i]
@@ -1173,13 +1220,19 @@ class Solver(object):
                     total_coll25[i] += multi_coll25[i]
                     total_coll30[i] += multi_coll30[i]
 
+                # a2e collision
+                pred = np.stack(pred, 1)
+                compute_ECFL(pred, local_map, local_homo.cpu().numpy())
 
+                # ade / fde
                 all_ade.append(torch.stack(ade))
                 all_fde.append(torch.stack(fde))
                 sg_ade.append(torch.sqrt(((torch.stack(pred_sg_wcs).permute(0, 2, 1, 3)
                                            - fut_traj[list(self.sg_idx),:,:2].unsqueeze(0).repeat((lg_num,1,1,1)))**2).sum(-1)).sum(1)) # 20, 3, 4, 2
                 lg_fde.append(torch.sqrt(((torch.stack(pred_lg_wcs)
                                            - fut_traj[-1,:,:2].unsqueeze(0).repeat((lg_num,1,1)))**2).sum(-1))) # 20, 3, 4, 2
+
+            print("PRED ECFLS: ", np.array(pred_c).mean())
 
             all_ade=torch.cat(all_ade, dim=1).cpu().numpy()
             all_fde=torch.cat(all_fde, dim=1).cpu().numpy()
@@ -1563,6 +1616,312 @@ class Solver(object):
             pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
         # with open('D:\crowd\datasets\Trajectories\/test.pickle', 'rb') as f:
         #     a = pickle.load(f)
+
+
+    def check_coll(self, data_loader):
+        self.set_mode(train=False)
+
+        lg_num = 20
+        traj_num=1
+        generate_heat = True
+        root = 'C:\dataset\HTP-benchmark\A2A Data'
+        with torch.no_grad():
+
+            ss = (data_loader.dataset.seq_start_end[:, 1] - data_loader.dataset.seq_start_end[:, 0])
+            tt  = list(zip(range(len(ss)), ss))
+            tt.sort(key=lambda e:e[1], reverse=True)
+
+            idx = 262
+            idx = 690
+            idx = 453
+            idx=656
+            for idx in range(450, 700):
+                batch = data_loader.dataset.__getitem__(idx)
+                (obs_traj, fut_traj,
+                 obs_frames, pred_frames, map_path, inv_h_t,
+                 local_map, local_ic, local_homo, scale) = batch
+                batch_size = obs_traj.shape[0]
+
+                obs_traj = obs_traj.permute(2, 0, 1)
+                obs_traj_st = obs_traj.clone()
+                # pos is stdized by mean = last obs step
+                obs_traj_st[:, :, :2] = (obs_traj_st[:, :, :2] - obs_traj_st[-1, :, :2])
+                seq_start_end = [[0, batch_size]]
+
+                num_ped = batch_size
+                seq_traj = fut_traj[:, :2].permute(2,0,1)
+                for i in range(len(seq_traj)):
+                    curr1 = seq_traj[i].repeat(num_ped, 1)
+                    curr2 = self.repeat(seq_traj[i], num_ped)
+                    dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1))
+                    dist = dist.reshape(num_ped, num_ped).cpu().numpy()
+                    dist[np.diag_indices(num_ped)] +=100
+                    # diff_agent_idx = np.triu_indices(num_ped, k=1)
+                    # diff_agent_dist = dist[diff_agent_idx]
+                    # if dist.min() < 0.55:
+                        # print(idx)
+                    print(i)
+                    print(dist.min())
+                    print(dist.argmin()//num_ped, dist.argmin()%num_ped)
+                    print('------------------')
+
+
+            neighbor_idx = (14,15)
+            neighbor_idx = (1,3) # ()6,8
+            neighbor_idx = (2,7)
+            neighbor_idx = (0,1)
+            seq_traj = fut_traj[:, :2].permute(2,0,1)
+            for i in range(len(seq_traj)):
+                curr1 = seq_traj[i].repeat(num_ped, 1)
+                curr2 = self.repeat(seq_traj[i], num_ped)
+                dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1))
+                dist = dist.reshape(num_ped, num_ped).cpu().numpy()
+                print(dist[neighbor_idx])
+
+
+
+            obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
+
+            self.lg_cvae.forward(obs_heat_map, None, training=False)
+            fut_rel_pos_dists = []
+            pred_lg_wcs = []
+            pred_sg_wcs = []
+
+            ####### long term goals and the corresponding (deterministic) short term goals ########
+            w_priors = []
+            for _ in range(lg_num):
+                w_priors.append(self.lg_cvae.prior_latent_space.sample())
+
+            for w_prior in w_priors:
+                # -------- long term goal --------
+                pred_lg_heat = F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, w_prior))
+                pred_lg_ics = []
+                pred_lg_wc = []
+                for i in range(batch_size):
+                    map_size = local_map[i].shape
+                    pred_lg_ic = []
+                    for heat_map in pred_lg_heat[i]:
+                        # heat_map = nnf.interpolate(heat_map.unsqueeze(0), size=map_size, mode='nearest')
+                        heat_map = nnf.interpolate(heat_map.unsqueeze(0).unsqueeze(0),
+                                                   size=map_size, mode='bicubic',
+                                                   align_corners=False).squeeze(0).squeeze(0)
+                        argmax_idx = heat_map.argmax()
+                        argmax_idx = [argmax_idx // map_size[0], argmax_idx % map_size[0]]
+                        pred_lg_ic.append(argmax_idx)
+
+                    pred_lg_ic = torch.tensor(pred_lg_ic).float().to(self.device)
+
+                    pred_lg_ics.append(pred_lg_ic)
+
+                    # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
+                    back_wc = torch.matmul(
+                        torch.cat([pred_lg_ic, torch.ones((len(pred_lg_ic), 1)).to(self.device)], dim=1),
+                        torch.transpose(local_homo[i], 1, 0))
+                    pred_lg_wc.append(back_wc[0, :2] / back_wc[0, 2])
+                    # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
+                pred_lg_wc = torch.stack(pred_lg_wc)
+                pred_lg_wcs.append(pred_lg_wc)
+                # -------- short term goal --------
+
+                if generate_heat:
+                    pred_lg_heat_from_ic = []
+                    for i in range(len(pred_lg_ics)):
+                        pred_lg_heat_from_ic.append(self.make_one_heatmap(local_map[i], pred_lg_ics[i][
+                            0].detach().cpu().numpy().astype(int)))
+                    pred_lg_heat_from_ic = torch.tensor(np.stack(pred_lg_heat_from_ic)).unsqueeze(1).float().to(
+                        self.device)
+                    pred_sg_heat = F.sigmoid(
+                        self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1)))
+                else:
+                    pred_sg_heat = F.sigmoid(
+                        self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat], dim=1)))
+
+                pred_sg_wc = []
+                for i in range(batch_size):
+                    map_size = local_map[i].shape
+                    pred_sg_ic = []
+                    for heat_map in pred_sg_heat[i]:
+                        heat_map = nnf.interpolate(heat_map.unsqueeze(0).unsqueeze(0),
+                                                   size=map_size, mode='bicubic',
+                                                   align_corners=False).squeeze(0).squeeze(0)
+                        argmax_idx = heat_map.argmax()
+                        argmax_idx = [argmax_idx // map_size[0], argmax_idx % map_size[0]]
+                        pred_sg_ic.append(argmax_idx)
+                    pred_sg_ic = torch.tensor(pred_sg_ic).float().to(self.device)
+                    # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
+                    back_wc = torch.matmul(
+                        torch.cat([pred_sg_ic, torch.ones((len(pred_sg_ic), 1)).to(self.device)], dim=1),
+                        torch.transpose(local_homo[i], 1, 0))
+                    back_wc /= back_wc[:, 2].unsqueeze(1)
+                    pred_sg_wc.append(back_wc[:, :2])
+                    # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
+                pred_sg_wc = torch.stack(pred_sg_wc)
+                pred_sg_wcs.append(pred_sg_wc)
+
+                ################
+
+            ##### trajectories per long&short goal ####
+
+            # -------- trajectories --------
+            (hx, mux, log_varx) \
+                = self.encoderMx(obs_traj_st, seq_start_end)
+                # = self.encoderMx(obs_traj_st, seq_start_end, self.lg_cvae.unet_enc_feat, local_homo)
+
+            p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
+            z_priors = []
+            for _ in range(traj_num):
+                z_priors.append(p_dist.sample())
+
+            for pred_sg_wc in pred_sg_wcs:
+                for z_prior in z_priors:
+                    # -------- trajectories --------
+                    # NO TF, pred_goals, z~prior
+                    fut_rel_pos_dist_prior = self.decoderMy(
+                        seq_start_end,
+                        obs_traj_st[-1],
+                        obs_traj[-1, :, :2],
+                        hx,
+                        z_prior,
+                        pred_sg_wc,  # goal
+                        self.sg_idx
+                    )
+                    fut_rel_pos_dists.append(fut_rel_pos_dist_prior)
+
+
+            pred_data = []
+            for dist in fut_rel_pos_dists:
+                pred_fut_traj = integrate_samples(dist.rsample() * self.scale, obs_traj[-1, :, :2], dt=self.dt)
+                pred_data.append(pred_fut_traj)
+
+                # for s, e in seq_start_end:
+                #     num_ped = e - s
+                #     if num_ped == 1:
+                #         continue
+                #     seq_traj = pred_fut_traj[:, s:e]
+                #     for i in range(len(seq_traj)):
+                #         curr1 = seq_traj[i].repeat(num_ped, 1)
+                #         curr2 = self.repeat(seq_traj[i], num_ped)
+                #         dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
+                #         dist = dist.reshape(num_ped, num_ped)
+                #         print(dist[neighbor_idx])
+
+
+            pred_data = torch.stack(pred_data).numpy().transpose(0,2,1,3)
+
+            # ---------- plot gif
+            wc_traj = torch.cat([obs_traj.permute(1,2,0)[:,:2], fut_traj[:,:2]],-1).numpy().transpose(0,2,1)
+            n_agent = wc_traj.shape[0]
+
+            m = imageio.imread(os.path.join(root, map_path.replace('txt','png'))).astype(float) / 255
+            h = np.loadtxt(os.path.join(root, map_path.replace('txt', 'hom')),delimiter=',')
+            inv_h_t = np.linalg.inv(np.transpose(h))
+            ic_traj=[]
+            for wc in wc_traj:
+                map_traj = np.matmul(np.concatenate([wc, np.ones((len(wc), 1))], 1), inv_h_t)
+                map_traj /= np.expand_dims(map_traj[:, 2], 1)
+                map_traj = map_traj[:, :2]
+                ic_traj.append(map_traj)
+            ic_traj = np.array(ic_traj)
+
+            ic_pred = []
+            for i in range(traj_num * lg_num):
+                temp = []
+                for wc in pred_data[i]:
+                    map_traj = np.matmul(np.concatenate([wc, np.ones((len(wc), 1))], 1), inv_h_t)
+                    map_traj /= np.expand_dims(map_traj[:, 2], 1)
+                    map_traj = map_traj[:, :2]
+                    temp.append(map_traj)
+                # temp = np.array(temp)
+                ic_pred.append(temp)
+            ic_pred = np.array(ic_pred)
+
+            gt_past_ic = ic_traj[:,:8]
+            gt_future_ic = ic_traj[:,8:]
+
+            '''
+            plt.imshow(m)
+            plt.scatter(map_traj[:8, 0], map_traj[:8, 1], s=1, c='b')
+            plt.scatter(map_traj[8:, 0], map_traj[8:, 1], s=1, c='r')
+            '''
+
+            env = np.stack([m, m, m], axis=2)
+
+            # ========================================================
+
+            num_ped = n_agent
+            for pred_idx in range(20):
+                seq_traj = torch.tensor(pred_data[pred_idx].transpose(1, 0, 2))
+                for i in range(len(seq_traj)):
+                    curr1 = seq_traj[i].repeat(num_ped, 1)
+                    curr2 = self.repeat(seq_traj[i], num_ped)
+                    dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
+                    dist = dist.reshape(num_ped, num_ped)
+                    if dist[neighbor_idx] < 0.5:
+                        print('=======')
+                        print(pred_idx)
+                        print(dist[neighbor_idx])
+
+
+            pred_idx=12
+            seq_traj = torch.tensor(pred_data[pred_idx].transpose(1, 0, 2))
+            for i in range(len(seq_traj)):
+                curr1 = seq_traj[i].repeat(num_ped, 1)
+                curr2 = self.repeat(seq_traj[i], num_ped)
+                dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
+                dist = dist.reshape(num_ped, num_ped)
+                print(dist[neighbor_idx])
+
+            def init():
+                ax.imshow(env)
+                ax.axis('off')
+
+            def update_dot(num_t):
+                print(num_t)
+                ax.imshow(env)
+                for agent_idx in range(n_agent):
+                    # if agent_idx not in neighbor_idx:
+                    #     continue
+                    if num_t < 8:
+                        # if num_t == 0:
+                        #     ax.text(str(agent_idx), gt_past_ic[agent_idx, :num_t, 0],
+                        #             gt_past_ic[agent_idx, :num_t, 1], ha="center", va="bottom", fontsize=7, c='darkblue')
+                        ln_past[agent_idx].set_data(gt_past_ic[agent_idx, :num_t, 0],
+                                                    gt_past_ic[agent_idx, :num_t, 1])
+                    else:
+                        ln_pred[agent_idx].set_data(ic_pred[pred_idx, agent_idx, :num_t-8, 0],
+                                                    ic_pred[pred_idx, agent_idx, :num_t-8, 1])
+                        ln_future[agent_idx].set_data(gt_future_ic[agent_idx, :num_t-8, 0],
+                                                   gt_future_ic[agent_idx, :num_t-8, 1])
+                    # ln_gt[agent_idx].set_data(local_ic[agent_idx, :num_t, 1], local_ic[agent_idx, :num_t, 0])
+
+
+            fig, ax = plt.subplots(figsize=(10, 10))
+            # ax.set_title('sampling number', str(pred_idx), fontsize=9)
+            fig.tight_layout()
+            colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
+
+            # ln_gt.append(ax.plot([], [], colors[i % len(colors)] + '--', linewidth=1)[0])
+            # ln_gt.append(ax.scatter([], [], c=colors[i % len(colors)], s=2))
+
+            ln_pred = []
+            ln_past = []
+            ln_future = []
+            for s in range(n_agent):
+                c = str(colors[s%len(colors)])
+                ln_pred.append(
+                    ax.plot([], [], c + '.-', alpha=0.5, linewidth=1, markersize=2)[0])
+                ln_past.append(
+                    ax.plot([], [], c + '-', alpha=0.5, linewidth=1)[0])
+                ln_future.append(
+                    ax.plot([], [], c + '--', alpha=0.5, linewidth=1)[0])
+
+            # ln_gt = ax.plot([], [], 'b--', linewidth=1)[0]
+            ani = FuncAnimation(fig, update_dot, frames=20, interval=1, init_func=init())
+            # ani_path = os.path.join(root, 'gif', 'nopool')
+            ani_path = os.path.join(root, 'gif')
+            ani.save(os.path.join(ani_path, str(idx)+ '_sampling' + str(pred_idx)+".gif"), fps=4)
+            # ani.save(os.path.join(ani_path, str(idx)+ '_sampling' + str(pred_idx) + '_neighbor'+ str(neighbor_idx) +".gif"), fps=4)
+
 
 
 
