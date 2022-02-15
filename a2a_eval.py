@@ -1222,7 +1222,7 @@ class Solver(object):
 
                 # a2e collision
                 pred = np.stack(pred, 1)
-                compute_ECFL(pred, local_map, local_homo.cpu().numpy())
+                pred_c.append(compute_ECFL(pred, local_map, local_homo.cpu().numpy()))
 
                 # ade / fde
                 all_ade.append(torch.stack(ade))
