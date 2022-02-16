@@ -385,10 +385,14 @@ class Solver(object):
              maps, local_map, local_ic, local_homo) = data
             batch_size = fut_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
+            obs_heat_map =  self.make_heatmap(local_ic, local_map, aug=False, only_obs=True)
+
+            #-------- map encoding from lgvae --------
+            unet_enc_feat = self.lg_cvae.unet.down_forward(obs_heat_map)
 
             #-------- trajectories --------
             (hx, mux, log_varx) \
-                = self.encoderMx(obs_traj_st, seq_start_end, train=True)
+                = self.encoderMx(obs_traj_st, seq_start_end, unet_enc_feat, local_homo, train=True)
 
 
             (muy, log_vary) \
@@ -481,12 +485,12 @@ class Solver(object):
 
 
             # save model parameters
-            if (iteration % (iter_per_epoch*2) == 0):
+            if (iteration % (iter_per_epoch*5) == 0):
                 self.save_checkpoint(iteration)
 
             # (visdom) insert current line stats
             if iteration > 0:
-                if iteration == iter_per_epoch or (self.viz_on and (iteration % (iter_per_epoch*2) == 0)):
+                if iteration == iter_per_epoch or (self.viz_on and (iteration % (iter_per_epoch*10) == 0)):
 
                     ade_min, fde_min, \
                     ade_avg, fde_avg, \
@@ -562,9 +566,14 @@ class Solver(object):
                 batch_size = fut_traj.size(1)
                 total_traj += fut_traj.size(1)
 
+                obs_heat_map = self.make_heatmap(local_ic, local_map, aug=False, only_obs=True)
+
+                # -------- map encoding from lgvae --------
+                unet_enc_feat = self.lg_cvae.unet.down_forward(obs_heat_map)
+
                 # -------- trajectories --------
                 (hx, mux, log_varx) \
-                    = self.encoderMx(obs_traj_st, seq_start_end)
+                    = self.encoderMx(obs_traj_st, seq_start_end, unet_enc_feat, local_homo)
                 p_dist = Normal(mux, torch.clamp(torch.sqrt(torch.exp(log_varx)), min=1e-8))
 
                 fut_rel_pos_dist20 = []
