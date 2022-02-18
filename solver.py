@@ -166,8 +166,8 @@ class Solver(object):
         self.num_layers = args.num_layers
         self.decoder_h_dim = args.decoder_h_dim
 
-        lg_cvae_path = 'a2a.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_4.0_anneal_e_10_aug_1_llprior_1.0_run_4'
-        lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_52580_lg_cvae.pt')
+        lg_cvae_path = 'a2a.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_6.0_anneal_e_10_aug_1_llprior_1.0_run_1'
+        lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_31140_lg_cvae.pt')
 
         if self.device == 'cuda':
             self.lg_cvae = torch.load(lg_cvae_path)
@@ -364,14 +364,10 @@ class Solver(object):
              local_map, local_ic, local_homo) = next(iterator)
             batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
-            obs_heat_map =  self.make_heatmap(local_ic, local_map, aug=False, only_obs=True)
-
-            #-------- map encoding from lgvae --------
-            unet_enc_feat = self.lg_cvae.unet.down_forward(obs_heat_map)
-
             #-------- trajectories --------
             (hx, mux, log_varx) \
-                = self.encoderMx(obs_traj_st, seq_start_end, unet_enc_feat, local_homo, train=True)
+                = self.encoderMx(obs_traj_st, seq_start_end, train=True)
+
 
             (muy, log_vary) \
                 = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, hx, train=True)
@@ -540,14 +536,9 @@ class Solver(object):
                 total_traj += fut_traj.size(1)
 
 
-                obs_heat_map = self.make_heatmap(local_ic, local_map, aug=False, only_obs=True)
-
-                # -------- map encoding from lgvae --------
-                unet_enc_feat = self.lg_cvae.unet.down_forward(obs_heat_map)
-
                 # -------- trajectories --------
                 (hx, mux, log_varx) \
-                    = self.encoderMx(obs_traj_st, seq_start_end, unet_enc_feat, local_homo)
+                    = self.encoderMx(obs_traj_st, seq_start_end)
                 p_dist = Normal(mux, torch.clamp(torch.sqrt(torch.exp(log_varx)), min=1e-8))
 
                 fut_rel_pos_dist20 = []
