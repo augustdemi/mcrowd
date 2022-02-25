@@ -103,7 +103,7 @@ class EncoderX(nn.Module):
         map_feat = self.map_fc2(map_feat)
 
         # map and traj
-        hx = self.fc_hidden(torch.cat((hx, map_feat), dim=-1)) # 64(32 without attn) to z dim
+        hx = self.fc_hidden(torch.cat((F.normalize(hx), F.normalize(map_feat)), dim=-1)) # 64(32 without attn) to z dim
 
         mu = stats[:, :self.zS_dim]
         log_var = stats[:, self.zS_dim:]
@@ -170,6 +170,7 @@ class EncoderY(nn.Module):
                       p=self.dropout_mlp,
                       training=train)
         stats = self.fc2(stats)
+
         mu = stats[:, :self.zS_dim]
         log_var = stats[:, self.zS_dim:]
         mu = torch.clamp(mu, min=-1e8, max=1e8)
@@ -236,7 +237,7 @@ class Decoder(nn.Module):
         # Infer initial action state for node from current state
         pred_vel = self.to_vel(last_obs_st)
         # pred_vel = last_obs_st[:,2:4] # bs, 2
-        zx = torch.cat([enc_h_feat, z], dim=1) # bs, (32+20)
+        zx = torch.cat([F.normalize(enc_h_feat), F.normalize(z)], dim=1) # bs, (32+20)
         decoder_h=self.dec_hidden(zx) # 493, 128
 
         # create context hidden feature
@@ -265,6 +266,8 @@ class Decoder(nn.Module):
                         p=self.dropout_rnn,
                         training=train)  # [bs, max_time, enc_rnn_dim]
         sg_feat = self.sg_fc(sg_h.reshape(-1, 4 * self.enc_h_dim))
+        sg_feat = F.normalize(sg_feat)
+        zx = F.normalize(zx)
 
 
         ### traj decoding
@@ -273,7 +276,7 @@ class Decoder(nn.Module):
         j=0
         for i in range(self.seq_len):
             # predict next position
-            decoder_h= self.rnn_decoder(torch.cat([zx, pred_vel, sg_feat], dim=1), decoder_h) #493, 128
+            decoder_h= self.rnn_decoder(torch.cat([zx, F.normalize(pred_vel), sg_feat], dim=1), decoder_h) #493, 128
             mu = self.fc_mu(decoder_h)
             logVar = self.fc_std(decoder_h)
             # std = torch.sqrt(torch.exp(logVar))
@@ -297,7 +300,7 @@ class Decoder(nn.Module):
                 # create context for the next prediction
                 curr_pos = pred_vel * self.scale * self.dt + last_pos
                 context = self.pool_net(decoder_h, seq_start_end, curr_pos)  # batchsize, 1024
-                decoder_h = self.mlp_context(torch.cat([decoder_h, context], dim=1))  # mlp : 1152 -> 1024 -> 128
+                decoder_h = self.mlp_context(torch.cat([F.normalize(decoder_h), F.normalize(context)], dim=1))  # mlp : 1152 -> 1024 -> 128
                 # refine the prediction
                 mu = self.fc_mu(decoder_h)
                 logVar = self.fc_std(decoder_h)
