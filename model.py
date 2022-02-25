@@ -172,7 +172,7 @@ class Decoder(nn.Module):
     """Decoder is part of TrajectoryGenerator"""
     def __init__(
         self, seq_len, dec_h_dim=128, mlp_dim=1024, num_layers=1,
-        dropout_rnn=0.0, enc_h_dim=32, z_dim=32,
+        dropout_rnn=0.0, enc_h_dim=32, z_dim=32, map_feat_dim=64,
         device='cpu', scale=1, dt=0.4, dropout_mlp=0.3, context_dim = 32
     ):
         super(Decoder, self).__init__()
@@ -189,11 +189,11 @@ class Decoder(nn.Module):
         self.dt = dt
         self.context_dim = context_dim
 
-        self.dec_hidden = nn.Linear(mlp_dim + z_dim, dec_h_dim)
+        self.dec_hidden = nn.Linear(map_feat_dim + enc_h_dim  + z_dim, dec_h_dim)
         self.to_vel = nn.Linear(n_state, n_pred_state)
 
         self.rnn_decoder = nn.GRUCell(
-            input_size=mlp_dim + z_dim + 2*n_pred_state, hidden_size=dec_h_dim
+            input_size=map_feat_dim + enc_h_dim  + z_dim + 2*n_pred_state, hidden_size=dec_h_dim
         )
 
         self.fc_mu = nn.Linear(dec_h_dim, n_pred_state)

@@ -175,6 +175,8 @@ class Solver(object):
             self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
         print(">>>>>>>>> Init: ", lg_cvae_path)
 
+        map_feat_dim = self.lg_cvae.unet_enc_feat.shape[1]
+
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
 
             self.encoderMx = EncoderX(
@@ -182,7 +184,7 @@ class Solver(object):
                 enc_h_dim=args.encoder_h_dim,
                 mlp_dim=args.mlp_dim,
                 map_mlp_dim=args.map_mlp_dim,
-                map_feat_dim=self.lg_cvae.unet_enc_feat.shape[1],
+                map_feat_dim=map_feat_dim,
                 num_layers=args.num_layers,
                 dropout_mlp=args.dropout_mlp,
                 dropout_rnn=args.dropout_rnn,
@@ -199,6 +201,7 @@ class Solver(object):
                 args.pred_len,
                 dec_h_dim=self.decoder_h_dim,
                 enc_h_dim=args.encoder_h_dim,
+                map_feat_dim=map_feat_dim,
                 mlp_dim=args.mlp_dim,
                 z_dim=args.zS_dim,
                 num_layers=args.num_layers,
