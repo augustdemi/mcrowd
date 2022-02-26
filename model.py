@@ -61,12 +61,27 @@ class EncoderX(nn.Module):
             input_size=n_state, hidden_size=enc_h_dim
         )
 
+
+        layers = []
+        num_filters = [32, 32, 64, 128]
+        for i in range(len(num_filters)):
+            input_dim = 1 if i == 0 else output_dim
+            output_dim = num_filters[i]
+
+            if i != 0:
+                layers.append(nn.AvgPool2d(kernel_size=2, stride=2, padding=0, ceil_mode=True))
+
+            layers.append(nn.Conv2d(input_dim, output_dim, kernel_size=3, padding=1))
+            layers.append(nn.ReLU(inplace=True))
+        self.map_encdoer = nn.Sequential(*layers)
+        self.conv_layer = nn.Conv2d(num_filters[-1], map_feat_dim, (1, 1), stride=1)
+
         # self.fc_map = nn.Linear(map_feat_dim + 9, map_mlp_dim)
         self.fc_hidden = nn.Linear(map_feat_dim + enc_h_dim, mlp_dim)
         self.fc_latent = nn.Linear(mlp_dim, zS_dim*2)
 
 
-    def forward(self, obs_traj, seq_start_end, map_feat, local_homo, train=False):
+    def forward(self, obs_traj, seq_start_end, local_map, train=False):
         """
         Inputs:
         - obs_traj: Tensor of shape (obs_len, batch, 2)
@@ -82,8 +97,10 @@ class EncoderX(nn.Module):
                             training=train).view(-1, self.enc_h_dim)
 
         # map enc
+        map_feat = self.map_encdoer(local_map)
         map_feat = torch.mean(map_feat, dim=2, keepdim=True)
-        map_feat = torch.mean(map_feat, dim=3, keepdim=True).squeeze(-1).squeeze(-1)
+        map_feat = torch.mean(map_feat, dim=3, keepdim=True)
+        map_feat = self.conv_layer(map_feat).squeeze(-1).squeeze(-1)
 
         # map_feat = self.fc_map(torch.cat((map_feat, local_homo.view(-1, 9)), dim=-1))
         # map_feat = F.dropout(F.relu(map_feat),

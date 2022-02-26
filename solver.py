@@ -177,8 +177,6 @@ class Solver(object):
             self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
         print(">>>>>>>>> Init: ", lg_cvae_path)
 
-        map_feat_dim = self.lg_cvae.unet_enc_feat.shape[1]
-
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
 
             self.encoderMx = EncoderX(
@@ -186,7 +184,7 @@ class Solver(object):
                 enc_h_dim=args.encoder_h_dim,
                 mlp_dim=args.mlp_dim,
                 map_mlp_dim=args.map_mlp_dim,
-                map_feat_dim=map_feat_dim,
+                map_feat_dim=args.map_feat_dim,
                 num_layers=args.num_layers,
                 dropout_mlp=args.dropout_mlp,
                 dropout_rnn=args.dropout_rnn,
@@ -203,7 +201,7 @@ class Solver(object):
                 args.pred_len,
                 dec_h_dim=self.decoder_h_dim,
                 enc_h_dim=args.encoder_h_dim,
-                map_feat_dim=map_feat_dim,
+                map_feat_dim=args.map_feat_dim,
                 mlp_dim=args.mlp_dim,
                 z_dim=args.zS_dim,
                 num_layers=args.num_layers,
@@ -259,88 +257,6 @@ class Solver(object):
 
 
 
-    def make_heatmap(self, local_ic, local_map, aug=False, only_obs=False):
-        heat_maps=[]
-        down_size=256
-        half = down_size//2
-        for i in range(len(local_ic)):
-            '''
-            plt.imshow(local_map[i])
-            plt.scatter(local_ic[i,:4,1], local_ic[i,:4,0], s=1, c='b')
-            plt.scatter(local_ic[i,4:,1], local_ic[i,4:,0], s=1, c='g')
-            '''
-            map_size = local_map[i].shape[0]
-            if map_size < down_size:
-                env = np.full((down_size,down_size),1)
-                env[half-map_size//2:half+map_size//2, half-map_size//2:half+map_size//2] = local_map[i]
-                ohm = [env]
-                heat_map_traj = np.zeros_like(local_map[i])
-                heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 1
-                heat_map_traj= ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-                heat_map_traj = heat_map_traj / heat_map_traj.sum()
-                extended_map = np.zeros((down_size, down_size))
-                extended_map[half-map_size//2:half+map_size//2, half-map_size//2:half+map_size//2] = heat_map_traj
-                ohm.append(extended_map)
-                # future
-                if not only_obs:
-                    for j in (self.sg_idx + self.obs_len):
-                        heat_map_traj = np.zeros_like(local_map[i])
-                        heat_map_traj[local_ic[i, j, 0], local_ic[i, j, 1]] = 1
-                        heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-                        extended_map = np.zeros((down_size, down_size))
-                        extended_map[half-map_size//2:half+map_size//2, half-map_size//2:half+map_size//2]= heat_map_traj
-                        ohm.append(extended_map)
-                heat_maps.append(np.stack(ohm))
-            else:
-                env = cv2.resize(local_map[i], dsize=(down_size, down_size))
-                ohm = [env]
-                heat_map_traj = np.zeros_like(local_map[i])
-                heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 100
-
-                if map_size > 1000:
-                    heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2),
-                                               dsize=((map_size+down_size)//2, (map_size+down_size)//2))
-                    heat_map_traj = heat_map_traj / heat_map_traj.sum()
-                heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=(down_size, down_size))
-                if map_size > 3500:
-                    heat_map_traj[np.where(heat_map_traj > 0)] = 1
-                else:
-                    heat_map_traj = heat_map_traj / heat_map_traj.sum()
-                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-                ohm.append(heat_map_traj / heat_map_traj.sum())
-
-                '''
-                heat_map = nnf.interpolate(torch.tensor(heat_map_traj).unsqueeze(0).unsqueeze(0),
-                                           size=local_map[i].shape, mode='nearest').squeeze(0).squeeze(0)
-                heat_map = nnf.interpolate(torch.tensor(heat_map_traj).unsqueeze(0).unsqueeze(0),
-                                           size=local_map[i].shape,  mode='bicubic',
-                                                  align_corners = False).squeeze(0).squeeze(0)
-                '''
-                if not only_obs:
-                    for j in (self.sg_idx+ self.obs_len):
-                        heat_map_traj = np.zeros_like(local_map[i])
-                        heat_map_traj[local_ic[i, j, 0], local_ic[i, j, 1]] = 1000
-                        if map_size > 1000:
-                            heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2),
-                                                       dsize=((map_size+down_size)//2, (map_size+down_size)//2))
-                        heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=(down_size, down_size))
-                        heat_map_traj = heat_map_traj / heat_map_traj.sum()
-                        heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-                        ohm.append(heat_map_traj)
-                heat_maps.append(np.stack(ohm))
-
-        heat_maps = torch.tensor(np.stack(heat_maps)).float().to(self.device)
-
-        if aug:
-            degree = np.random.choice([0,90,180, -90])
-            heat_maps = transforms.Compose([
-                transforms.RandomRotation(degrees=(degree, degree))
-            ])(heat_maps)
-        if not only_obs:
-            return heat_maps[:,:2], heat_maps[:,2:]
-        else:
-            return heat_maps
-
     def temmp(self):
         aa = torch.zeros((120, 2, 256, 256)).to(self.device)
         self.lg_cvae.unet.down_forward(aa)
@@ -361,9 +277,11 @@ class Solver(object):
         pred_ic = pred_ic * 2 - 1
         return torch.nn.functional.grid_sample(local_map.transpose(1,0).unsqueeze(0).unsqueeze(0).repeat((self.pred_len, 1,1,1)), pred_ic.unsqueeze(1).unsqueeze(1)).sum()
 
-
-
-
+    def resize_map(self,local_map):
+        resized_map = []
+        for m in local_map:
+            resized_map.append(cv2.resize(m, dsize=(256, 256)))
+        return torch.tensor(resized_map).unsqueeze(1)
 
     ####
     def train(self):
@@ -407,14 +325,11 @@ class Solver(object):
              maps, local_map, local_ic, local_homo) = data
             batch_size = fut_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
-            obs_heat_map =  self.make_heatmap(local_ic, local_map, aug=False, only_obs=True)
-
-            #-------- map encoding from lgvae --------
-            unet_enc_feat = self.lg_cvae.unet.down_forward(obs_heat_map)
+            resized_map = self.resize_map(local_map)
 
             #-------- trajectories --------
             (hx, mux, log_varx) \
-                = self.encoderMx(obs_traj_st, seq_start_end, unet_enc_feat, local_homo, train=True)
+                = self.encoderMx(obs_traj_st, seq_start_end, resized_map, train=True)
 
 
             (muy, log_vary) \
@@ -603,14 +518,11 @@ class Solver(object):
                 batch_size = fut_traj.size(1)
                 total_traj += fut_traj.size(1)
 
-                obs_heat_map = self.make_heatmap(local_ic, local_map, aug=False, only_obs=True)
-
-                # -------- map encoding from lgvae --------
-                unet_enc_feat = self.lg_cvae.unet.down_forward(obs_heat_map)
+                resized_map = self.resize_map(local_map)
 
                 # -------- trajectories --------
                 (hx, mux, log_varx) \
-                    = self.encoderMx(obs_traj_st, seq_start_end, unet_enc_feat, local_homo)
+                    = self.encoderMx(obs_traj_st, seq_start_end, resized_map, local_homo)
                 p_dist = Normal(mux, torch.clamp(torch.sqrt(torch.exp(log_varx)), min=1e-8))
 
                 fut_rel_pos_dist20 = []
