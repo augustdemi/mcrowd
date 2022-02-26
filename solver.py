@@ -1386,6 +1386,9 @@ class Solver(object):
         fde_avg = torch.Tensor(data['fde_avg'])
         ade_std = torch.Tensor(data['ade_std'])
         fde_std = torch.Tensor(data['fde_std'])
+        test_map_coll = torch.Tensor(data['test_map_coll'])
+        map_coll = torch.Tensor(data['map_coll'])
+
         test_loss_recon = torch.Tensor(data['test_loss_recon'])
         test_loss_kl = torch.Tensor(data['test_loss_kl'])
 
@@ -1393,6 +1396,21 @@ class Solver(object):
         loss_coll = torch.Tensor(data['loss_coll'])
         total_coll = torch.Tensor(data['total_coll'])
         test_total_coll = torch.Tensor(data['test_total_coll'])
+
+        self.viz.line(
+            X=iters, Y=map_coll, env=self.name + '/lines',
+            win=self.win_id['map_coll'], update='append',
+            opts=dict(xlabel='iter', ylabel='map_coll',
+                      title='map_coll')
+        )
+
+        self.viz.line(
+            X=iters, Y=test_map_coll, env=self.name + '/lines',
+            win=self.win_id['test_map_coll'], update='append',
+            opts=dict(xlabel='iter', ylabel='test_map_coll',
+                      title='test_map_coll')
+        )
+
 
         self.viz.line(
             X=iters, Y=total_coll, env=self.name + '/lines',
