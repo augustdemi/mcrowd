@@ -309,7 +309,7 @@ class Solver(object):
                     self.scheduler.step()
                 else:
                     self.optim_vae.param_groups[0]['lr'] = 5e-5
-                print("lr: ", self.optim_vae.param_groups[0]['lr'], ' // w_coll: ', self.w_coll)
+                print("lr: ", self.optim_vae.param_groups[0]['lr'])
                 print('e_coll_loss: ', e_coll_loss, ' // e_total_coll: ', e_total_coll)
                 prev_e_coll_loss = e_coll_loss
                 prev_e_total_coll = e_total_coll
@@ -386,7 +386,7 @@ class Solver(object):
             pred_fut_traj_post = integrate_samples(fut_rel_pos_dist_tf_post.rsample() * self.scale,
                                                    obs_traj[-1, :, :2],
                                                    dt=self.dt)
-            if self.w_coll > 0:
+            if self.w_agent > 0:
                 for s, e in seq_start_end:
                     n_scene += 1
                     num_ped = e - s
