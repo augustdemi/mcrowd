@@ -258,8 +258,9 @@ class Solver(object):
 
 
     def temmp(self):
-        aa = torch.zeros((120, 2, 256, 256)).to(self.device)
-        self.lg_cvae.unet.down_forward(aa)
+        # aa = torch.zeros((120, 2, 256, 256)).to(self.device)
+        # self.lg_cvae.unet.down_forward(aa)
+        print('t')
 
     ## https://gist.github.com/peteflorence/a1da2c759ca1ac2b74af9a83f69ce20e
     def bilinear_interpolate_map(self, local_map, local_homo, pred_traj):
@@ -281,7 +282,7 @@ class Solver(object):
         resized_map = []
         for m in local_map:
             resized_map.append(cv2.resize(m, dsize=(256, 256)))
-        return torch.tensor(resized_map).unsqueeze(1)
+        return torch.tensor(resized_map).unsqueeze(1).to(self.device)
 
     ####
     def train(self):
@@ -325,11 +326,11 @@ class Solver(object):
              maps, local_map, local_ic, local_homo) = data
             batch_size = fut_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
-            # resized_map = self.resize_map(local_map)
+            resized_map = self.resize_map(local_map)
 
             #-------- trajectories --------
             (hx, mux, log_varx) \
-                = self.encoderMx(obs_traj_st, seq_start_end, local_map, train=True)
+                = self.encoderMx(obs_traj_st, seq_start_end, resized_map, train=True)
 
 
             (muy, log_vary) \
@@ -518,9 +519,11 @@ class Solver(object):
                 batch_size = fut_traj.size(1)
                 total_traj += fut_traj.size(1)
 
+                resized_map= self.resize_map(local_map)
+
                 # -------- trajectories --------
                 (hx, mux, log_varx) \
-                    = self.encoderMx(obs_traj_st, seq_start_end, local_map)
+                    = self.encoderMx(obs_traj_st, seq_start_end, resized_map)
                 p_dist = Normal(mux, torch.clamp(torch.sqrt(torch.exp(log_varx)), min=1e-8))
 
                 fut_rel_pos_dist20 = []

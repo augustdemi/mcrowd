@@ -97,16 +97,14 @@ class EncoderX(nn.Module):
                             training=train).view(-1, self.enc_h_dim)
 
         # map enc
-        all_map_feat = []
-        for m in local_map:
-            map_feat = self.map_encdoer(torch.tensor(m).to(self.device).unsqueeze(0).unsqueeze(0))
-            map_feat = torch.mean(map_feat, dim=2, keepdim=True)
-            map_feat = torch.mean(map_feat, dim=3, keepdim=True)
-            all_map_feat.append(self.conv_layer(map_feat).squeeze(-1).squeeze(-1))
-        all_map_feat = torch.cat(all_map_feat)
+        map_feat = self.map_encdoer(local_map)
+        map_feat = torch.mean(map_feat, dim=2, keepdim=True)
+        map_feat = torch.mean(map_feat, dim=3, keepdim=True)
+        map_feat = self.conv_layer(map_feat).squeeze(-1).squeeze(-1)
+
 
         # map and traj
-        hx = torch.cat((F.normalize(obs_feat), F.normalize(all_map_feat)), dim=-1) # 64(32 without attn) to z dim
+        hx = torch.cat((F.normalize(obs_feat), F.normalize(map_feat)), dim=-1) # 64(32 without attn) to z dim
         prior_stat = self.fc_hidden(hx)
         prior_stat = F.dropout(F.relu(prior_stat),
                       p=self.dropout_mlp,
@@ -184,16 +182,13 @@ class EncoderY(nn.Module):
 
 
         # map enc
-        all_map_feat = []
-        for m in local_map:
-            map_feat = self.map_encdoer(torch.tensor(m).to(self.device).unsqueeze(0).unsqueeze(0))
-            map_feat = torch.mean(map_feat, dim=2, keepdim=True)
-            map_feat = torch.mean(map_feat, dim=3, keepdim=True)
-            all_map_feat.append(self.conv_layer(map_feat).squeeze(-1).squeeze(-1))
-        all_map_feat = torch.cat(all_map_feat)
+        map_feat = self.map_encdoer(local_map)
+        map_feat = torch.mean(map_feat, dim=2, keepdim=True)
+        map_feat = torch.mean(map_feat, dim=3, keepdim=True)
+        map_feat = self.conv_layer(map_feat).squeeze(-1).squeeze(-1)
 
         # map and traj
-        hx = torch.cat((F.normalize(final_encoder_h), F.normalize(all_map_feat)), dim=-1) # 64(32 without attn) to z dim
+        hx = torch.cat((F.normalize(final_encoder_h), F.normalize(map_feat)), dim=-1) # 64(32 without attn) to z dim
 
         # final distribution
         stats = self.fc_hidden(hx)
