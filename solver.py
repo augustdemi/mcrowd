@@ -264,7 +264,7 @@ class Solver(object):
     ## https://gist.github.com/peteflorence/a1da2c759ca1ac2b74af9a83f69ce20e
     def bilinear_interpolate_map(self, local_map, local_homo, pred_traj):
         map_dim = local_map.shape[0]
-        pred_ic = torch.matmul(torch.cat([pred_traj, torch.ones(len(pred_traj), 1)], 1),
+        pred_ic = torch.matmul(torch.cat([pred_traj, torch.ones(len(pred_traj), 1).to(self.device)], 1),
                                     torch.pinverse(local_homo.transpose(1, 0)))
         pred_ic = pred_ic / torch.unsqueeze(pred_ic[:, 2], 1)
         pred_ic = torch.round(pred_ic)[:, :2]
@@ -417,7 +417,7 @@ class Solver(object):
             for i in range(len(pred_wcs)):
                 this_map = local_map[i].copy()
                 this_map[np.where(this_map>0)]=1
-                this_map = torch.tensor(this_map)
+                this_map = torch.tensor(this_map).to(self.device)
                 map_coll_loss += self.bilinear_interpolate_map(this_map, local_homo[i], pred_wcs[i])
                 map_coll_loss += self.bilinear_interpolate_map(this_map, local_homo[i], pred_wcs_post[i])
 
@@ -567,7 +567,7 @@ class Solver(object):
                     for i in range(len(pred_wcs)):
                         this_map = local_map[i].copy()
                         this_map[np.where(this_map > 0)] = 1
-                        this_map = torch.tensor(this_map)
+                        this_map = torch.tensor(this_map).to(self.device)
                         map_coll_loss += self.bilinear_interpolate_map(this_map, local_homo[i], pred_wcs[i])
 
 
