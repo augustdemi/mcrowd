@@ -334,7 +334,7 @@ class Solver(object):
 
 
             (muy, log_vary) \
-                = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, local_map, train=True)
+                = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, resized_map, train=True)
 
             p_dist = Normal(mux, torch.clamp(torch.sqrt(torch.exp(log_varx)), min=1e-8))
             q_dist = Normal(muy, torch.clamp(torch.sqrt(torch.exp(log_vary)), min=1e-8))
