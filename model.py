@@ -99,7 +99,7 @@ class EncoderX(nn.Module):
         # map enc
         all_map_feat = []
         for m in local_map:
-            map_feat = self.map_encdoer(torch.tensor(m).to(self.device).unsqueeze(0).unsqueeze(0))
+            map_feat = self.map_encdoer(m.unsqueeze(0).unsqueeze(0))
             map_feat = torch.mean(map_feat, dim=2, keepdim=True)
             map_feat = torch.mean(map_feat, dim=3, keepdim=True)
             all_map_feat.append(self.conv_layer(map_feat).squeeze(-1).squeeze(-1))
@@ -186,7 +186,7 @@ class EncoderY(nn.Module):
         # map enc
         all_map_feat = []
         for m in local_map:
-            map_feat = self.map_encdoer(torch.tensor(m).to(self.device).unsqueeze(0).unsqueeze(0))
+            map_feat = self.map_encdoer(m.unsqueeze(0).unsqueeze(0))
             map_feat = torch.mean(map_feat, dim=2, keepdim=True)
             map_feat = torch.mean(map_feat, dim=3, keepdim=True)
             all_map_feat.append(self.conv_layer(map_feat).squeeze(-1).squeeze(-1))
