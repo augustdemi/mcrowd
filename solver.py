@@ -259,8 +259,9 @@ class Solver(object):
 
 
     def temmp(self):
-        aa = torch.zeros((120, 2, 256, 256)).to(self.device)
-        self.lg_cvae.unet.down_forward(aa)
+        # aa = torch.zeros((120, 2, 256, 256)).to(self.device)
+        # self.lg_cvae.unet.down_forward(aa)
+        print('t')
 
     ## https://gist.github.com/peteflorence/a1da2c759ca1ac2b74af9a83f69ce20e
     def bilinear_interpolate_map(self, local_map, local_homo, pred_traj):
@@ -323,8 +324,12 @@ class Solver(object):
             #          TRAIN THE VAE (ENC & DEC)
             # ============================================
             (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-             maps, local_map, local_ic, local_homo) = data
+             maps, local_maps, local_ic, local_homo) = data
             batch_size = fut_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
+
+            local_map = []
+            for m in local_maps:
+                local_map.append(torch.tensor(m).to(self.device))
 
             # resized_map = self.resize_map(local_map)
 
@@ -416,13 +421,12 @@ class Solver(object):
             # pred_wcs = fut_traj[:,:,:2].transpose(1,0) # batch size, past step, 2
             pred_wcs = pred_fut_traj.transpose(1,0) # batch size, past step, 2
             pred_wcs_post = pred_fut_traj_post.transpose(1,0) # batch size, past step, 2
-            map_coll_loss = 0
-            for i in range(len(pred_wcs)):
-                this_map = local_map[i].copy()
-                this_map[np.where(this_map>0)]=1
-                this_map = torch.tensor(this_map).to(self.device)
-                map_coll_loss += self.bilinear_interpolate_map(this_map, local_homo[i], pred_wcs[i])
-                map_coll_loss += self.bilinear_interpolate_map(this_map, local_homo[i], pred_wcs_post[i])
+            map_coll_loss = torch.tensor(0.0)
+
+            if self.w_map > 0 :
+                for i in range(len(pred_wcs)):
+                    map_coll_loss += self.bilinear_interpolate_map(local_map[i], local_homo[i], pred_wcs[i])
+                    map_coll_loss += self.bilinear_interpolate_map(local_map[i], local_homo[i], pred_wcs_post[i])
 
             loss = - traj_elbo + self.w_agent * coll_loss + self.w_map * map_coll_loss
             e_coll_loss +=coll_loss.item()
@@ -435,12 +439,12 @@ class Solver(object):
 
 
             # save model parameters
-            if (iteration % (iter_per_epoch*5) == 0):
+            if (iteration % (iter_per_epoch*10) == 0):
                 self.save_checkpoint(iteration)
 
             # (visdom) insert current line stats
             if iteration > 0:
-                if iteration == iter_per_epoch or (self.viz_on and (iteration % (iter_per_epoch*5) == 0)):
+                if iteration == iter_per_epoch or (self.viz_on and (iteration % (iter_per_epoch*10) == 0)):
 
                     ade_min, fde_min, \
                     ade_avg, fde_avg, \
@@ -515,9 +519,13 @@ class Solver(object):
                     continue
                 b+=1
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-                 maps, local_map, local_ic, local_homo) = data
+                 maps, local_maps, local_ic, local_homo) = data
                 batch_size = fut_traj.size(1)
                 total_traj += fut_traj.size(1)
+
+                local_map = []
+                for m in local_maps:
+                    local_map.append(torch.tensor(m).to(self.device))
 
                 # -------- trajectories --------
                 (hx, mux, log_varx) \
@@ -568,10 +576,7 @@ class Solver(object):
 
                     pred_wcs = pred_fut_traj.transpose(1, 0)  # batch size, past step, 2
                     for i in range(len(pred_wcs)):
-                        this_map = local_map[i].copy()
-                        this_map[np.where(this_map > 0)] = 1
-                        this_map = torch.tensor(this_map).to(self.device)
-                        map_coll_loss += self.bilinear_interpolate_map(this_map, local_homo[i], pred_wcs[i])
+                        map_coll_loss += self.bilinear_interpolate_map(local_map[i], local_homo[i], pred_wcs[i])
 
 
 
