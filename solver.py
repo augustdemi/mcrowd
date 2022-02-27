@@ -277,7 +277,8 @@ class Solver(object):
         pred_ic[:, 0] = pred_ic[:, 0] / (map_dim - 1)  # normalize to between  0 and 1
         pred_ic[:, 1] = pred_ic[:, 1] / (map_dim - 1)  # normalize to between  0 and 1
         pred_ic = pred_ic * 2 - 1
-        return torch.nn.functional.grid_sample(local_map.transpose(1,0).unsqueeze(0).unsqueeze(0).repeat((self.pred_len, 1,1,1)), pred_ic.unsqueeze(1).unsqueeze(1)).sum()
+        return torch.nn.functional.grid_sample(
+            local_map.transpose(1,0).unsqueeze(0).unsqueeze(0).repeat((self.pred_len, 1,1,1)), pred_ic.unsqueeze(1).unsqueeze(1)).sum().div(self.pred_len)
 
     def resize_map(self,local_map):
         resized_map = []
