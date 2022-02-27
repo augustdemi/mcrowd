@@ -422,7 +422,7 @@ class Solver(object):
             # pred_wcs = fut_traj[:,:,:2].transpose(1,0) # batch size, past step, 2
             pred_wcs = pred_fut_traj.transpose(1,0) # batch size, past step, 2
             pred_wcs_post = pred_fut_traj_post.transpose(1,0) # batch size, past step, 2
-            map_coll_loss = torch.tensor(0.0)
+            map_coll_loss = torch.tensor(0.0).to(self.device)
 
             if self.w_map > 0 :
                 for i in range(len(pred_wcs)):
