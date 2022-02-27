@@ -106,7 +106,7 @@ class EncoderX(nn.Module):
         all_map_feat = torch.cat(all_map_feat)
 
         # map and traj
-        hx = torch.cat((F.normalize(obs_feat), F.normalize(all_map_feat)), dim=-1) # 64(32 without attn) to z dim
+        hx = torch.cat((obs_feat, all_map_feat), dim=-1) # 64(32 without attn) to z dim
         prior_stat = self.fc_hidden(hx)
         prior_stat = F.dropout(F.relu(prior_stat),
                       p=self.dropout_mlp,
@@ -193,7 +193,7 @@ class EncoderY(nn.Module):
         all_map_feat = torch.cat(all_map_feat)
 
         # map and traj
-        hx = torch.cat((F.normalize(final_encoder_h), F.normalize(all_map_feat)), dim=-1) # 64(32 without attn) to z dim
+        hx = torch.cat((final_encoder_h, all_map_feat), dim=-1) # 64(32 without attn) to z dim
 
         # final distribution
         stats = self.fc_hidden(hx)
