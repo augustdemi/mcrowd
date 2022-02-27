@@ -70,6 +70,7 @@ class Solver(object):
         self.context_dim = args.context_dim
         self.w_agent = args.w_agent
         self.w_map = args.w_map
+        self.anneal_epoch = args.anneal_epoch
 
         self.z_fb = args.fb
         self.scale = args.scale
@@ -298,6 +299,14 @@ class Solver(object):
         e_coll_loss = 0
         e_total_coll = 0
 
+
+
+        w_map = self.w_map
+        if self.anneal_epoch > 0:
+            w_map = 0
+        print('>>>>>>>> w_map: ', w_map)
+
+
         for iteration in range(start_iter, self.max_iter + 1):
             data = data_loader.next_sample()
             if data is None:
@@ -309,14 +318,19 @@ class Solver(object):
                     data_loader.is_epoch_end(force=True)
                 else:
                     data_loader.is_epoch_end()
+                print('e_coll_loss: ', e_coll_loss, ' // e_total_coll: ', e_total_coll)
                 print('==== epoch %d done ====' % epoch)
                 epoch +=1
                 if self.optim_vae.param_groups[0]['lr'] > 5e-5:
                     self.scheduler.step()
                 else:
                     self.optim_vae.param_groups[0]['lr'] = 5e-5
+
+                if self.anneal_epoch > 0:
+                    w_map = min(self.w_map * (epoch / self.anneal_epoch), self.w_map)
+                    print('>>>>>>>> w_map: ', w_map)
+
                 print("lr: ", self.optim_vae.param_groups[0]['lr'])
-                print('e_coll_loss: ', e_coll_loss, ' // e_total_coll: ', e_total_coll)
                 prev_e_total_coll = e_total_coll
                 e_coll_loss = 0
                 e_total_coll = 0
@@ -424,19 +438,17 @@ class Solver(object):
             pred_wcs_post = pred_fut_traj_post.transpose(1,0) # batch size, past step, 2
             map_coll_loss = torch.tensor(0.0).to(self.device)
 
-            if self.w_map > 0 :
-                for i in range(len(pred_wcs)):
-                    map_coll_loss += self.bilinear_interpolate_map(local_map[i], local_homo[i], pred_wcs[i])
-                    map_coll_loss += self.bilinear_interpolate_map(local_map[i], local_homo[i], pred_wcs_post[i])
+            for i in range(len(pred_wcs)):
+                map_coll_loss += self.bilinear_interpolate_map(local_map[i], local_homo[i], pred_wcs[i])
+                map_coll_loss += self.bilinear_interpolate_map(local_map[i], local_homo[i], pred_wcs_post[i])
 
-            loss = - traj_elbo + self.w_agent * coll_loss + self.w_map * map_coll_loss
+            loss = - traj_elbo + self.w_agent * coll_loss + w_map * map_coll_loss
             e_coll_loss +=coll_loss.item()
             e_total_coll +=total_coll
 
             self.optim_vae.zero_grad()
             loss.backward()
             self.optim_vae.step()
-
 
 
             # save model parameters
