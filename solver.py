@@ -542,7 +542,7 @@ class Solver(object):
 
                 if loss:
                     (muy, log_vary) \
-                        = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, hx, train=False)
+                        = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, resized_map, train=False)
                     q_dist = Normal(muy, torch.sqrt(torch.exp(log_vary)))
 
                     loss_recon -= fut_rel_pos_dist_prior.log_prob(fut_vel_st).sum().div(batch_size)
