@@ -404,12 +404,12 @@ class Solver(object):
             self.optim_vae.step()
 
             # save model parameters
-            if (iteration % (iter_per_epoch*5) == 0):
+            if (iteration % (iter_per_epoch*10) == 0):
                 self.save_checkpoint(iteration)
 
             # (visdom) insert current line stats
-            if iteration > 0:
-                if iteration == iter_per_epoch or (self.viz_on and (iteration % (iter_per_epoch*5) == 0)):
+            if iteration > 20000:
+                if iteration == iter_per_epoch or (self.viz_on and (iteration % (iter_per_epoch*10) == 0)):
 
                     ade_min, fde_min, \
                     ade_avg, fde_avg, \
@@ -439,11 +439,9 @@ class Solver(object):
                                )
 
                     print(prn_str)
-
-                # (visdom) visualize line stats (then flush out)
-                if self.viz_on and (iteration % self.viz_la_iter == 0):
                     self.visualize_line()
                     self.line_gather.flush()
+
 
 
     def repeat(self, tensor, num_reps):
