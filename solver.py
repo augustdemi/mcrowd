@@ -16,8 +16,8 @@ from torch.distributions import kl_divergence
 from scipy.interpolate import RectBivariateSpline
 from scipy.ndimage import binary_dilation
 # from model_map_ae import Decoder as Map_Decoder
-from data.nuscenes.config import Config
-from data.nuscenes_dataloader import data_generator
+from unet.probabilistic_unet import ProbabilisticUnet
+from unet.unet import Unet
 import numpy as np
 import visdom
 import cv2
@@ -47,30 +47,22 @@ class Solver(object):
 
         self.args = args
         args.num_sg = args.load_e
-        self.name = '%s_zD_%s_dr_mlp_%s_dr_rnn_%s_enc_hD_%s_dec_hD_%s_mlpD_%s_map_featD_%s_map_mlpD_%s_lr_%s_klw_%s_ll_prior_w_%s_zfb_%s_scale_%s_num_sg_%s' \
-                    'ctxtD_%s_coll_th_%s_w_agent_%s_beta_%s_lr_e_%s_w_map_%s_anneal_%s' % \
+        self.name = '%s_zD_%s_dr_mlp_%s_dr_rnn_%s_enc_hD_%s_dec_hD_%s_mlpD_%s_map_featD_%s_map_mlpD_%s_lr_%s_klw_%s_ll_prior_w_%s_zfb_%s_scale_%s_num_sg_%s' % \
                     (args.dataset_name, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
-                     args.decoder_h_dim, args.mlp_dim, args.map_feat_dim , args.map_mlp_dim, args.lr_VAE, args.kl_weight,
-                     args.ll_prior_w, args.fb, args.scale, args.num_sg, args.context_dim, args.coll_th, args.w_agent, args.beta, args.lr_e, args.w_map, args.anneal_epoch)
+                     args.decoder_h_dim, args.mlp_dim, args.map_feat_dim , args.map_mlp_dim, args.lr_VAE, args.kl_weight, args.ll_prior_w, args.fb, args.scale, args.num_sg)
+
 
         # to be appended by run_id
 
         # self.use_cuda = args.cuda and torch.cuda.is_available()
         self.device = args.device
         self.temp=1.99
-        self.dt=0.5
+        self.dt=0.4
         self.eps=1e-9
         self.ll_prior_w =args.ll_prior_w
         self.sg_idx = np.array(range(12))
         self.sg_idx = np.flip(11-self.sg_idx[::(12//args.num_sg)])
 
-
-        self.coll_th = args.coll_th
-        self.beta = args.beta
-        self.context_dim = args.context_dim
-        self.w_agent = args.w_agent
-        self.w_map = args.w_map
-        self.anneal_epoch = args.anneal_epoch
 
         self.z_fb = args.fb
         self.scale = args.scale
@@ -110,16 +102,14 @@ class Solver(object):
                 ade_min='win_ade_min', fde_min='win_fde_min', ade_avg='win_ade_avg', fde_avg='win_fde_avg',
                 ade_std='win_ade_std', fde_std='win_fde_std',
                 test_loss_recon='win_test_loss_recon', test_loss_kl='win_test_loss_kl',
-                loss_recon_prior='win_loss_recon_prior', loss_coll='win_loss_coll', test_loss_coll = 'win_test_loss_coll',
-                test_total_coll='win_test_total_coll', total_coll='win_total_coll', map_coll='map_coll',
-                test_map_coll='test_map_coll'
+                loss_recon_prior='win_loss_recon_prior',
             )
             self.line_gather = DataGather(
-                'iter', 'loss_recon', 'loss_kl', 'loss_recon_prior',
+                'iter', 'loss_recon', 'loss_kl',  'loss_recon_prior',
                 'ade_min', 'fde_min', 'ade_avg', 'fde_avg', 'ade_std', 'fde_std',
-                'test_loss_recon', 'test_loss_kl', 'test_loss_coll', 'loss_coll', 'test_total_coll', 'total_coll',
-                'map_coll', 'test_map_coll'
+                'test_loss_recon', 'test_loss_kl'
             )
+
 
             self.viz_port = args.viz_port  # port number, eg, 8097
             self.viz = visdom.Visdom(port=self.viz_port)
@@ -164,21 +154,23 @@ class Solver(object):
 
         self.ckpt_load_iter = args.ckpt_load_iter
 
-        self.obs_len = 4
+        self.obs_len = args.obs_len
         self.pred_len = args.pred_len
         self.num_layers = args.num_layers
         self.decoder_h_dim = args.decoder_h_dim
 
-        lg_cvae_path = 'nu.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_3.0_anneal_e_10_aug_1_llprior_0.0_run_4'
-        lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_39000_lg_cvae.pt')
-
-        if self.device == 'cuda':
-            self.lg_cvae = torch.load(lg_cvae_path)
-        else:
-            self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
-        print(">>>>>>>>> Init: ", lg_cvae_path)
-
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
+            lg_cvae_path = 'sdd.lgcvae_enc_block_1_fcomb_block_3_wD_20_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_6.0_anneal_e_10_aug_1_run_23'
+            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_59000_lg_cvae.pt')
+
+
+            if self.device == 'cuda':
+                self.lg_cvae = torch.load(lg_cvae_path)
+            else:
+                self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
+            print(">>>>>>>>> Init: ", lg_cvae_path)
+
+
 
             self.encoderMx = EncoderX(
                 args.zS_dim,
@@ -194,7 +186,6 @@ class Solver(object):
                 args.zS_dim,
                 enc_h_dim=args.encoder_h_dim,
                 mlp_dim=args.mlp_dim,
-                map_feat_dim=args.map_feat_dim,
                 num_layers=args.num_layers,
                 dropout_mlp=args.dropout_mlp,
                 dropout_rnn=args.dropout_rnn,
@@ -203,16 +194,12 @@ class Solver(object):
                 args.pred_len,
                 dec_h_dim=self.decoder_h_dim,
                 enc_h_dim=args.encoder_h_dim,
-                map_feat_dim=args.map_feat_dim,
                 mlp_dim=args.mlp_dim,
                 z_dim=args.zS_dim,
                 num_layers=args.num_layers,
                 device=args.device,
                 dropout_rnn=args.dropout_rnn,
-                scale=args.scale,
-                dt=self.dt,
-                context_dim=args.context_dim).to(self.device)
-
+                scale=args.scale).to(self.device)
 
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
@@ -231,159 +218,172 @@ class Solver(object):
             lr=self.lr_VAE,
             betas=[self.beta1_VAE, self.beta2_VAE]
         )
-        self.scheduler = optim.lr_scheduler.LambdaLR(optimizer=self.optim_vae,
-                                        lr_lambda=lambda epoch: args.lr_e ** epoch)
+        # self.lg_optimizer = torch.optim.Adam(, lr=self., weight_decay=0)
 
         # prepare dataloader (iterable)
         print('Start loading data...')
 
 
         if self.ckpt_load_iter != self.max_iter:
-            cfg = Config('nuscenes_train', False, create_dirs=True)
-            torch.set_default_dtype(torch.float32)
-            log = open('log.txt', 'a+')
-            self.train_loader = data_generator(cfg, log, split='train', phase='training',
-                                               batch_size=args.batch_size, device=self.device, scale=args.scale, shuffle=True)
-
-            cfg = Config('nuscenes', False, create_dirs=True)
-            torch.set_default_dtype(torch.float32)
-            log = open('log.txt', 'a+')
-            self.val_loader = data_generator(cfg, log, split='test', phase='testing',
-                                             batch_size=args.batch_size, device=self.device, scale=args.scale, shuffle=True)
+            print("Initializing train dataset")
+            _, self.train_loader = data_loader(self.args, self.dataset_dir, data_split='train')
+            print("Initializing val dataset")
+            _, self.val_loader = data_loader(self.args, self.dataset_dir, data_split='test')
 
             print(
-                'There are {} iterations per epoch'.format(len(self.train_loader.idx_list))
+                'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
             )
         print('...done')
 
+        self.recon_loss_with_logit = nn.BCEWithLogitsLoss(size_average = False, reduce=False, reduction=None)
 
 
 
-    def temmp(self):
-        # aa = torch.zeros((120, 2, 256, 256)).to(self.device)
-        # self.lg_cvae.unet.down_forward(aa)
-        print('t')
+    def make_heatmap(self, local_ic, local_map, aug=False, only_obs=False):
+        heat_maps=[]
+        down_size=256
+        half = down_size//2
+        for i in range(len(local_ic)):
+            map_size = local_map[i][0].shape[0]
+            if map_size < down_size:
+                env = np.full((down_size,down_size),3)
+                env[half-map_size//2:half+map_size//2, half-map_size//2:half+map_size//2] = local_map[i][0]
+                ohm = [env/5]
+                heat_map_traj = np.zeros_like(local_map[i][0])
+                heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 1
+                heat_map_traj= ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+                heat_map_traj = heat_map_traj / heat_map_traj.sum()
+                extended_map = np.zeros((down_size, down_size))
+                extended_map[half-map_size//2:half+map_size//2, half-map_size//2:half+map_size//2] = heat_map_traj
+                ohm.append(extended_map)
+                if not only_obs:
+                    # future
+                    for j in (self.sg_idx + 8):
+                        heat_map_traj = np.zeros_like(local_map[i][0])
+                        heat_map_traj[local_ic[i, j, 0], local_ic[i, j, 1]] = 1
+                        heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+                        extended_map = np.zeros((down_size, down_size))
+                        extended_map[half-map_size//2:half+map_size//2, half-map_size//2:half+map_size//2]= heat_map_traj
+                        ohm.append(extended_map)
+                heat_maps.append(np.stack(ohm))
+            else:
+                env = cv2.resize(local_map[i][0], dsize=(down_size, down_size))
+                ohm = [env/5]
+                heat_map_traj = np.zeros_like(local_map[i][0])
+                heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 100
 
-    ## https://gist.github.com/peteflorence/a1da2c759ca1ac2b74af9a83f69ce20e
-    def bilinear_interpolate_map(self, local_map, local_homo, pred_traj):
-        map_dim = local_map.shape[0]
-        pred_ic = torch.matmul(torch.cat([pred_traj, torch.ones(len(pred_traj), 1).to(self.device)], 1),
-                                    torch.pinverse(local_homo.transpose(1, 0)))
-        pred_ic = pred_ic / torch.unsqueeze(pred_ic[:, 2], 1)
-        pred_ic = pred_ic[:, :2]
-        '''
-        plt.imshow(local_map)
-        plt.scatter(pred_ic[:,1].detach().numpy(), pred_ic[:,0].detach().numpy(), s=1, c='r')
-        '''
-        pred_ic[:, 0] = pred_ic[:, 0] / (map_dim - 1)  # normalize to between  0 and 1
-        pred_ic[:, 1] = pred_ic[:, 1] / (map_dim - 1)  # normalize to between  0 and 1
-        pred_ic = pred_ic * 2 - 1
-        return torch.nn.functional.grid_sample(
-            local_map.transpose(1,0).unsqueeze(0).unsqueeze(0).repeat((self.pred_len, 1,1,1)), pred_ic.unsqueeze(1).unsqueeze(1)).sum().div(self.pred_len)
+                if map_size > 1000:
+                    heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2),
+                                               dsize=((map_size+down_size)//2, (map_size+down_size)//2))
+                    heat_map_traj = heat_map_traj / heat_map_traj.sum()
+                heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=(down_size, down_size))
+                if map_size > 3500:
+                    heat_map_traj[np.where(heat_map_traj > 0)] = 1
+                else:
+                    heat_map_traj = heat_map_traj / heat_map_traj.sum()
+                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+                ohm.append(heat_map_traj / heat_map_traj.sum())
 
-    def resize_map(self,local_map):
-        resized_map = []
-        for m in local_map:
-            resized_map.append(cv2.resize(m, dsize=(256, 256)))
-        return torch.tensor(resized_map).unsqueeze(1)
+                '''
+                heat_map = nnf.interpolate(torch.tensor(heat_map_traj).unsqueeze(0).unsqueeze(0),
+                                           size=local_map[i][0].shape, mode='nearest').squeeze(0).squeeze(0)
+                heat_map = nnf.interpolate(torch.tensor(heat_map_traj).unsqueeze(0).unsqueeze(0),
+                                           size=local_map[i][0].shape,  mode='bicubic',
+                                                  align_corners = False).squeeze(0).squeeze(0)
+                '''
+                if not only_obs:
+                    for j in (self.sg_idx+ 8):
+                        heat_map_traj = np.zeros_like(local_map[i][0])
+                        heat_map_traj[local_ic[i, j, 0], local_ic[i, j, 1]] = 1000
+                        if map_size > 1000:
+                            heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2),
+                                                       dsize=((map_size+down_size)//2, (map_size+down_size)//2))
+                        heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2), dsize=(down_size, down_size))
+                        heat_map_traj = heat_map_traj / heat_map_traj.sum()
+                        heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+                        ohm.append(heat_map_traj)
+                heat_maps.append(np.stack(ohm))
+
+        heat_maps = torch.tensor(np.stack(heat_maps)).float().to(self.device)
+
+        if aug:
+            degree = np.random.choice([0,90,180, -90])
+            heat_maps = transforms.Compose([
+                transforms.RandomRotation(degrees=(degree, degree))
+            ])(heat_maps)
+        if only_obs:
+            return heat_maps
+        else:
+            return heat_maps[:,:2], heat_maps[:,2:], heat_maps[:,-1].unsqueeze(1)
+
 
     ####
     def train(self):
         self.set_mode(train=True)
+        torch.autograd.set_detect_anomaly(True)
         data_loader = self.train_loader
+        self.N = len(data_loader.dataset)
+        iterator = iter(data_loader)
 
-        iter_per_epoch = len(data_loader.idx_list)
+        iter_per_epoch = len(iterator)
         start_iter = self.ckpt_load_iter + 1
         epoch = int(start_iter / iter_per_epoch)
 
-        e_coll_loss = 0
-        e_total_coll = 0
-
-
-
-        w_map = self.w_map
-        if self.anneal_epoch > 0:
-            w_map = 0
-        print('>>>>>>>> w_map: ', w_map)
-
-
         for iteration in range(start_iter, self.max_iter + 1):
-            data = data_loader.next_sample()
-            if data is None:
-                print(0)
-                continue
+
             # reset data iterators for each epoch
             if iteration % iter_per_epoch == 0:
-                if self.ckpt_load_iter > 0:
-                    data_loader.is_epoch_end(force=True)
-                else:
-                    data_loader.is_epoch_end()
-                print('e_coll_loss: ', e_coll_loss, ' // e_total_coll: ', e_total_coll)
                 print('==== epoch %d done ====' % epoch)
                 epoch +=1
-                if self.optim_vae.param_groups[0]['lr'] > 5e-5:
-                    self.scheduler.step()
-                else:
-                    self.optim_vae.param_groups[0]['lr'] = 5e-5
-
-                if self.anneal_epoch > 0:
-                    w_map = min(self.w_map * (epoch / self.anneal_epoch), self.w_map)
-                    print('>>>>>>>> w_map: ', w_map)
-
-                print("lr: ", self.optim_vae.param_groups[0]['lr'])
-                prev_e_total_coll = e_total_coll
-                e_coll_loss = 0
-                e_total_coll = 0
+                iterator = iter(data_loader)
 
             # ============================================
             #          TRAIN THE VAE (ENC & DEC)
             # ============================================
+
+
             (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-             maps, local_maps, local_ic, local_homo) = data
+             obs_frames, pred_frames, map_path, inv_h_t,
+             local_map, local_ic, local_homo) = next(iterator)
             batch_size = fut_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
-            local_map = []
-            for m in local_maps:
-                local_map.append(torch.tensor(m).to(self.device))
+            obs_heat_map =  self.make_heatmap(local_ic, local_map, aug=False, only_obs=True)
 
-            # resized_map = self.resize_map(local_map)
+            #-------- map encoding from lgvae --------
+            unet_enc_feat = self.lg_cvae.unet.down_forward(obs_heat_map)
 
             #-------- trajectories --------
             (hx, mux, log_varx) \
-                = self.encoderMx(obs_traj_st, seq_start_end, local_map, train=True)
+                = self.encoderMx(obs_traj_st, seq_start_end, unet_enc_feat, local_homo, train=True)
 
 
             (muy, log_vary) \
-                = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, local_map, train=True)
+                = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, hx, train=True)
 
-            p_dist = Normal(mux, torch.clamp(torch.sqrt(torch.exp(log_varx)), min=1e-8))
-            q_dist = Normal(muy, torch.clamp(torch.sqrt(torch.exp(log_vary)), min=1e-8))
+            p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
+            q_dist = Normal(muy, torch.sqrt(torch.exp(log_vary)))
 
 
             # TF, goals, z~posterior
             fut_rel_pos_dist_tf_post = self.decoderMy(
-                seq_start_end,
                 obs_traj_st[-1],
                 obs_traj[-1, :, :2],
                 hx,
                 q_dist.rsample(),
                 fut_traj[list(self.sg_idx), :, :2].permute(1,0,2), # goal
                 self.sg_idx,
-                fut_vel_st, # TF
-                train=True
+                fut_vel_st # TF
             )
 
 
             # NO TF, predicted goals, z~prior
             fut_rel_pos_dist_prior = self.decoderMy(
-                seq_start_end,
                 obs_traj_st[-1],
                 obs_traj[-1, :, :2],
                 hx,
                 p_dist.rsample(),
                 fut_traj[list(self.sg_idx), :, :2].permute(1, 0, 2),  # goal
                 self.sg_idx,
-                train=True
             )
 
 
@@ -397,72 +397,24 @@ class Solver(object):
             loglikelihood= ll_tf_post + self.ll_prior_w * ll_prior
             traj_elbo = loglikelihood - self.kl_weight * loss_kl
 
-
-
-            coll_loss = torch.tensor(0.0).to(self.device)
-            total_coll = 0
-            n_scene = 0
-
-            pred_fut_traj = integrate_samples(fut_rel_pos_dist_prior.rsample() * self.scale, obs_traj[-1, :, :2],
-                                              dt=self.dt)
-
-            pred_fut_traj_post = integrate_samples(fut_rel_pos_dist_tf_post.rsample() * self.scale,
-                                                   obs_traj[-1, :, :2],
-                                                   dt=self.dt)
-            if self.w_agent > 0:
-                for s, e in seq_start_end:
-                    n_scene += 1
-                    num_ped = e - s
-                    if num_ped == 1:
-                        continue
-                    for t in range(self.pred_len):
-                        ## prior
-                        curr1 = pred_fut_traj[t, s:e].repeat(num_ped, 1)
-                        curr2 = self.repeat(pred_fut_traj[t, s:e], num_ped)
-                        dist = torch.norm(curr1 - curr2, dim=1)
-                        dist = dist.reshape(num_ped, num_ped)
-                        diff_agent_dist = dist[torch.where(dist > 0)]
-                        coll_loss += (torch.sigmoid(-(diff_agent_dist - self.coll_th) * self.beta)).sum()
-                        total_coll += (len(torch.where(diff_agent_dist < 1.5)[0]) / 2)
-                        ## posterior
-                        curr1_post = pred_fut_traj_post[t, s:e].repeat(num_ped, 1)
-                        curr2_post = self.repeat(pred_fut_traj_post[t, s:e], num_ped)
-                        dist_post = torch.norm(curr1_post - curr2_post, dim=1)
-                        dist_post = dist_post.reshape(num_ped, num_ped)
-                        diff_agent_dist_post = dist_post[torch.where(dist_post > 0)]
-                        coll_loss += (torch.sigmoid(-(diff_agent_dist_post - self.coll_th) * self.beta)).sum()
-                        total_coll += (len(torch.where(diff_agent_dist_post < 1.5)[0]) / 2)
-
-            # pred_wcs = fut_traj[:,:,:2].transpose(1,0) # batch size, past step, 2
-            pred_wcs = pred_fut_traj.transpose(1,0) # batch size, past step, 2
-            pred_wcs_post = pred_fut_traj_post.transpose(1,0) # batch size, past step, 2
-            map_coll_loss = torch.tensor(0.0).to(self.device)
-
-            for i in range(len(pred_wcs)):
-                map_coll_loss += self.bilinear_interpolate_map(local_map[i], local_homo[i], pred_wcs[i])
-                map_coll_loss += self.bilinear_interpolate_map(local_map[i], local_homo[i], pred_wcs_post[i])
-
-            loss = - traj_elbo + self.w_agent * coll_loss + w_map * map_coll_loss
-            e_coll_loss +=coll_loss.item()
-            e_total_coll +=total_coll
+            loss = - traj_elbo
 
             self.optim_vae.zero_grad()
             loss.backward()
             self.optim_vae.step()
 
-
             # save model parameters
-            if (iteration % (iter_per_epoch*10) == 0):
+            if (iteration % (iter_per_epoch*5) == 0):
                 self.save_checkpoint(iteration)
 
             # (visdom) insert current line stats
             if iteration > 0:
-                if iteration == iter_per_epoch or (self.viz_on and (iteration % (iter_per_epoch*10) == 0)):
+                if iteration == iter_per_epoch or (self.viz_on and (iteration % (iter_per_epoch*5) == 0)):
 
                     ade_min, fde_min, \
                     ade_avg, fde_avg, \
                     ade_std, fde_std, \
-                    test_loss_recon, test_loss_kl, test_loss_coll, test_total_coll, test_map_coll_loss = self.evaluate_dist(self.val_loader, loss=True)
+                    test_loss_recon, test_loss_kl, = self.evaluate_dist(self.val_loader, loss=True)
                     self.line_gather.insert(iter=iteration,
                                             ade_min=ade_min,
                                             fde_min=fde_min,
@@ -473,14 +425,9 @@ class Solver(object):
                                             loss_recon=-ll_tf_post.item(),
                                             loss_recon_prior=-ll_prior.item(),
                                             loss_kl=loss_kl.item(),
-                                            loss_coll=coll_loss.item(),
-                                            total_coll=prev_e_total_coll,
-                                            map_coll=map_coll_loss.item(),
-                                            test_map_coll=test_map_coll_loss.item(),
                                             test_loss_recon=test_loss_recon.item(),
                                             test_loss_kl=test_loss_kl.item(),
-                                            test_loss_coll=test_loss_coll.item(),
-                                            test_total_coll=test_total_coll
+
                                             )
                     prn_str = ('[iter_%d (epoch_%d)] vae_loss: %.3f ' + \
                                   '(recon: %.3f, kl: %.3f)\n' + \
@@ -492,9 +439,11 @@ class Solver(object):
                                )
 
                     print(prn_str)
+
+                # (visdom) visualize line stats (then flush out)
+                if self.viz_on and (iteration % self.viz_la_iter == 0):
                     self.visualize_line()
                     self.line_gather.flush()
-
 
 
     def repeat(self, tensor, num_reps):
@@ -516,42 +465,37 @@ class Solver(object):
         total_traj = 0
 
         loss_recon = loss_kl = 0
-        coll_loss = 0
-        total_coll = 0
-        n_scene = 0
-        map_coll_loss = 0
+
 
         all_ade =[]
         all_fde =[]
 
         with torch.no_grad():
             b=0
-            while not data_loader.is_epoch_end():
-                data = data_loader.next_sample()
-                if data is None:
-                    continue
+            for batch in data_loader:
                 b+=1
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-                 maps, local_maps, local_ic, local_homo) = data
+                 obs_frames, pred_frames, map_path, inv_h_t,
+                 local_map, local_ic, local_homo) = batch
                 batch_size = fut_traj.size(1)
                 total_traj += fut_traj.size(1)
 
-                local_map = []
-                for m in local_maps:
-                    local_map.append(torch.tensor(m).to(self.device))
+                obs_heat_map = self.make_heatmap(local_ic, local_map, aug=False, only_obs=True)
+
+                # -------- map encoding from lgvae --------
+                unet_enc_feat = self.lg_cvae.unet.down_forward(obs_heat_map)
 
                 # -------- trajectories --------
                 (hx, mux, log_varx) \
-                    = self.encoderMx(obs_traj_st, seq_start_end, local_map)
-                p_dist = Normal(mux, torch.clamp(torch.sqrt(torch.exp(log_varx)), min=1e-8))
+                    = self.encoderMx(obs_traj_st, seq_start_end, unet_enc_feat, local_homo)
+                p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
 
                 fut_rel_pos_dist20 = []
                 for _ in range(4):
                     # NO TF, pred_goals, z~prior
                     fut_rel_pos_dist_prior = self.decoderMy(
-                        seq_start_end,
                         obs_traj_st[-1],
-                        obs_traj[-1, :, :2],
+                        obs_traj[-1,:,:2],
                         hx,
                         p_dist.rsample(),
                         fut_traj[list(self.sg_idx), :, :2].permute(1, 0, 2),  # goal
@@ -560,72 +504,48 @@ class Solver(object):
                     fut_rel_pos_dist20.append(fut_rel_pos_dist_prior)
 
                 if loss:
+
                     (muy, log_vary) \
-                        = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, local_map, train=False)
+                        = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, hx, train=False)
                     q_dist = Normal(muy, torch.sqrt(torch.exp(log_vary)))
 
                     loss_recon -= fut_rel_pos_dist_prior.log_prob(fut_vel_st).sum().div(batch_size)
                     kld = kl_divergence(q_dist, p_dist).sum().div(batch_size)
                     loss_kl += kld
 
-                    pred_fut_traj = integrate_samples(fut_rel_pos_dist_prior.rsample() * self.scale,
-                                                      obs_traj[-1, :, :2],
-                                                      dt=self.dt)
-                    for s, e in seq_start_end:
-                        n_scene += 1
-                        num_ped = e - s
-                        if num_ped == 1:
-                            continue
-                        seq_traj = pred_fut_traj[:, s:e]
-                        for i in range(len(seq_traj)):
-                            curr1 = seq_traj[i].repeat(num_ped, 1)
-                            curr2 = self.repeat(seq_traj[i], num_ped)
-                            dist = torch.norm(curr1 - curr2, dim=1)
-                            dist = dist.reshape(num_ped, num_ped)
-                            diff_agent_dist = dist[torch.where(dist > 0)]
-                            # diff_agent_dist[torch.where(diff_agent_dist > self.coll_th)] += self.beta
-                            coll_loss += (torch.sigmoid(-(diff_agent_dist - self.coll_th) * self.beta)).sum()
-                            total_coll += (len(torch.where(diff_agent_dist < 1.5)[0]) / 2)
-
-                    pred_wcs = pred_fut_traj.transpose(1, 0)  # batch size, past step, 2
-                    for i in range(len(pred_wcs)):
-                        map_coll_loss += self.bilinear_interpolate_map(local_map[i], local_homo[i], pred_wcs[i])
-
-
-
                 ade, fde = [], []
                 for dist in fut_rel_pos_dist20:
-                    pred_fut_traj = integrate_samples(dist.rsample() * self.scale, obs_traj[-1, :, :2], dt=self.dt)
+                    pred_fut_traj=integrate_samples(dist.rsample() * self.scale, obs_traj[-1, :, :2], dt=self.dt)
                     ade.append(displacement_error(
-                        pred_fut_traj, fut_traj[:, :, :2], mode='raw'
+                        pred_fut_traj, fut_traj[:,:,:2], mode='raw'
                     ))
                     fde.append(final_displacement_error(
-                        pred_fut_traj[-1], fut_traj[-1, :, :2], mode='raw'
+                        pred_fut_traj[-1], fut_traj[-1,:,:2], mode='raw'
                     ))
                 all_ade.append(torch.stack(ade))
                 all_fde.append(torch.stack(fde))
 
-            all_ade = torch.cat(all_ade, dim=1).cpu().numpy()
-            all_fde = torch.cat(all_fde, dim=1).cpu().numpy()
+            all_ade=torch.cat(all_ade, dim=1).cpu().numpy()
+            all_fde=torch.cat(all_fde, dim=1).cpu().numpy()
 
-            ade_min = np.min(all_ade, axis=0).mean() / self.pred_len
+            ade_min = np.min(all_ade, axis=0).mean()/self.pred_len
             fde_min = np.min(all_fde, axis=0).mean()
-            ade_avg = np.mean(all_ade, axis=0).mean() / self.pred_len
+            ade_avg = np.mean(all_ade, axis=0).mean()/self.pred_len
             fde_avg = np.mean(all_fde, axis=0).mean()
-            ade_std = np.std(all_ade, axis=0).mean() / self.pred_len
+            ade_std = np.std(all_ade, axis=0).mean()/self.pred_len
             fde_std = np.std(all_fde, axis=0).mean()
+
 
         self.set_mode(train=True)
         if loss:
             return ade_min, fde_min, \
                    ade_avg, fde_avg, \
                    ade_std, fde_std, \
-                   loss_recon / b, loss_kl / b, coll_loss / b, total_coll, map_coll_loss/b
+                   loss_recon/b, loss_kl/b,
         else:
             return ade_min, fde_min, \
                    ade_avg, fde_avg, \
-                   ade_std, fde_std
-
+                   ade_std, fde_std,
 
     def check_feat(self, data_loader):
         self.set_mode(train=False)
@@ -1315,60 +1235,10 @@ class Solver(object):
         fde_avg = torch.Tensor(data['fde_avg'])
         ade_std = torch.Tensor(data['ade_std'])
         fde_std = torch.Tensor(data['fde_std'])
-        test_map_coll = torch.Tensor(data['test_map_coll'])
-        map_coll = torch.Tensor(data['map_coll'])
-
         test_loss_recon = torch.Tensor(data['test_loss_recon'])
         test_loss_kl = torch.Tensor(data['test_loss_kl'])
 
-        test_loss_coll = torch.Tensor(data['test_loss_coll'])
-        loss_coll = torch.Tensor(data['loss_coll'])
-        total_coll = torch.Tensor(data['total_coll'])
-        test_total_coll = torch.Tensor(data['test_total_coll'])
 
-        self.viz.line(
-            X=iters, Y=map_coll, env=self.name + '/lines',
-            win=self.win_id['map_coll'], update='append',
-            opts=dict(xlabel='iter', ylabel='map_coll',
-                      title='map_coll')
-        )
-
-        self.viz.line(
-            X=iters, Y=test_map_coll, env=self.name + '/lines',
-            win=self.win_id['test_map_coll'], update='append',
-            opts=dict(xlabel='iter', ylabel='test_map_coll',
-                      title='test_map_coll')
-        )
-
-
-        self.viz.line(
-            X=iters, Y=total_coll, env=self.name + '/lines',
-            win=self.win_id['total_coll'], update='append',
-            opts=dict(xlabel='iter', ylabel='total_coll',
-                      title='total_coll')
-        )
-
-        self.viz.line(
-            X=iters, Y=test_total_coll, env=self.name + '/lines',
-            win=self.win_id['test_total_coll'], update='append',
-            opts=dict(xlabel='iter', ylabel='test_total_coll',
-                      title='test_total_coll')
-        )
-
-
-        self.viz.line(
-            X=iters, Y=test_loss_coll, env=self.name + '/lines',
-            win=self.win_id['test_loss_coll'], update='append',
-            opts=dict(xlabel='iter', ylabel='test_loss_coll',
-                      title='test_loss_coll')
-        )
-
-        self.viz.line(
-            X=iters, Y=loss_coll, env=self.name + '/lines',
-            win=self.win_id['loss_coll'], update='append',
-            opts=dict(xlabel='iter', ylabel='loss_coll',
-                      title='loss_coll')
-        )
 
 
 

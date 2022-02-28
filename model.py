@@ -44,7 +44,7 @@ def normal_init(m):
 class EncoderX(nn.Module):
     """Encoder:spatial emb -> lstm -> pooling -> fc for posterior / conditional prior"""
     def __init__(
-        self, zS_dim, enc_h_dim=64, mlp_dim=32, map_feat_dim=64, map_mlp_dim=32,
+        self, zS_dim, enc_h_dim=64, mlp_dim=32, map_feat_dim=32, map_mlp_dim=32,
             num_layers=1, dropout_mlp=0.0, dropout_rnn=0.0, device='cpu'
     ):
         super(EncoderX, self).__init__()
@@ -61,12 +61,19 @@ class EncoderX(nn.Module):
             input_size=n_state, hidden_size=enc_h_dim
         )
 
-        # self.fc_map = nn.Linear(map_feat_dim + 9, map_mlp_dim)
-        self.fc_hidden = nn.Linear(map_feat_dim + enc_h_dim, mlp_dim)
+
+        self.fc1 = nn.Linear(enc_h_dim, mlp_dim)
+        self.fc_hidden = nn.Linear(mlp_dim + map_feat_dim, mlp_dim)
         self.fc_latent = nn.Linear(mlp_dim, zS_dim*2)
 
+        # self.local_map_feat_dim = np.prod([*a])
+        self.map_h_dim = 64*16*16
 
-    def forward(self, obs_traj, seq_start_end, map_feat, local_homo, train=False):
+        self.map_fc1 = nn.Linear(self.map_h_dim + 9, map_mlp_dim)
+        self.map_fc2 = nn.Linear(map_mlp_dim, map_feat_dim)
+
+
+    def forward(self, obs_traj, seq_start_end, local_map_feat, local_homo, train=False):
         """
         Inputs:
         - obs_traj: Tensor of shape (obs_len, batch, 2)
@@ -77,29 +84,28 @@ class EncoderX(nn.Module):
 
         # traj rnn enc
         _, (final_encoder_h, _) = self.rnn_encoder(obs_traj) # [8, 656, 16], 두개의 [1, 656, 32]
-        obs_feat = F.dropout(final_encoder_h,
+        final_encoder_h = F.dropout(final_encoder_h,
                             p=self.dropout_rnn,
-                            training=train).view(-1, self.enc_h_dim)
-
-        # map enc
-        map_feat = torch.mean(map_feat, dim=2, keepdim=True)
-        map_feat = torch.mean(map_feat, dim=3, keepdim=True).squeeze(-1).squeeze(-1)
-
-        # map_feat = self.fc_map(torch.cat((map_feat, local_homo.view(-1, 9)), dim=-1))
-        # map_feat = F.dropout(F.relu(map_feat),
-        #               p=self.dropout_mlp,
-        #               training=train)
-
-        # map and traj
-        hx = torch.cat((obs_feat, map_feat), dim=-1) # 64(32 without attn) to z dim
-        prior_stat = self.fc_hidden(hx)
-        prior_stat = F.dropout(F.relu(prior_stat),
+                            training=train)  # [bs, max_time, enc_rnn_dim]
+        hx = self.fc1(final_encoder_h.view(-1, self.enc_h_dim))
+        hx = F.dropout(F.relu(hx),
                       p=self.dropout_mlp,
                       training=train)
+        stats = self.fc_latent(hx)
 
-        prior_stat = self.fc_latent(prior_stat)
+        # map enc
+        local_map_feat = local_map_feat.view(-1, self.map_h_dim)
+        local_homo = local_homo.view(-1, 9)
+        map_feat = self.map_fc1(torch.cat((local_map_feat, local_homo), dim=-1))
+        map_feat = F.dropout(F.relu(map_feat),
+                      p=self.dropout_mlp,
+                      training=train)
+        map_feat = self.map_fc2(map_feat)
 
-        return hx, prior_stat[:,:self.zS_dim], prior_stat[:,self.zS_dim:]
+        # map and traj
+        hx = self.fc_hidden(torch.cat((hx, map_feat), dim=-1)) # 64(32 without attn) to z dim
+
+        return hx, stats[:,:self.zS_dim], stats[:,self.zS_dim:]
 
 
 class EncoderY(nn.Module):
@@ -160,20 +166,16 @@ class EncoderY(nn.Module):
                       p=self.dropout_mlp,
                       training=train)
         stats = self.fc2(stats)
-        mu = stats[:, :self.zS_dim]
-        log_var = stats[:, self.zS_dim:]
-        mu = torch.clamp(mu, min=-1e8, max=1e8)
-        log_var = torch.clamp(log_var, max=8e1)
 
-        return mu, log_var
+        return stats[:,:self.zS_dim], stats[:,self.zS_dim:]
 
 
 class Decoder(nn.Module):
     """Decoder is part of TrajectoryGenerator"""
     def __init__(
         self, seq_len, dec_h_dim=128, mlp_dim=1024, num_layers=1,
-        dropout_rnn=0.0, enc_h_dim=32, z_dim=32, map_feat_dim=64,
-        device='cpu', scale=1, dt=0.4, dropout_mlp=0.3, context_dim = 32
+        dropout_rnn=0.0, enc_h_dim=32, z_dim=32,
+        device='cpu', scale=1, dt=0.4
     ):
         super(Decoder, self).__init__()
         n_state=6
@@ -187,13 +189,12 @@ class Decoder(nn.Module):
         self.dropout_rnn = dropout_rnn
         self.scale = scale
         self.dt = dt
-        self.context_dim = context_dim
 
-        self.dec_hidden = nn.Linear(map_feat_dim + enc_h_dim  + z_dim, dec_h_dim)
+        self.dec_hidden = nn.Linear(mlp_dim + z_dim, dec_h_dim)
         self.to_vel = nn.Linear(n_state, n_pred_state)
 
         self.rnn_decoder = nn.GRUCell(
-            input_size=map_feat_dim + enc_h_dim  + z_dim + 2*n_pred_state, hidden_size=dec_h_dim
+            input_size=mlp_dim + z_dim + 2*n_pred_state, hidden_size=dec_h_dim
         )
 
         self.fc_mu = nn.Linear(dec_h_dim, n_pred_state)
@@ -203,15 +204,8 @@ class Decoder(nn.Module):
             input_size=n_state, hidden_size=enc_h_dim, num_layers=1, bidirectional=True)
         self.sg_fc = nn.Linear(4*enc_h_dim, n_pred_state)
 
-        self.pool_net = PoolHiddenNet(
-            h_dim=dec_h_dim,
-            context_dim=context_dim,
-            dropout=dropout_mlp
-        )
-        # self.mlp_context_enc = nn.Linear(enc_h_dim + dec_h_dim, dec_h_dim)
-        self.mlp_context= nn.Linear(dec_h_dim + context_dim, dec_h_dim)
 
-    def forward(self, seq_start_end, last_obs_st, last_pos, enc_h_feat, z, sg, sg_update_idx, fut_vel_st=None, train=False):
+    def forward(self, last_obs_st, last_obs_pos, enc_h_feat, z, sg, sg_update_idx, fut_vel_st=None):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
@@ -223,20 +217,16 @@ class Decoder(nn.Module):
         Output:
         - fut_vel_st: tensor of shape (seq_len, batch, 2)
         """
+
+        # x_feat+z(=zx) initial state생성(FC)
+        zx = torch.cat([enc_h_feat, z], dim=1) # 493, 89(64+25)
+        decoder_h=self.dec_hidden(zx) # 493, 128
         # Infer initial action state for node from current state
         pred_vel = self.to_vel(last_obs_st)
-        # pred_vel = last_obs_st[:,2:4] # bs, 2
-        zx = torch.cat([enc_h_feat, z], dim=1) # bs, (32+20)
-        decoder_h=self.dec_hidden(zx) # 493, 128
-
-        # create context hidden feature
-        # context = self.pool_net(enc_h_feat, seq_start_end, last_pos)  # batchsize, 1024
-        # decoder_h=self.dec_hidden(torch.cat([enc_h_feat, context, z], dim=1)) # 493, 128
-
 
         ### make six states
         dt = self.dt * (12/len(sg_update_idx))
-        last_ob_sg = torch.cat([last_pos.unsqueeze(1), sg], dim=1).detach().cpu().numpy()
+        last_ob_sg = torch.cat([last_obs_pos.unsqueeze(1), sg], dim=1).detach().cpu().numpy()
         last_ob_sg = (last_ob_sg - last_ob_sg[:,:1])/self.scale # bs, 4(last obs + # sg), 2
 
         sg_state = []
@@ -251,6 +241,10 @@ class Decoder(nn.Module):
         ### sg encoding
         _, sg_h = self.sg_rnn_enc(sg_state) # [8, 656, 16], 두개의 [1, 656, 32]
         sg_h = torch.cat(sg_h, dim=0).permute(1, 0, 2)
+        if fut_vel_st is not None:
+            train=True
+        else:
+            train=False
         sg_h = F.dropout(sg_h,
                         p=self.dropout_rnn,
                         training=train)  # [bs, max_time, enc_rnn_dim]
@@ -262,123 +256,24 @@ class Decoder(nn.Module):
         stds = []
         j=0
         for i in range(self.seq_len):
-            # predict next position
             decoder_h= self.rnn_decoder(torch.cat([zx, pred_vel, sg_feat], dim=1), decoder_h) #493, 128
-            mu = self.fc_mu(decoder_h)
+            mu= self.fc_mu(decoder_h)
             logVar = self.fc_std(decoder_h)
-            # std = torch.sqrt(torch.exp(logVar))
+            std = torch.sqrt(torch.exp(logVar))
+            mus.append(mu)
+            stds.append(std)
 
-            mu = torch.clamp(mu, min=-1e8, max=1e8)
-            logVar = torch.clamp(logVar, max=8e1)
-            std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
-
-
-            if fut_vel_st is not None:
+            if train:
                 pred_vel = fut_vel_st[i]
             else:
-                if (i == sg_update_idx[j]):
-                    pred_vel = sg_state[j + 1, :, 2:4]
+                if(i == sg_update_idx[j]):
+                    pred_vel = sg_state[j+1,:,2:4]
                     j += 1
                 else:
                     pred_vel = Normal(mu, std).rsample()
-
-            if self.context_dim > 0:
-                pred_vel = Normal(mu, std).rsample()
-                # create context for the next prediction
-                curr_pos = pred_vel * self.scale * self.dt + last_pos
-                context = self.pool_net(decoder_h, seq_start_end, curr_pos)  # batchsize, 1024
-                decoder_h = self.mlp_context(torch.cat([decoder_h, context], dim=1))  # mlp : 1152 -> 1024 -> 128
-                # refine the prediction
-                mu = self.fc_mu(decoder_h)
-                logVar = self.fc_std(decoder_h)
-                mu = torch.clamp(mu, min=-1e8, max=1e8)
-                logVar = torch.clamp(logVar, max=8e1)
-                std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
-                pred_vel = Normal(mu, std).rsample()
-                curr_pos = pred_vel * self.scale * self.dt + last_pos
-                last_pos = curr_pos
-            mus.append(mu)
-            stds.append(std)
 
         mus = torch.stack(mus, dim=0)
         stds = torch.stack(stds, dim=0)
         return Normal(mus, stds)
 
-def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0):
-    layers = []
-    for dim_in, dim_out in zip(dim_list[:-1], dim_list[1:]):
-        layers.append(nn.Linear(dim_in, dim_out))
-        if batch_norm:
-            layers.append(nn.BatchNorm1d(dim_out))
-        if activation == 'relu':
-            layers.append(nn.ReLU())
-        elif activation == 'leakyrelu':
-            layers.append(nn.LeakyReLU())
-        if dropout > 0:
-            layers.append(nn.Dropout(p=dropout))
-    return nn.Sequential(*layers)
 
-class PoolHiddenNet(nn.Module):
-    """Pooling module as proposed in our paper"""
-    def __init__(
-        self, h_dim=64, context_dim=32,
-        activation='relu', batch_norm=False, dropout=0.0
-    ):
-        super(PoolHiddenNet, self).__init__()
-
-        self.h_dim = h_dim
-        self.context_dim = context_dim
-        # self.embedding_dim = embedding_dim
-
-        mlp_pre_dim = 2 + 2*h_dim # 2+128*2
-        mlp_pre_pool_dims = [mlp_pre_dim, 512, context_dim]
-
-        # self.spatial_embedding = nn.Linear(2, embedding_dim)
-        self.mlp_pre_pool = make_mlp(
-            mlp_pre_pool_dims,
-            activation=activation,
-            batch_norm=batch_norm,
-            dropout=dropout)
-
-    def repeat(self, tensor, num_reps):
-        """
-        Inputs:
-        -tensor: 2D tensor of any shape
-        -num_reps: Number of times to repeat each row
-        Outpus:
-        -repeat_tensor: Repeat each row such that: R1, R1, R2, R2
-        """
-        col_len = tensor.size(1)
-        tensor = tensor.unsqueeze(dim=1).repeat(1, num_reps, 1)
-        tensor = tensor.view(-1, col_len)
-        return tensor
-
-    def forward(self, h_states, seq_start_end, end_pos):
-        """
-        Inputs:
-        - h_states: Tensor of shape (num_layers, batch, h_dim)
-        - seq_start_end: A list of tuples which delimit sequences within batch
-        - end_pos: Tensor of shape (batch, 2)
-        Output:
-        - pool_h: Tensor of shape (batch, bottleneck_dim)
-        """
-        pool_h = []
-        for _, (start, end) in enumerate(seq_start_end):
-            num_ped = end - start
-            curr_hidden = h_states[start:end] # (num_layer, batchsize, hidden_size) -> (num_layer*batchsize, hidden_size)
-            curr_end_pos = end_pos[start:end]
-            # hidden feature
-            curr_hidden_1 = curr_hidden.repeat(num_ped, 1) # Repeat -> H1, H2, H1, H2
-            curr_hidden_2 = self.repeat(curr_hidden, num_ped) # Repeat -> H1, H2, H1, H2
-            # position distance & embedding
-            curr_end_pos_1 = curr_end_pos.repeat(num_ped, 1) # Repeat position -> P1, P2, P1, P2
-            curr_end_pos_2 = self.repeat(curr_end_pos, num_ped) # Repeat position -> P1, P1, P2, P2
-            curr_rel_pos = curr_end_pos_1 - curr_end_pos_2 # 다른 agent와의 relative거리 (a1-a1, a2-a1, a2-a1, a1-a2, a2-a2, a3-a2, a1-a3, a2-a3, a3-a3))이런식으로 상대거리
-            # curr_rel_embedding = self.spatial_embedding(curr_rel_pos) # 다른 agent와의 relative거리의 embedding: (repeated data, 64)
-            # mlp_h_input = torch.cat([curr_rel_embedding, curr_hidden_1], dim=1) #(repeated data, 64+128)
-            mlp_h_input = torch.cat([curr_rel_pos, curr_hidden_1, curr_hidden_2], dim=1) #(repeated data, 64+128)
-            curr_pool_h = self.mlp_pre_pool(mlp_h_input) # 64+128 -> 512 -> (repeated data, bottleneck_dim)
-            curr_pool_h = curr_pool_h.view(num_ped, num_ped, -1).max(1)[0] # (sqrt(repeated data), sqrt(repeated data), 1024) 로 바꾼후, 각 agent별로 상대와의 거리가 가장 큰걸 골라냄. (argmax말로 value를)
-            pool_h.append(curr_pool_h)
-        pool_h = torch.cat(pool_h, dim=0)
-        return pool_h
