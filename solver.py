@@ -237,7 +237,10 @@ class Solver(object):
 
         self.recon_loss_with_logit = nn.BCEWithLogitsLoss(size_average = False, reduce=False, reduction=None)
 
-
+    def temmp(self):
+        aa = torch.zeros((50, 2, 256, 256)).to(self.device)
+        self.lg_cvae.unet.down_forward(aa)
+        print('t')
 
     def make_heatmap(self, local_ic, local_map, aug=False, only_obs=False):
         heat_maps=[]
