@@ -302,8 +302,10 @@ class Solver(object):
 
 
         w_map = self.w_map
+        w_agent = self.w_agent
         if self.anneal_epoch > 0:
             w_map = 0
+            w_agent = 0
         print('>>>>>>>> w_map: ', w_map)
 
 
