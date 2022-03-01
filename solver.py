@@ -328,7 +328,9 @@ class Solver(object):
 
                 if self.anneal_epoch > 0:
                     w_map = min(self.w_map * (epoch / self.anneal_epoch), self.w_map)
+                    w_agent = min(self.w_agent * (epoch / self.anneal_epoch), self.w_agent)
                     print('>>>>>>>> w_map: ', w_map)
+                    print('>>>>>>>> w_agent: ', w_agent)
 
                 print("lr: ", self.optim_vae.param_groups[0]['lr'])
                 prev_e_total_coll = e_total_coll
@@ -409,29 +411,29 @@ class Solver(object):
             pred_fut_traj_post = integrate_samples(fut_rel_pos_dist_tf_post.rsample() * self.scale,
                                                    obs_traj[-1, :, :2],
                                                    dt=self.dt)
-            if self.w_agent > 0:
-                for s, e in seq_start_end:
-                    n_scene += 1
-                    num_ped = e - s
-                    if num_ped == 1:
-                        continue
-                    for t in range(self.pred_len):
-                        ## prior
-                        curr1 = pred_fut_traj[t, s:e].repeat(num_ped, 1)
-                        curr2 = self.repeat(pred_fut_traj[t, s:e], num_ped)
-                        dist = torch.norm(curr1 - curr2, dim=1)
-                        dist = dist.reshape(num_ped, num_ped)
-                        diff_agent_dist = dist[torch.where(dist > 0)]
-                        coll_loss += (torch.sigmoid(-(diff_agent_dist - self.coll_th) * self.beta)).sum()
-                        total_coll += (len(torch.where(diff_agent_dist < 1.5)[0]) / 2)
-                        ## posterior
-                        curr1_post = pred_fut_traj_post[t, s:e].repeat(num_ped, 1)
-                        curr2_post = self.repeat(pred_fut_traj_post[t, s:e], num_ped)
-                        dist_post = torch.norm(curr1_post - curr2_post, dim=1)
-                        dist_post = dist_post.reshape(num_ped, num_ped)
-                        diff_agent_dist_post = dist_post[torch.where(dist_post > 0)]
-                        coll_loss += (torch.sigmoid(-(diff_agent_dist_post - self.coll_th) * self.beta)).sum()
-                        total_coll += (len(torch.where(diff_agent_dist_post < 1.5)[0]) / 2)
+            # if w_agent > 0:
+            for s, e in seq_start_end:
+                n_scene += 1
+                num_ped = e - s
+                if num_ped == 1:
+                    continue
+                for t in range(self.pred_len):
+                    ## prior
+                    curr1 = pred_fut_traj[t, s:e].repeat(num_ped, 1)
+                    curr2 = self.repeat(pred_fut_traj[t, s:e], num_ped)
+                    dist = torch.norm(curr1 - curr2, dim=1)
+                    dist = dist.reshape(num_ped, num_ped)
+                    diff_agent_dist = dist[torch.where(dist > 0)]
+                    coll_loss += (torch.sigmoid(-(diff_agent_dist - self.coll_th) * self.beta)).sum()
+                    total_coll += (len(torch.where(diff_agent_dist < 1.5)[0]) / 2)
+                    ## posterior
+                    curr1_post = pred_fut_traj_post[t, s:e].repeat(num_ped, 1)
+                    curr2_post = self.repeat(pred_fut_traj_post[t, s:e], num_ped)
+                    dist_post = torch.norm(curr1_post - curr2_post, dim=1)
+                    dist_post = dist_post.reshape(num_ped, num_ped)
+                    diff_agent_dist_post = dist_post[torch.where(dist_post > 0)]
+                    coll_loss += (torch.sigmoid(-(diff_agent_dist_post - self.coll_th) * self.beta)).sum()
+                    total_coll += (len(torch.where(diff_agent_dist_post < 1.5)[0]) / 2)
 
             # pred_wcs = fut_traj[:,:,:2].transpose(1,0) # batch size, past step, 2
             pred_wcs = pred_fut_traj.transpose(1,0) # batch size, past step, 2
@@ -442,7 +444,7 @@ class Solver(object):
                 map_coll_loss += self.bilinear_interpolate_map(local_map[i], local_homo[i], pred_wcs[i])
                 map_coll_loss += self.bilinear_interpolate_map(local_map[i], local_homo[i], pred_wcs_post[i])
 
-            loss = - traj_elbo + self.w_agent * coll_loss + w_map * map_coll_loss
+            loss = - traj_elbo + w_agent * coll_loss + w_map * map_coll_loss
             e_coll_loss +=coll_loss.item()
             e_total_coll +=total_coll
 
