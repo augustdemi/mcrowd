@@ -267,6 +267,7 @@ class Solver(object):
     ## https://gist.github.com/peteflorence/a1da2c759ca1ac2b74af9a83f69ce20e
     def bilinear_interpolate_map(self, local_map, local_homo, pred_traj):
         map_dim = local_map.shape[0]
+        local_map = torch.tensor(local_map).to(self.device)
         pred_ic = torch.matmul(torch.cat([pred_traj, torch.ones(len(pred_traj), 1).to(self.device)], 1),
                                     torch.pinverse(local_homo.transpose(1, 0)))
         pred_ic = pred_ic / torch.unsqueeze(pred_ic[:, 2], 1)
@@ -281,11 +282,12 @@ class Solver(object):
         return torch.nn.functional.grid_sample(
             local_map.transpose(1,0).unsqueeze(0).unsqueeze(0).repeat((self.pred_len, 1,1,1)), pred_ic.unsqueeze(1).unsqueeze(1)).sum().div(self.pred_len)
 
+
     def resize_map(self,local_map):
         resized_map = []
         for m in local_map:
             resized_map.append(cv2.resize(m, dsize=(256, 256)))
-        return torch.tensor(resized_map).unsqueeze(1)
+        return torch.tensor(resized_map).unsqueeze(1).to(self.device)
 
     ####
     def train(self):
@@ -339,22 +341,19 @@ class Solver(object):
             #          TRAIN THE VAE (ENC & DEC)
             # ============================================
             (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-             maps, local_maps, local_ic, local_homo) = data
+             maps, local_map, local_ic, local_homo) = data
             batch_size = fut_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
-            local_map = []
-            for m in local_maps:
-                local_map.append(torch.tensor(m).to(self.device))
+            resized_map = self.resize_map(local_map)
 
-            # resized_map = self.resize_map(local_map)
 
             #-------- trajectories --------
             (hx, mux, log_varx) \
-                = self.encoderMx(obs_traj_st, seq_start_end, local_map, train=True)
+                = self.encoderMx(obs_traj_st, seq_start_end, resized_map, train=True)
 
 
             (muy, log_vary) \
-                = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, local_map, train=True)
+                = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, resized_map, train=True)
 
             p_dist = Normal(mux, torch.clamp(torch.sqrt(torch.exp(log_varx)), min=1e-8))
             q_dist = Normal(muy, torch.clamp(torch.sqrt(torch.exp(log_vary)), min=1e-8))
@@ -532,17 +531,15 @@ class Solver(object):
                     continue
                 b+=1
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-                 maps, local_maps, local_ic, local_homo) = data
+                 maps, local_map, local_ic, local_homo) = data
                 batch_size = fut_traj.size(1)
                 total_traj += fut_traj.size(1)
 
-                local_map = []
-                for m in local_maps:
-                    local_map.append(torch.tensor(m).to(self.device))
+                resized_map = self.resize_map(local_map)
 
                 # -------- trajectories --------
                 (hx, mux, log_varx) \
-                    = self.encoderMx(obs_traj_st, seq_start_end, local_map)
+                    = self.encoderMx(obs_traj_st, seq_start_end, resized_map)
                 p_dist = Normal(mux, torch.clamp(torch.sqrt(torch.exp(log_varx)), min=1e-8))
 
                 fut_rel_pos_dist20 = []
