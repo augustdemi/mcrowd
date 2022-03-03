@@ -289,7 +289,8 @@ class Solver(object):
         resized_map = []
         for m in local_map:
             resized_map.append(transform(m))
-        return torch.stack(resized_map)
+
+        return torch.stack(resized_map).to(self.device)
 
 
     ####
@@ -349,7 +350,7 @@ class Solver(object):
 
             local_map = []
             for m in local_maps:
-                local_map.append(torch.tensor(m).float().to(self.device))
+                local_map.append(torch.tensor(m).to(self.device))
 
             resized_map = self.resize_map(local_map)
 
@@ -543,7 +544,7 @@ class Solver(object):
 
                 local_map = []
                 for m in local_maps:
-                    local_map.append(torch.tensor(m).float().to(self.device))
+                    local_map.append(torch.tensor(m).to(self.device))
 
                 resized_map = self.resize_map(local_map)
 
