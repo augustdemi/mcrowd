@@ -282,16 +282,10 @@ class Solver(object):
             local_map.transpose(1,0).unsqueeze(0).unsqueeze(0).repeat((self.pred_len, 1,1,1)), pred_ic.unsqueeze(1).unsqueeze(1)).sum().div(self.pred_len)
 
     def resize_map(self,local_map):
-        transform = transforms.Compose([
-            transforms.ToPILImage(),
-            transforms.Resize(256),
-            transforms.ToTensor()])
         resized_map = []
         for m in local_map:
-            resized_map.append(transform(m))
-
-        return torch.stack(resized_map).to(self.device)
-
+            resized_map.append(cv2.resize(m, dsize=(256, 256)))
+        return torch.tensor(resized_map).unsqueeze(1)
 
     ####
     def train(self):
@@ -352,15 +346,15 @@ class Solver(object):
             for m in local_maps:
                 local_map.append(torch.tensor(m).to(self.device))
 
-            resized_map = self.resize_map(local_map)
+            # resized_map = self.resize_map(local_map)
 
             #-------- trajectories --------
             (hx, mux, log_varx) \
-                = self.encoderMx(obs_traj_st, seq_start_end, resized_map, train=True)
+                = self.encoderMx(obs_traj_st, seq_start_end, local_map, train=True)
 
 
             (muy, log_vary) \
-                = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, resized_map, train=True)
+                = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, local_map, train=True)
 
             p_dist = Normal(mux, torch.clamp(torch.sqrt(torch.exp(log_varx)), min=1e-8))
             q_dist = Normal(muy, torch.clamp(torch.sqrt(torch.exp(log_vary)), min=1e-8))
@@ -546,11 +540,9 @@ class Solver(object):
                 for m in local_maps:
                     local_map.append(torch.tensor(m).to(self.device))
 
-                resized_map = self.resize_map(local_map)
-
                 # -------- trajectories --------
                 (hx, mux, log_varx) \
-                    = self.encoderMx(obs_traj_st, seq_start_end, resized_map)
+                    = self.encoderMx(obs_traj_st, seq_start_end, local_map)
                 p_dist = Normal(mux, torch.clamp(torch.sqrt(torch.exp(log_varx)), min=1e-8))
 
                 fut_rel_pos_dist20 = []
@@ -569,7 +561,7 @@ class Solver(object):
 
                 if loss:
                     (muy, log_vary) \
-                        = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, resized_map, train=False)
+                        = self.encoderMy(obs_traj_st[-1], fut_vel_st, seq_start_end, local_map, train=False)
                     q_dist = Normal(muy, torch.sqrt(torch.exp(log_vary)))
 
                     loss_recon -= fut_rel_pos_dist_prior.log_prob(fut_vel_st).sum().div(batch_size)
