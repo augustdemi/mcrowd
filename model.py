@@ -269,11 +269,11 @@ class Decoder(nn.Module):
             else:
                 if (i == sg_update_idx[j]):
                     pred_vel = sg_state[j + 1, :, 2:4]
+                    j += 1
                 else:
                     pred_vel = Normal(mu, std).rsample()
 
-            if (self.context_dim > 0) and (i != sg_update_idx[j]):
-                j += 1
+            if (self.context_dim > 0) and (i not in sg_update_idx):
                 pred_vel = Normal(mu, std).rsample()
                 # create context for the next prediction
                 curr_pos = pred_vel * self.scale * self.dt + last_pos
