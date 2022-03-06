@@ -266,28 +266,43 @@ class Decoder(nn.Module):
 
             if fut_vel_st is not None:
                 pred_vel = fut_vel_st[i]
+                if self.context_dim > 0:
+                    pred_vel = Normal(mu, std).rsample()
+                    # create context for the next prediction
+                    curr_pos = pred_vel * self.scale * self.dt + last_pos
+                    context = self.pool_net(decoder_h, seq_start_end, curr_pos)  # batchsize, 1024
+                    decoder_h = self.mlp_context(
+                        torch.cat([decoder_h, context, sg_feat], dim=1))  # mlp : 1152 -> 1024 -> 128
+                    # refine the prediction
+                    mu = self.fc_mu(decoder_h)
+                    logVar = self.fc_std(decoder_h)
+                    mu = torch.clamp(mu, min=-1e8, max=1e8)
+                    logVar = torch.clamp(logVar, max=8e1)
+                    std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
+                    pred_vel = Normal(mu, std).rsample()
+                    curr_pos = pred_vel * self.scale * self.dt + last_pos
+                    last_pos = curr_pos
             else:
                 if (i == sg_update_idx[j]):
                     pred_vel = sg_state[j + 1, :, 2:4]
                     j += 1
                 else:
                     pred_vel = Normal(mu, std).rsample()
-
-            if self.context_dim > 0:
-                pred_vel = Normal(mu, std).rsample()
-                # create context for the next prediction
-                curr_pos = pred_vel * self.scale * self.dt + last_pos
-                context = self.pool_net(decoder_h, seq_start_end, curr_pos)  # batchsize, 1024
-                decoder_h = self.mlp_context(torch.cat([decoder_h, context, sg_feat], dim=1))  # mlp : 1152 -> 1024 -> 128
-                # refine the prediction
-                mu = self.fc_mu(decoder_h)
-                logVar = self.fc_std(decoder_h)
-                mu = torch.clamp(mu, min=-1e8, max=1e8)
-                logVar = torch.clamp(logVar, max=8e1)
-                std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
-                pred_vel = Normal(mu, std).rsample()
-                curr_pos = pred_vel * self.scale * self.dt + last_pos
-                last_pos = curr_pos
+                    if self.context_dim > 0:
+                        pred_vel = Normal(mu, std).rsample()
+                        # create context for the next prediction
+                        curr_pos = pred_vel * self.scale * self.dt + last_pos
+                        context = self.pool_net(decoder_h, seq_start_end, curr_pos)  # batchsize, 1024
+                        decoder_h = self.mlp_context(torch.cat([decoder_h, context, sg_feat], dim=1))  # mlp : 1152 -> 1024 -> 128
+                        # refine the prediction
+                        mu = self.fc_mu(decoder_h)
+                        logVar = self.fc_std(decoder_h)
+                        mu = torch.clamp(mu, min=-1e8, max=1e8)
+                        logVar = torch.clamp(logVar, max=8e1)
+                        std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
+                        pred_vel = Normal(mu, std).rsample()
+                        curr_pos = pred_vel * self.scale * self.dt + last_pos
+                        last_pos = curr_pos
             mus.append(mu)
             stds.append(std)
 
