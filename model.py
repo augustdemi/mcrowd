@@ -200,7 +200,7 @@ class Decoder(nn.Module):
             dropout=dropout_mlp
         )
         # self.mlp_context_enc = nn.Linear(enc_h_dim + dec_h_dim, dec_h_dim)
-        self.mlp_context= nn.Linear(dec_h_dim + context_dim, dec_h_dim)
+        self.mlp_context= nn.Linear(dec_h_dim + context_dim + 2, dec_h_dim)
 
     def forward(self, seq_start_end, last_obs_st, last_pos, enc_h_feat, z, sg, sg_update_idx, fut_vel_st=None, train=False):
         """
@@ -278,7 +278,7 @@ class Decoder(nn.Module):
                 # create context for the next prediction
                 curr_pos = pred_vel * self.scale * self.dt + last_pos
                 context = self.pool_net(decoder_h, seq_start_end, curr_pos)  # batchsize, 1024
-                decoder_h = self.mlp_context(torch.cat([decoder_h, context], dim=1))  # mlp : 1152 -> 1024 -> 128
+                decoder_h = self.mlp_context(torch.cat([decoder_h, context, sg_feat], dim=1))  # mlp : 1152 -> 1024 -> 128
                 # refine the prediction
                 mu = self.fc_mu(decoder_h)
                 logVar = self.fc_std(decoder_h)
