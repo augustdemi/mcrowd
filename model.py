@@ -200,7 +200,7 @@ class Decoder(nn.Module):
             dropout=dropout_mlp
         )
         # self.mlp_context_enc = nn.Linear(enc_h_dim + dec_h_dim, dec_h_dim)
-        self.mlp_context= nn.Linear(dec_h_dim + context_dim, dec_h_dim)
+        self.mlp_context= nn.Linear(dec_h_dim + context_dim + 2, dec_h_dim)
 
     def forward(self, seq_start_end, last_obs_st, last_pos, enc_h_feat, z, sg, sg_update_idx, fut_vel_st=None, train=False):
         """
@@ -265,7 +265,19 @@ class Decoder(nn.Module):
 
 
             if fut_vel_st is not None:
-                pred_vel = fut_vel_st[i]
+                pred_vel = Normal(mu, std).rsample()
+                curr_pos = pred_vel * self.scale * self.dt + last_pos
+                context = self.pool_net(decoder_h, seq_start_end, curr_pos)  # batchsize, 1024
+                decoder_h = self.mlp_context(torch.cat([decoder_h, context, sg_feat], dim=1))  # mlp : 1152 -> 1024 -> 128
+                # refine the prediction
+                mu = self.fc_mu(decoder_h)
+                logVar = self.fc_std(decoder_h)
+                mu = torch.clamp(mu, min=-1e8, max=1e8)
+                logVar = torch.clamp(logVar, max=8e1)
+                std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
+                pred_vel = Normal(mu, std).rsample()
+                curr_pos = pred_vel * self.scale * self.dt + last_pos
+                last_pos = curr_pos
             else:
                 if (i == sg_update_idx[j]):
                     pred_vel = sg_state[j + 1, :, 2:4]
@@ -299,6 +311,7 @@ class Decoder(nn.Module):
 
                     curr_pos = refined_pred_vel * self.scale * self.dt + last_pos
                     last_pos = curr_pos
+
             mus.append(mu)
             stds.append(std)
 
