@@ -273,7 +273,7 @@ class Decoder(nn.Module):
                 else:
                     pred_vel = Normal(mu, std).rsample()
 
-            if self.context_dim > 0:
+            if (self.context_dim > 0) and (i not in sg_update_idx):
                 # create context for the next prediction
                 curr_pos = pred_vel * self.scale * self.dt + last_pos
                 context = self.pool_net(decoder_h, seq_start_end, curr_pos)  # batchsize, 1024
