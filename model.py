@@ -263,15 +263,7 @@ class Decoder(nn.Module):
             logVar = torch.clamp(logVar, max=8e1)
             std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
 
-
-            if fut_vel_st is not None:
-                pred_vel = fut_vel_st[i]
-            else:
-                if (i == sg_update_idx[j]):
-                    pred_vel = sg_state[j + 1, :, 2:4]
-                    j += 1
-                else:
-                    pred_vel = Normal(mu, std).rsample()
+            pred_vel = Normal(mu, std).rsample()
 
             if self.context_dim > 0:
                 # create context for the next prediction
@@ -284,7 +276,7 @@ class Decoder(nn.Module):
                 mu = torch.clamp(mu, min=-1e8, max=1e8)
                 logVar = torch.clamp(logVar, max=8e1)
                 std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
-                if (i in sg_update_idx) or (fut_vel_st is not None):
+                if (i in sg_update_idx) and (fut_vel_st is None):
                     pred_vel_cand = Normal(mu, std).rsample((20,))
                     refined_pred_vel = []
                     for agent_idx in range(len(pred_vel)):
