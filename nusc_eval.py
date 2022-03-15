@@ -942,8 +942,6 @@ class Solver(object):
                 if data is None:
                     continue
                 b+=1
-                if b >3:
-                    break
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
                  maps, local_map, local_ic, local_homo) = data
                 batch_size = obs_traj.size(1)
@@ -1011,27 +1009,95 @@ class Solver(object):
                     else:
                         pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat], dim=1)))
 
+                    # pred_sg_wc = []
+                    # for i in range(batch_size):
+                    #     map_size = local_map[i].shape
+                    #     pred_sg_ic = []
+                    #     for heat_map in pred_sg_heat[i]:
+                    #         heat_map = nnf.interpolate(heat_map.unsqueeze(0).unsqueeze(0),
+                    #                                    size=map_size, mode='bicubic',
+                    #                                    align_corners=False).squeeze(0).squeeze(0)
+                    #         argmax_idx = heat_map.flatten().sort().indices[-50:]
+                    #
+                    #         gara = np.zeros_like(heat_map)
+                    #         for r in argmax_idx:
+                    #             gara[r // map_size[0], r % map_size[0]] = 1
+                    #         plt.imshow(gara)
+                    #
+                    #         argmax_idx = [argmax_idx // map_size[0], argmax_idx % map_size[0]]
+                    #         pred_sg_ic.append(argmax_idx)
+                    #     pred_sg_ic = torch.tensor(pred_sg_ic).float().to(self.device)
+                    #     # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
+                    #     back_wc = torch.matmul(
+                    #         torch.cat([pred_sg_ic, torch.ones((len(pred_sg_ic), 1)).to(self.device)], dim=1),
+                    #         torch.transpose(local_homo[i], 1, 0))
+                    #     back_wc /= back_wc[:, 2].unsqueeze(1)
+                    #     pred_sg_wc.append(back_wc[:, :2])
+
                     pred_sg_wc = []
-                    for i in range(batch_size):
-                        map_size = local_map[i].shape
-                        pred_sg_ic = []
-                        for heat_map in pred_sg_heat[i]:
-                            heat_map = nnf.interpolate(heat_map.unsqueeze(0).unsqueeze(0),
-                                                       size=map_size, mode='bicubic',
-                                                       align_corners=False).squeeze(0).squeeze(0)
-                            argmax_idx = heat_map.argmax()
-                            argmax_idx = [argmax_idx // map_size[0], argmax_idx % map_size[0]]
-                            pred_sg_ic.append(argmax_idx)
-                        pred_sg_ic = torch.tensor(pred_sg_ic).float().to(self.device)
-                        # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
-                        back_wc = torch.matmul(
-                            torch.cat([pred_sg_ic, torch.ones((len(pred_sg_ic), 1)).to(self.device)], dim=1),
-                            torch.transpose(local_homo[i], 1, 0))
-                        back_wc /= back_wc[:, 2].unsqueeze(1)
-                        pred_sg_wc.append(back_wc[:, :2])
-                        # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
-                    pred_sg_wc = torch.stack(pred_sg_wc)
-                    pred_sg_wcs.append(pred_sg_wc)
+                    for t in range(len(self.sg_idx)):
+                        sg_at_this_step = []
+                        for s, e in seq_start_end:
+                            num_ped = e-s
+                            seq_pred_sg_wcs = []
+                            for i in range(s,e):
+                                map_size = local_map[i].shape
+                                pred_sg_ic = []
+                                heat_map = nnf.interpolate(pred_sg_heat[i,t].unsqueeze(0).unsqueeze(0),
+                                                           size=map_size, mode='bicubic',
+                                                           align_corners=False).squeeze(0).squeeze(0)
+                                for argmax_idx in heat_map.flatten().sort().indices[-50:]:
+                                    argmax_idx = [argmax_idx // map_size[0], argmax_idx % map_size[0]]
+                                    pred_sg_ic.append(argmax_idx)
+                                pred_sg_ic = torch.tensor(pred_sg_ic).float().to(self.device)
+                                back_wc = torch.matmul(
+                                    torch.cat([pred_sg_ic, torch.ones((len(pred_sg_ic), 1)).to(self.device)], dim=1),
+                                    torch.transpose(local_homo[i], 1, 0))
+                                back_wc /= back_wc[:, 2].unsqueeze(1)
+                                seq_pred_sg_wcs.append(back_wc[:, :2])
+                            # check distance btw neighbors within seq_s_e
+                            seq_pred_sg_wcs = torch.stack(seq_pred_sg_wcs)
+                            final_seq_pred_sg = seq_pred_sg_wcs[:,-1]
+
+                            coll_th = 2.8
+                            curr1 = final_seq_pred_sg.repeat(num_ped, 1)
+                            curr2 = self.repeat(final_seq_pred_sg, num_ped)
+                            dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
+                            dist = dist.reshape(num_ped, num_ped) + np.eye(num_ped)*100
+                            dist[np.triu_indices(num_ped, k=1)] += 100
+                            coll_agents = np.where(dist < coll_th)
+                            if len(coll_agents[0]) > 0:
+                                print('--------------------------------')
+                                print('before correction: ', len(coll_agents[0]))
+                                for c in range(len(coll_agents[0])):
+                                    a1_center = seq_pred_sg_wcs[coll_agents[0][c]][-1]
+                                    a2_positions = seq_pred_sg_wcs[coll_agents[1][c]]
+                                    dist = torch.sqrt(torch.pow(a2_positions - a1_center, 2).sum(1)).cpu().numpy()
+                                    if len(np.where(dist>=coll_th)[0]) > 0:
+                                        dist[np.where(dist<coll_th)] +=100
+                                        final_seq_pred_sg[coll_agents[1][c]] = a2_positions[dist.argmin()]
+
+                                        curr1 = final_seq_pred_sg.repeat(num_ped, 1)
+                                        curr2 = self.repeat(final_seq_pred_sg, num_ped)
+                                        dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
+                                        dist = dist.reshape(num_ped, num_ped) + np.eye(num_ped) * 100
+                                        dist[np.triu_indices(num_ped, k=1)] += 100
+                                        print('after correction: ', len(np.where(dist < coll_th)[0]) //2)
+
+                                    else:
+                                        print('no coll free candidate positions: ', dist.max())
+                                        final_seq_pred_sg[coll_agents[1][c]] = a2_positions[dist.argmax()]
+                                        curr1 = final_seq_pred_sg.repeat(num_ped, 1)
+                                        curr2 = self.repeat(final_seq_pred_sg, num_ped)
+                                        dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
+                                        dist = dist.reshape(num_ped, num_ped) + np.eye(num_ped) * 100
+                                        dist[np.triu_indices(num_ped, k=1)] += 100
+                                        print('after correction: ', len(np.where(dist < coll_th)[0]) //2)
+
+                            sg_at_this_step.append(final_seq_pred_sg)
+                        pred_sg_wc.append(torch.cat(sg_at_this_step)) # bs, 2
+                    pred_sg_wc = torch.stack(pred_sg_wc).transpose(1,0) # bs, #sg, 2
+                    pred_sg_wcs.append(pred_sg_wc) # for differe w_prior
 
                     sg_coll5 = 0
                     sg_coll10 = 0
@@ -1097,7 +1163,7 @@ class Solver(object):
                             obs_traj[-1, :, :2],
                             hx,
                             z_prior,
-                            pred_sg_wc,  # goal
+                            pred_sg_wc,  # goal: (bs, # sg , 2)
                             self.sg_idx
                         )
                         fut_rel_pos_dists.append(fut_rel_pos_dist_prior)
@@ -1108,10 +1174,6 @@ class Solver(object):
                 multi_coll20 = []
                 multi_coll25 = []
                 multi_coll30 = []
-
-
-
-
 
                 ade, fde = [], []
                 pred = []
@@ -1453,6 +1515,7 @@ class Solver(object):
             idx=2896
             idx=2886
             idx=2989
+            idx=2775
             data_loader.index = idx
             data = data_loader.next_sample()
             (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
@@ -1656,6 +1719,7 @@ class Solver(object):
             ic_pred = np.array(ic_pred)
             ic_traj = ic_traj[:,:,[1,0]]
             ic_pred = ic_pred[:,:,:,[1,0]]
+            env = 1-np.stack([m, m, m], axis=2)
 
             '''
             plt.imshow(m)
@@ -1665,7 +1729,6 @@ class Solver(object):
             plt.scatter(ic_traj[a, 4:, 0], ic_traj[a, 4:, 1], s=1, c='r')
             '''
 
-            env = 1-np.stack([m, m, m], axis=2)
 
             # ========================================================
 
@@ -1703,7 +1766,7 @@ class Solver(object):
                         ln_gt[agent_idx].set_data(ic_traj[agent_idx, :num_t+1, 0],
                                                   ic_traj[agent_idx, :num_t+1, 1])
 
-                fig, ax = plt.subplots(figsize=(14, 14))
+                fig, ax = plt.subplots(figsize=(7, 7))
                 ax.axis('off')
                 # ax.set_title('sampling number', str(pred_idx), fontsize=9)
                 fig.tight_layout()
@@ -1756,9 +1819,9 @@ class Solver(object):
                 # fig, update_dot = allpre_gif(2)
                 ani = FuncAnimation(fig, update_dot, frames=16, interval=1, init_func=init())
                 plt.close(fig)
-                ani_path = os.path.join(root, 'gif', 'nopool')
-                # ani_path = os.path.join(root, 'gif', 'pool')
-                ani.save(os.path.join(ani_path, str(idx)+ '_sampling' + str(pred_idx)+".gif"), fps=4)
+                # ani_path = os.path.join(root, 'gif', 'nopool')
+                ani_path = os.path.join(root, 'gif', 'pool')
+                ani.save(os.path.join(ani_path, str(idx)+ '_runid83_sampling' + str(pred_idx)+".gif"), fps=4)
                 # ani.save(os.path.join(ani_path, str(idx)+ '_agent2.gif'), fps=4)
 
 
