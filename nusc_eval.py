@@ -1070,7 +1070,7 @@ class Solver(object):
                                 print('--------------------------------')
                                 print('before correction: ', len(coll_agents[0]))
                                 for c in range(len(coll_agents[0])):
-                                    a1_center = seq_pred_sg_wcs[coll_agents[0][c]][-1]
+                                    a1_center = final_seq_pred_sg[coll_agents[0][c]]
                                     a2_positions = seq_pred_sg_wcs[coll_agents[1][c]]
                                     dist = torch.sqrt(torch.pow(a2_positions - a1_center, 2).sum(1)).cpu().numpy()
                                     if len(np.where(dist>=coll_th)[0]) > 0:
@@ -1082,8 +1082,9 @@ class Solver(object):
                                         dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
                                         dist = dist.reshape(num_ped, num_ped) + np.eye(num_ped) * 100
                                         dist[np.triu_indices(num_ped, k=1)] += 100
-                                        print('after correction: ', len(np.where(dist < coll_th)[0]) //2)
-
+                                        print('after correction: ', len(np.where(dist < coll_th)[0]))
+                                        if len(np.where(dist < coll_th)[0]) == 0 :
+                                            break
                                     else:
                                         print('no coll free candidate positions: ', dist.max())
                                         final_seq_pred_sg[coll_agents[1][c]] = a2_positions[dist.argmax()]
@@ -1092,7 +1093,7 @@ class Solver(object):
                                         dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
                                         dist = dist.reshape(num_ped, num_ped) + np.eye(num_ped) * 100
                                         dist[np.triu_indices(num_ped, k=1)] += 100
-                                        print('after correction: ', len(np.where(dist < coll_th)[0]) //2)
+                                        print('after correction: ', len(np.where(dist < coll_th)[0]))
 
                             sg_at_this_step.append(final_seq_pred_sg)
                         pred_sg_wc.append(torch.cat(sg_at_this_step)) # bs, 2
