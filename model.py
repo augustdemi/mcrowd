@@ -285,7 +285,11 @@ class Decoder(nn.Module):
             std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
             mus.append(mu)
             stds.append(std)
-            # update last position - not with the refined one with pooling, but with the one before pooling so that TF values can be kept.
+
+            if (i not in  sg_update_idx) and (fut_vel_st is None):
+                pred_vel = Normal(mu, std).rsample()
+                curr_pos = pred_vel * self.scale * self.dt + last_pos
+
             last_pos = curr_pos
 
 
