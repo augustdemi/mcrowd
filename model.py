@@ -265,7 +265,7 @@ class Decoder(nn.Module):
 
 
             if fut_vel_st is not None:
-                pred_vel = fut_vel_st[i]
+                pred_vel = Normal(mu, std).rsample()
             else:
                 if (i == sg_update_idx[j]):
                     pred_vel = sg_state[j + 1, :, 2:4]
@@ -273,30 +273,43 @@ class Decoder(nn.Module):
                 else:
                     pred_vel = Normal(mu, std).rsample()
 
-            if self.context_dim > 0:
-                pred_vel = Normal(mu, std).rsample()
-                # create context for the next prediction
-                curr_pos = pred_vel * self.scale * self.dt + last_pos
-                context = self.pool_net(decoder_h, seq_start_end, curr_pos)  # batchsize, 1024
-                decoder_h = self.mlp_context(torch.cat([decoder_h, context], dim=1))  # mlp : 1152 -> 1024 -> 128
-                # refine the prediction
-                mu = self.fc_mu(decoder_h)
-                logVar = self.fc_std(decoder_h)
-                mu = torch.clamp(mu, min=-1e8, max=1e8)
-                logVar = torch.clamp(logVar, max=8e1)
-                std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
-                pred_vel = Normal(mu, std).rsample()
-                curr_pos = pred_vel * self.scale * self.dt + last_pos
-                last_pos = curr_pos
+            # create context for the next prediction
+            curr_pos = pred_vel * self.scale * self.dt + last_pos
+            context = self.pool_net(decoder_h, seq_start_end, curr_pos)  # batchsize, 1024
+            decoder_h = self.mlp_context(torch.cat([decoder_h, context], dim=1))  # mlp : 1152 -> 1024 -> 128
+            # refine the distribution
+            mu = self.fc_mu(decoder_h)
+            logVar = self.fc_std(decoder_h)
+            mu = torch.clamp(mu, min=-1e8, max=1e8)
+            logVar = torch.clamp(logVar, max=8e1)
+            std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
             mus.append(mu)
             stds.append(std)
+
+            if (i not in  sg_update_idx) and (fut_vel_st is None):
+                pred_vel = Normal(mu, std).rsample()
+                curr_pos = pred_vel * self.scale * self.dt + last_pos
+
+            last_pos = curr_pos
+
 
         mus = torch.stack(mus, dim=0)
         stds = torch.stack(stds, dim=0)
         return Normal(mus, stds)
 
-    def make_prediction(self, seq_start_end, last_obs_st, last_pos, enc_h_feat, z, sg, sg_update_idx):
 
+    def make_prediction(self, seq_start_end, last_obs_st, last_pos, enc_h_feat, z, sg, sg_update_idx):
+        """
+        Inputs:
+        - last_pos: Tensor of shape (batch, 2)
+        - last_obs_st: Tensor of shape (batch, 6)
+        - enc_h_feat: hidden feature from the encoder
+        - z: sample from the posterior/prior dist.
+        - sg: sg position (batch, # sg, 2)
+        - seq_start_end: A list of tuples which delimit sequences within batch
+        Output:
+        - fut_vel_st: tensor of shape (seq_len, batch, 2)
+        """
         # Infer initial action state for node from current state
         pred_vel = self.to_vel(last_obs_st)
         # pred_vel = last_obs_st[:,2:4] # bs, 2
@@ -332,8 +345,8 @@ class Decoder(nn.Module):
 
 
         ### traj decoding
-        all_pred = []
         j=0
+        all_pred = []
         for i in range(self.seq_len):
             # predict next position
             decoder_h= self.rnn_decoder(torch.cat([zx, pred_vel, sg_feat], dim=1), decoder_h) #493, 128
@@ -345,38 +358,39 @@ class Decoder(nn.Module):
             logVar = torch.clamp(logVar, max=8e1)
             std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
 
-
-            if self.context_dim > 0:
+            if (i == sg_update_idx[j]):
+                pred_vel = sg_state[j + 1, :, 2:4]
+                j += 1
+            else:
                 pred_vel = Normal(mu, std).rsample()
-                # create context for the next prediction
-                curr_pos = pred_vel * self.scale * self.dt + last_pos
-                context = self.pool_net(decoder_h, seq_start_end, curr_pos)  # batchsize, 1024
-                decoder_h = self.mlp_context(torch.cat([decoder_h, context], dim=1))  # mlp : 1152 -> 1024 -> 128
-                # refine the prediction
-                mu = self.fc_mu(decoder_h)
-                logVar = self.fc_std(decoder_h)
-                mu = torch.clamp(mu, min=-1e8, max=1e8)
-                logVar = torch.clamp(logVar, max=8e1)
-                std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
 
-                if i in sg_update_idx:
-                    tf_pred_vel = sg_state[j + 1, :, 2:4]
-                    tf_pos = tf_pred_vel * self.scale * self.dt + last_pos
-                    j += 1
-                    pred_vel_cand = Normal(mu, std).rsample((20,))
-                    refined_pred_vel = []
-                    for agent_idx in range(len(pred_vel)):
-                        cand_pos = pred_vel_cand[:, agent_idx] * self.scale * self.dt + last_pos[agent_idx]
-                        dist_diff = ((cand_pos - tf_pos[agent_idx]) ** 2).sum(1)
-                        pred_vel_idx = torch.argmin(dist_diff)
-                        refined_pred_vel.append(pred_vel_cand[pred_vel_idx, agent_idx])
-                    pred_vel = torch.stack(refined_pred_vel)
-                else:
-                    pred_vel = Normal(mu, std).rsample()
+            # create context for the next prediction
+            curr_pos = pred_vel * self.scale * self.dt + last_pos
+            context = self.pool_net(decoder_h, seq_start_end, curr_pos)  # batchsize, 1024
+            decoder_h = self.mlp_context(torch.cat([decoder_h, context], dim=1))  # mlp : 1152 -> 1024 -> 128
+            # refine the distribution
+            mu = self.fc_mu(decoder_h)
+            logVar = self.fc_std(decoder_h)
+            mu = torch.clamp(mu, min=-1e8, max=1e8)
+            logVar = torch.clamp(logVar, max=8e1)
+            std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
 
-                curr_pos = pred_vel * self.scale * self.dt + last_pos
-                last_pos = curr_pos
-                all_pred.append(pred_vel)
+            if i in sg_update_idx:
+                pred_vel_cand = Normal(mu, std).rsample((20,))
+                refined_pred_vel = []
+                for agent_idx in range(len(pred_vel)):
+                    cand_pos = pred_vel_cand[:, agent_idx] * self.scale * self.dt + last_pos[agent_idx]
+                    dist_diff = ((cand_pos - curr_pos[agent_idx]) ** 2).sum(1)
+                    pred_vel_idx = torch.argmin(dist_diff)
+                    refined_pred_vel.append(pred_vel_cand[pred_vel_idx, agent_idx])
+                pred_vel = torch.stack(refined_pred_vel)
+            else:
+                pred_vel = Normal(mu, std).rsample()
+
+            curr_pos = pred_vel * self.scale * self.dt + last_pos
+            last_pos = curr_pos
+            all_pred.append(pred_vel)
+
 
         return torch.stack(all_pred)
 
