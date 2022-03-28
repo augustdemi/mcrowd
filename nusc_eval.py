@@ -950,7 +950,7 @@ class Solver(object):
                 obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
-                fut_rel_pos_dists = []
+                predictions = []
                 pred_lg_wcs = []
                 pred_sg_wcs = []
 
@@ -1158,7 +1158,7 @@ class Solver(object):
                     for z_prior in z_priors:
                         # -------- trajectories --------
                         # NO TF, pred_goals, z~prior
-                        fut_rel_pos_dist_prior = self.decoderMy(
+                        micro_pred = self.decoderMy.make_prediction(
                             seq_start_end,
                             obs_traj_st[-1],
                             obs_traj[-1, :, :2],
@@ -1167,7 +1167,7 @@ class Solver(object):
                             pred_sg_wc,  # goal: (bs, # sg , 2)
                             self.sg_idx
                         )
-                        fut_rel_pos_dists.append(fut_rel_pos_dist_prior)
+                        predictions.append(micro_pred)
 
                 multi_coll5 = []
                 multi_coll10 = []
@@ -1179,8 +1179,8 @@ class Solver(object):
                 ade, fde = [], []
                 pred = []
                 pix_pred = []
-                for dist in fut_rel_pos_dists:
-                    pred_fut_traj=integrate_samples(dist.rsample() * self.scale, obs_traj[-1, :, :2], dt=self.dt)
+                for vel_pred in predictions:
+                    pred_fut_traj=integrate_samples(vel_pred * self.scale, obs_traj[-1, :, :2], dt=self.dt)
                     pred.append(pred_fut_traj)
                     ade.append(displacement_error(
                         pred_fut_traj, fut_traj[:,:,:2], mode='raw'
