@@ -297,6 +297,93 @@ class Decoder(nn.Module):
         stds = torch.stack(stds, dim=0)
         return Normal(mus, stds)
 
+
+    def make_prediction(self, seq_start_end, last_obs_st, last_pos, enc_h_feat, z, sg, sg_update_idx):
+        """
+        Inputs:
+        - last_pos: Tensor of shape (batch, 2)
+        - last_obs_st: Tensor of shape (batch, 6)
+        - enc_h_feat: hidden feature from the encoder
+        - z: sample from the posterior/prior dist.
+        - sg: sg position (batch, # sg, 2)
+        - seq_start_end: A list of tuples which delimit sequences within batch
+        Output:
+        - fut_vel_st: tensor of shape (seq_len, batch, 2)
+        """
+        # Infer initial action state for node from current state
+        pred_vel = self.to_vel(last_obs_st)
+        # pred_vel = last_obs_st[:,2:4] # bs, 2
+        zx = torch.cat([enc_h_feat, z], dim=1) # bs, (32+20)
+        decoder_h=self.dec_hidden(zx) # 493, 128
+
+        # create context hidden feature
+        # context = self.pool_net(enc_h_feat, seq_start_end, last_pos)  # batchsize, 1024
+        # decoder_h=self.dec_hidden(torch.cat([enc_h_feat, context, z], dim=1)) # 493, 128
+
+
+        ### make six states
+        dt = self.dt * (12/len(sg_update_idx))
+        last_ob_sg = torch.cat([last_pos.unsqueeze(1), sg], dim=1).detach().cpu().numpy()
+        last_ob_sg = (last_ob_sg - last_ob_sg[:,:1])/self.scale # bs, 4(last obs + # sg), 2
+
+        sg_state = []
+        for pos in last_ob_sg:
+            vx = np.gradient(pos[:,0], dt)
+            vy = np.gradient(pos[:,1], dt)
+            ax = np.gradient(vx, dt)
+            ay = np.gradient(vy, dt)
+            sg_state.append(np.array([pos[:,0], pos[:,1], vx, vy, ax, ay]))
+        sg_state = torch.tensor(np.stack(sg_state)).permute((2,0,1)).float().to(z.device) # bs, 6, 4(last_obs + #sg) --> 4, bs, 6
+
+        ### sg encoding
+        _, sg_h = self.sg_rnn_enc(sg_state) # [8, 656, 16], 두개의 [1, 656, 32]
+        sg_h = torch.cat(sg_h, dim=0).permute(1, 0, 2)
+        sg_h = F.dropout(sg_h,
+                        p=self.dropout_rnn,
+                        training=False)  # [bs, max_time, enc_rnn_dim]
+        sg_feat = self.sg_fc(sg_h.reshape(-1, 4 * self.enc_h_dim))
+
+
+        ### traj decoding
+        j=0
+        all_pred = []
+        for i in range(self.seq_len):
+            # predict next position
+            decoder_h= self.rnn_decoder(torch.cat([zx, pred_vel, sg_feat], dim=1), decoder_h) #493, 128
+            mu = self.fc_mu(decoder_h)
+            logVar = self.fc_std(decoder_h)
+            # std = torch.sqrt(torch.exp(logVar))
+
+            mu = torch.clamp(mu, min=-1e8, max=1e8)
+            logVar = torch.clamp(logVar, max=8e1)
+            std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
+
+            if (i == sg_update_idx[j]):
+                pred_vel = sg_state[j + 1, :, 2:4]
+                j += 1
+            else:
+                pred_vel = Normal(mu, std).rsample()
+
+            # create context for the next prediction
+            curr_pos = pred_vel * self.scale * self.dt + last_pos
+            context = self.pool_net(decoder_h, seq_start_end, curr_pos)  # batchsize, 1024
+            decoder_h = self.mlp_context(torch.cat([decoder_h, context], dim=1))  # mlp : 1152 -> 1024 -> 128
+            # refine the distribution
+            mu = self.fc_mu(decoder_h)
+            logVar = self.fc_std(decoder_h)
+            mu = torch.clamp(mu, min=-1e8, max=1e8)
+            logVar = torch.clamp(logVar, max=8e1)
+            std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
+
+            if i not in sg_update_idx:
+                pred_vel = Normal(mu, std).rsample()
+                curr_pos = pred_vel * self.scale * self.dt + last_pos
+            last_pos = curr_pos
+            all_pred.append(pred_vel)
+
+        return torch.stack(all_pred)
+
+
 def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0):
     layers = []
     for dim_in, dim_out in zip(dim_list[:-1], dim_list[1:]):
