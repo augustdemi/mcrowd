@@ -345,8 +345,10 @@ class Decoder(nn.Module):
             logVar = torch.clamp(logVar, max=8e1)
             std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
 
-
-            if self.context_dim > 0:
+            if (i == sg_update_idx[j]):
+                pred_vel = sg_state[j + 1, :, 2:4]
+                j += 1
+            else:
                 pred_vel = Normal(mu, std).rsample()
                 # create context for the next prediction
                 curr_pos = pred_vel * self.scale * self.dt + last_pos
@@ -359,9 +361,9 @@ class Decoder(nn.Module):
                 logVar = torch.clamp(logVar, max=8e1)
                 std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
                 pred_vel = Normal(mu, std).rsample()
-                curr_pos = pred_vel * self.scale * self.dt + last_pos
-                last_pos = curr_pos
-                all_pred.append(pred_vel)
+            curr_pos = pred_vel * self.scale * self.dt + last_pos
+            last_pos = curr_pos
+            all_pred.append(pred_vel)
 
         return torch.stack(all_pred)
 
