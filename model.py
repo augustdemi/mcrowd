@@ -316,7 +316,7 @@ class Decoder(nn.Module):
         return Normal(mus, stds)
 
 
-    def make_pred(self, seq_start_end, last_obs_st, last_pos, enc_h_feat, z, sg, sg_update_idx):
+    def make_prediction(self, seq_start_end, last_obs_st, last_pos, enc_h_feat, z, sg, sg_update_idx):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
