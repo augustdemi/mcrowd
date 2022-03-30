@@ -762,6 +762,25 @@ class Solver(object):
             lg_fde_avg = np.mean(lg_fde, axis=0).mean()
             lg_fde_std = np.std(lg_fde, axis=0).mean()
 
+
+            all_data = \
+                {'seq_start_end': data_loader.seq_start_end,
+                 'obs_traj': data_loader.obs_traj,
+                 'fut_traj': data_loader.fut_traj,
+                 'obs_frame_num': data_loader.obs_frame_num,
+                 'fut_frame_num': data_loader.fut_frame_num,
+                 'map_file_name': data_loader.map_file_name,
+                 'inv_h_t': data_loader.inv_h_t,
+                 'local_map': data_loader.local_map,
+                 'local_ic': data_loader.local_ic,
+                 'local_homo': data_loader.local_homo,
+                 }
+
+            import pickle5
+            save_path = os.path.join('/dresden/users/ml1323/crowd/musevae/datasets/sdd', 'test.pkl')
+            with open(save_path, 'wb') as handle:
+                pickle5.dump(all_data, handle, protocol=pickle5.HIGHEST_PROTOCOL)
+
         return ade_min, fde_min, \
                ade_avg, fde_avg, \
                ade_std, fde_std, \
