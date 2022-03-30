@@ -764,11 +764,9 @@ class Solver(object):
 
 
             all_data = \
-                {'seq_start_end': data_loader.dataset.seq_start_end,
+                {
                  'obs_traj': data_loader.dataset.obs_traj.cpu().numpy(),
                  'fut_traj': data_loader.dataset.pred_traj.cpu().numpy(),
-                 'obs_frame_num': data_loader.dataset.obs_frame_num,
-                 'fut_frame_num': data_loader.dataset.fut_frame_num,
                  'map_file_name': data_loader.dataset.map_file_name,
                  'local_map': data_loader.dataset.local_map,
                  'local_ic': data_loader.dataset.local_ic,
@@ -776,7 +774,7 @@ class Solver(object):
                  }
 
             import pickle
-            save_path = os.path.join('/dresden/users/ml1323/crowd/musevae/datasets/sdd', 'test.pkl')
+            save_path = os.path.join('/dresden/users/ml1323/crowd/musevae/datasets/sdd', 'test2.pkl')
             with open(save_path, 'wb') as handle:
                 pickle.dump(all_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
