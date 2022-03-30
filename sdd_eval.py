@@ -764,16 +764,16 @@ class Solver(object):
 
 
             all_data = \
-                {'seq_start_end': data_loader.seq_start_end,
-                 'obs_traj': data_loader.obs_traj,
-                 'fut_traj': data_loader.fut_traj,
-                 'obs_frame_num': data_loader.obs_frame_num,
-                 'fut_frame_num': data_loader.fut_frame_num,
-                 'map_file_name': data_loader.map_file_name,
-                 'inv_h_t': data_loader.inv_h_t,
-                 'local_map': data_loader.local_map,
-                 'local_ic': data_loader.local_ic,
-                 'local_homo': data_loader.local_homo,
+                {'seq_start_end': data_loader.dset.seq_start_end,
+                 'obs_traj': data_loader.dset.obs_traj,
+                 'fut_traj': data_loader.dset.fut_traj,
+                 'obs_frame_num': data_loader.dset.obs_frame_num,
+                 'fut_frame_num': data_loader.dset.fut_frame_num,
+                 'map_file_name': data_loader.dset.map_file_name,
+                 'inv_h_t': data_loader.dset.inv_h_t,
+                 'local_map': data_loader.dset.local_map,
+                 'local_ic': data_loader.dset.local_ic,
+                 'local_homo': data_loader.dset.local_homo,
                  }
 
             import pickle5
