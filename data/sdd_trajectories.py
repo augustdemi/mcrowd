@@ -313,6 +313,7 @@ class TrajectoryDataset(Dataset):
         self.local_map_size = np.stack(local_map_size)
         self.local_ic = [[]] * self.num_seq
         self.local_homo = [[]] * self.num_seq
+        self.local_map = [[]] * self.num_seq
 
         print(self.seq_start_end[-1])
 
@@ -330,6 +331,7 @@ class TrajectoryDataset(Dataset):
                                                                     compute_local_homo=True)
             self.local_ic[index] = local_ic
             self.local_homo[index] = local_homo
+            self.local_map[index] = local_map
         else:
             local_map, _, _ = self.get_local_map_ic(global_map, all_traj, zoom=1, radius=self.local_map_size[index])
             local_ic = self.local_ic[index]
