@@ -766,14 +766,13 @@ class Solver(object):
             all_data = \
                 {'seq_start_end': data_loader.dataset.seq_start_end,
                  'obs_traj': data_loader.dataset.obs_traj,
-                 'fut_traj': data_loader.dataset.fut_traj,
+                 'fut_traj': data_loader.dataset.pred_traj,
                  'obs_frame_num': data_loader.dataset.obs_frame_num,
                  'fut_frame_num': data_loader.dataset.fut_frame_num,
                  'map_file_name': data_loader.dataset.map_file_name,
-                 'inv_h_t': data_loader.dataset.inv_h_t,
                  'local_map': data_loader.dataset.local_map,
                  'local_ic': data_loader.dataset.local_ic,
-                 'local_homo': data_loader.dataset.local_homo,
+                 'local_homo': data_loader.dataset.local_ic,
                  }
 
             import pickle
