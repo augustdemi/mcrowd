@@ -764,22 +764,22 @@ class Solver(object):
 
 
             all_data = \
-                {'seq_start_end': data_loader.dset.seq_start_end,
-                 'obs_traj': data_loader.dset.obs_traj,
-                 'fut_traj': data_loader.dset.fut_traj,
-                 'obs_frame_num': data_loader.dset.obs_frame_num,
-                 'fut_frame_num': data_loader.dset.fut_frame_num,
-                 'map_file_name': data_loader.dset.map_file_name,
-                 'inv_h_t': data_loader.dset.inv_h_t,
-                 'local_map': data_loader.dset.local_map,
-                 'local_ic': data_loader.dset.local_ic,
-                 'local_homo': data_loader.dset.local_homo,
+                {'seq_start_end': data_loader.dataset.seq_start_end,
+                 'obs_traj': data_loader.dataset.obs_traj,
+                 'fut_traj': data_loader.dataset.fut_traj,
+                 'obs_frame_num': data_loader.dataset.obs_frame_num,
+                 'fut_frame_num': data_loader.dataset.fut_frame_num,
+                 'map_file_name': data_loader.dataset.map_file_name,
+                 'inv_h_t': data_loader.dataset.inv_h_t,
+                 'local_map': data_loader.dataset.local_map,
+                 'local_ic': data_loader.dataset.local_ic,
+                 'local_homo': data_loader.dataset.local_homo,
                  }
 
-            import pickle5
+            import pickle
             save_path = os.path.join('/dresden/users/ml1323/crowd/musevae/datasets/sdd', 'test.pkl')
             with open(save_path, 'wb') as handle:
-                pickle5.dump(all_data, handle, protocol=pickle5.HIGHEST_PROTOCOL)
+                pickle.dump(all_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
         return ade_min, fde_min, \
                ade_avg, fde_avg, \
