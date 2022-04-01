@@ -141,7 +141,7 @@ def create_parser():
     parser.add_argument('--context_dim', default=10, type=int)
     parser.add_argument('--scale', default=1.0, type=float)
     parser.add_argument('--coll_th', default=5.0, type=float)
-    parser.add_argument('--w_agent', default=1.0, type=float)
+    parser.add_argument('--w_coll', default=1.0, type=float)
     parser.add_argument('--w_map', default=1.0, type=float)
     parser.add_argument('--beta', default=1, type=float)
     parser.add_argument('--lr_e', default=0.8, type=float)
