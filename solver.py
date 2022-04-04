@@ -160,8 +160,8 @@ class Solver(object):
         self.decoder_h_dim = args.decoder_h_dim
 
 
-        lg_cvae_path = 'a2a.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_2.0_anneal_e_10_aug_1_llprior_1.0_run_0'
-        lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_32900_lg_cvae.pt')
+        lg_cvae_path = 'a2a.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_4.0_anneal_e_10_aug_1_llprior_1.0_run_4'
+        lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_52580_lg_cvae.pt')
 
 
         if self.device == 'cuda':
@@ -200,8 +200,10 @@ class Solver(object):
         print('Start loading data...')
 
         if self.ckpt_load_iter != self.max_iter:
-            train_file_name = 'trainall'
-            test_file_name = 'test10'
+            train_file_name = 'train_threshold0.5'
+            # train_file_name = 'test'
+            test_file_name = 'test5_threshold0.5'
+            # test_file_name = 'test'
 
             print("Initializing train dataset from ", train_file_name)
             _, self.train_loader = data_loader(self.args, args.dataset_dir, train_file_name, shuffle=True)
@@ -216,7 +218,6 @@ class Solver(object):
             )
         print('...done')
 
-
     def make_heatmap(self, local_ic, local_map, aug=False):
         heat_maps=[]
         down_size=256
@@ -226,10 +227,10 @@ class Solver(object):
             plt.scatter(local_ic[i,:8,1], local_ic[i,:8,0], s=1, c='b')
             plt.scatter(local_ic[i,8:,1], local_ic[i,8:,0], s=1, c='r')
             '''
-            map_size = local_map[i][0].shape[0]
-            env = cv2.resize(local_map[i][0], dsize=(down_size, down_size))
+            map_size = local_map[i].shape[0]
+            env = cv2.resize(local_map[i], dsize=(down_size, down_size))
             ohm = [env]
-            heat_map_traj = np.zeros_like(local_map[i][0])
+            heat_map_traj = np.zeros_like(local_map[i])
             heat_map_traj[local_ic[i, :self.obs_len, 0], local_ic[i, :self.obs_len, 1]] = 100
 
             if map_size > 1000:
@@ -253,7 +254,7 @@ class Solver(object):
                                               align_corners = False).squeeze(0).squeeze(0)
             '''
             for j in (self.sg_idx + self.obs_len):
-                heat_map_traj = np.zeros_like(local_map[i][0])
+                heat_map_traj = np.zeros_like(local_map[i])
                 heat_map_traj[local_ic[i, j, 0], local_ic[i, j, 1]] = 1000
                 if map_size > 1000:
                     heat_map_traj = cv2.resize(ndimage.filters.gaussian_filter(heat_map_traj, sigma=2),
@@ -276,7 +277,7 @@ class Solver(object):
 
 
     def make_one_heatmap(self, local_map, local_ic):
-        map_size = local_map[0].shape[0]
+        map_size = local_map.shape[0]
         down_size=256
         heat_map_traj = np.zeros_like(local_map)
         heat_map_traj[local_ic[0], local_ic[1]] = 1000
@@ -289,6 +290,9 @@ class Solver(object):
         heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
 
         return heat_map_traj
+
+    def temmp(self):
+        print()
 
     ####
     def train(self):
@@ -353,12 +357,12 @@ class Solver(object):
             self.optim_vae.step()
 
             # save model parameters
-            if (iteration % (iter_per_epoch * 5) == 0) or (iteration % (iter_per_epoch * 2) == 0):
+            if (iteration % (iter_per_epoch * 2) == 0):
                 self.save_checkpoint(iteration)
 
             # (visdom) insert current line stats
             if iteration > 0:
-                if (iteration == iter_per_epoch) or (self.viz_on and (iteration % (iter_per_epoch * 5) == 0)):
+                if (iteration == iter_per_epoch) or (self.viz_on and (iteration % (iter_per_epoch * 2) == 0)):
 
                     lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon, test_lg_kl, \
                             test_sg_recon_loss, sg_ade_min, sg_ade_avg, sg_ade_std = self.evaluate_dist(self.val_loader, loss=True)
@@ -427,7 +431,7 @@ class Solver(object):
                     pred_lg_wc = []
                     pred_lg_ics = []
                     for i in range(batch_size):
-                        map_size = local_map[i][0].shape
+                        map_size = local_map[i].shape
                         pred_lg_ic = []
                         for heat_map in pred_lg_heat[i]:
                             # heat_map = nnf.interpolate(heat_map.unsqueeze(0), size=map_size, mode='nearest')
@@ -444,14 +448,14 @@ class Solver(object):
                     # -------- short term goal --------
                     pred_lg_heat_from_ic = []
                     for i in range(len(pred_lg_ics)):
-                        pred_lg_heat_from_ic.append(self.make_one_heatmap(local_map[i][0], pred_lg_ics[i][0].detach().cpu().numpy().astype(int)))
+                        pred_lg_heat_from_ic.append(self.make_one_heatmap(local_map[i], pred_lg_ics[i].detach().cpu().numpy().astype(int)[0]))
                     pred_lg_heat_from_ic = torch.tensor(np.stack(pred_lg_heat_from_ic)).unsqueeze(1).float().to(self.device)
 
                     pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1)))
 
                     pred_sg_wc = []
                     for i in range(batch_size):
-                        map_size = local_map[i][0].shape
+                        map_size = local_map[i].shape
                         pred_sg_ic = []
                         for heat_map in pred_sg_heat[i]:
                             heat_map = nnf.interpolate(heat_map.unsqueeze(0).unsqueeze(0),
