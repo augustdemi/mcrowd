@@ -203,9 +203,27 @@ class Decoder(nn.Module):
         self.mlp_context= nn.Linear(dec_h_dim + context_dim, dec_h_dim)
 
     def forward(self, seq_start_end, last_obs_st, last_pos, enc_h_feat, z, sg, sg_update_idx, fut_vel_st=None, train=False):
+        """
+        Inputs:
+        - last_pos: Tensor of shape (batch, 2)
+        - last_obs_st: Tensor of shape (batch, 6)
+        - enc_h_feat: hidden feature from the encoder
+        - z: sample from the posterior/prior dist.
+        - sg: sg position (batch, # sg, 2)
+        - seq_start_end: A list of tuples which delimit sequences within batch
+        Output:
+        - fut_vel_st: tensor of shape (seq_len, batch, 2)
+        """
+        # Infer initial action state for node from current state
         pred_vel = self.to_vel(last_obs_st)
+        # pred_vel = last_obs_st[:,2:4] # bs, 2
         zx = torch.cat([enc_h_feat, z], dim=1) # bs, (32+20)
         decoder_h=self.dec_hidden(zx) # 493, 128
+
+        # create context hidden feature
+        # context = self.pool_net(enc_h_feat, seq_start_end, last_pos)  # batchsize, 1024
+        # decoder_h=self.dec_hidden(torch.cat([enc_h_feat, context, z], dim=1)) # 493, 128
+
 
         ### make six states
         dt = self.dt * (12/len(sg_update_idx))
@@ -231,7 +249,8 @@ class Decoder(nn.Module):
 
 
         ### traj decoding
-        all_pred = []
+        mus = []
+        stds = []
         j=0
         for i in range(self.seq_len):
             # predict next position
@@ -243,8 +262,19 @@ class Decoder(nn.Module):
             mu = torch.clamp(mu, min=-1e8, max=1e8)
             logVar = torch.clamp(logVar, max=8e1)
             std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
-            pred_vel = Normal(mu, std).rsample()
+
+
+            if fut_vel_st is not None:
+                pred_vel = fut_vel_st[i]
+            else:
+                if (i == sg_update_idx[j]):
+                    pred_vel = sg_state[j + 1, :, 2:4]
+                    j += 1
+                else:
+                    pred_vel = Normal(mu, std).rsample()
+
             if self.context_dim > 0:
+                pred_vel = Normal(mu, std).rsample()
                 # create context for the next prediction
                 curr_pos = pred_vel * self.scale * self.dt + last_pos
                 context = self.pool_net(decoder_h, seq_start_end, curr_pos)  # batchsize, 1024
@@ -258,9 +288,12 @@ class Decoder(nn.Module):
                 pred_vel = Normal(mu, std).rsample()
                 curr_pos = pred_vel * self.scale * self.dt + last_pos
                 last_pos = curr_pos
-            all_pred.append(pred_vel)
+            mus.append(mu)
+            stds.append(std)
 
-        return torch.stack(all_pred)
+        mus = torch.stack(mus, dim=0)
+        stds = torch.stack(stds, dim=0)
+        return Normal(mus, stds)
 
     def make_prediction(self, seq_start_end, last_obs_st, last_pos, enc_h_feat, z, sg, sg_update_idx):
 
