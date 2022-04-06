@@ -5,6 +5,7 @@ import pandas as pd
 import cv2
 import numpy as np
 import torch
+from toolz import curry
 from torch.utils.data import Dataset
 
 import sys
@@ -259,7 +260,7 @@ class TrajectoryDataset(Dataset):
                         under_th_idx = np.array(np.where((dist > 0) & (dist < coll_th)))
                         # under_th_idx = np.where((dist > 0) & (dist < coll_th))
 
-                        print(len(np.array(np.where((dist > 0.5) & (dist < 1))[0])))
+                        # print(len(np.array(np.where((dist > 0.5) & (dist < 1))[0])))
 
                         # for elt in np.unique(under_th_idx):
                         #     np.count_nonzero(under_th_idx == elt)
@@ -273,14 +274,40 @@ class TrajectoryDataset(Dataset):
                     if len(exclude_idx) > 0:
                         # print(len(exclude_idx), '/', num_peds_considered)
                         valid_idx = [i for i in range(num_peds_considered) if i not in exclude_idx]
+                        seq_traj = curr_seq[valid_idx]
                         num_peds_considered = len(valid_idx)
-                        seq_list.append(curr_seq[valid_idx])
+
+                        #======================
+                        # for i in range(20):
+                        #     curr1 = seq_traj[:, :2, i].repeat(num_peds_considered, 0)  # AAABBBCCC
+                        #     curr2 = np.stack([seq_traj[:, :2, i]] * num_peds_considered).reshape(-1, 2)  # ABCABC
+                        #     dist = np.linalg.norm(curr1 - curr2, axis=1)
+                        #     dist = dist.reshape(num_peds_considered, num_peds_considered)
+                        #
+                        #     diff_agent_idx = np.triu_indices(num_peds_considered, k=1)
+                        #     dist[diff_agent_idx] = 0
+                        #     print(len(np.array(np.where((dist > 0) & (dist < 2))[0])))
+                        #======================
                     else:
-                        seq_list.append(curr_seq[:num_peds_considered])
+                        seq_traj = curr_seq[:num_peds_considered]
+
+                    # find the agent with max num of neighbors at the beginning of future steps
+                    curr1 = seq_traj[:, :2, self.obs_len].repeat(num_peds_considered, 0)  # AAABBBCCC
+                    curr2 = np.stack([seq_traj[:, :2, self.obs_len]] * num_peds_considered).reshape(-1, 2)  # ABCABC
+                    dist = np.linalg.norm(curr1 - curr2, axis=1)
+                    dist = dist.reshape(num_peds_considered, num_peds_considered)
+                    target_agent_idx = []
+                    for d in range(len(dist)):
+                        neighbor_idx = np.where((dist[d] < 10))[0]
+                        if len(neighbor_idx) > len(target_agent_idx):
+                            target_agent_idx = neighbor_idx
+                    seq_traj = curr_seq[target_agent_idx]
+
+                    num_peds_considered = len(target_agent_idx)
+                    # print(num_peds_considered)
+
+                    seq_list.append(seq_traj)
                     num_data_from_one_file += num_peds_considered
-
-
-
                     num_peds_in_seq.append(num_peds_considered)
                     obs_frame_num.append(np.ones((num_peds_considered, self.obs_len)) * frames[idx:idx + self.obs_len])
                     fut_frame_num.append(
