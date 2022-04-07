@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 def seq_collate(data):
     (obs_seq_list, pred_seq_list,
      obs_frames, fut_frames, map_path, inv_h_t,
-     local_map, local_ic, local_homo, obs_local_state, scale) = zip(*data)
+     local_map, local_ic, local_homo, scale) = zip(*data)
     scale = scale[0]
 
     _len = [len(seq) for seq in obs_seq_list]
@@ -40,8 +40,6 @@ def seq_collate(data):
     local_ic = np.concatenate(local_ic, 0)
     local_homo = torch.cat(local_homo, 0)
 
-    obs_local_state= torch.cat(obs_local_state, dim=0).permute(2, 0, 1)
-
 
     obs_traj_st = obs_traj.clone()
     # pos is stdized by mean = last obs step
@@ -53,7 +51,7 @@ def seq_collate(data):
     out = [
         obs_traj, fut_traj, obs_traj_st, fut_traj[:,:,2:4] / scale, seq_start_end,
         obs_frames, fut_frames, map_path, inv_h_t,
-        local_map, local_ic, local_homo, obs_local_state
+        local_map, local_ic, local_homo
     ]
 
 
@@ -119,17 +117,6 @@ class TrajectoryDataset(Dataset):
         self.local_homo = all_data['local_homo']
         self.local_ic = all_data['local_ic']
 
-        self.obs_local_state = []
-        for local_ic in self.local_ic:
-            x = local_ic[:self.obs_len, 0].astype(float)
-            y = local_ic[:self.obs_len, 1].astype(float)
-            vx = derivative_of(x, self.dt)
-            vy = derivative_of(y, self.dt)
-            ax = derivative_of(vx, self.dt)
-            ay = derivative_of(vy, self.dt)
-            self.obs_local_state.append(np.stack([x, y, vx, vy, ax, ay]))
-
-        self.obs_local_state = torch.from_numpy(np.stack(self.obs_local_state)).float().to(self.device)
         self.num_seq = len(self.seq_start_end) # = slide (seq. of 16 frames) 수 = 2692
         print(self.seq_start_end[-1])
 
@@ -148,6 +135,6 @@ class TrajectoryDataset(Dataset):
             np.array([self.map_file_name[index]] * (end - start)), np.array([self.inv_h_t[index]] * (end - start)),
             self.local_map[start:end],
             self.local_ic[start:end],
-            torch.from_numpy(self.local_homo[start:end]).float().to(self.device), self.obs_local_state[start:end], self.scale
+            torch.from_numpy(self.local_homo[start:end]).float().to(self.device), self.scale
         ]
         return out
