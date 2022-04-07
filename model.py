@@ -399,7 +399,7 @@ class PoolHiddenNet(nn.Module):
     """Pooling module as proposed in our paper"""
     def __init__(
         self, h_dim=64, context_dim=32,
-        activation='relu', batch_norm=False, dropout=0.0
+        activation='relu', batch_norm=True, dropout=0.0
     ):
         super(PoolHiddenNet, self).__init__()
 
@@ -408,7 +408,7 @@ class PoolHiddenNet(nn.Module):
         # self.embedding_dim = embedding_dim
 
         mlp_pre_dim = 2 + 2*h_dim # 2+128*2
-        mlp_pre_pool_dims = [mlp_pre_dim, 128, context_dim]
+        mlp_pre_pool_dims = [mlp_pre_dim, 512, context_dim]
 
         # self.spatial_embedding = nn.Linear(2, embedding_dim)
         self.mlp_pre_pool = make_mlp(
