@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 import torch
 from torch.utils.data import Dataset
-import pickle
+import pickle5
 import matplotlib.pyplot as plt
 from torchvision import transforms
 from PIL import Image
@@ -101,7 +101,7 @@ class TrajectoryDataset(Dataset):
         self.dt = 0.4
 
         with open(os.path.join(data_dir, data_split + '.pkl'), 'rb') as handle:
-            all_data = pickle.load(handle)
+            all_data = pickle5.load(handle)
 
 
         self.obs_frame_num = all_data['obs_frame_num']
