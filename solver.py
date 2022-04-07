@@ -204,9 +204,9 @@ class Solver(object):
 
         if self.ckpt_load_iter != self.max_iter:
             print("Initializing train dataset")
-            _, self.train_loader = data_loader(self.args, self.dataset_dir, 'train')
+            _, self.train_loader = data_loader(self.args, self.dataset_dir, 'train_threshold0.5')
             print("Initializing val dataset")
-            _, self.val_loader = data_loader(self.args, self.dataset_dir, 'val')
+            _, self.val_loader = data_loader(self.args, self.dataset_dir, 'val_threshold0.5')
 
             print(
                 'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
