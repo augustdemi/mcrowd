@@ -453,7 +453,7 @@ class Solver(object):
                                            - fut_traj[-1,:,:2].unsqueeze(0).repeat((5,1,1)))**2).sum(-1)))
                 sg_ade.append(torch.sqrt(((torch.stack(pred_sg_wcs).permute(0, 2, 1, 3)
                                            - fut_traj[list(self.sg_idx), :, :2].unsqueeze(0).repeat(
-                    (20, 1, 1, 1))) ** 2).sum(-1)).sum(1))
+                    (5, 1, 1, 1))) ** 2).sum(-1)).sum(1))
 
             lg_fde=torch.cat(lg_fde, dim=1).cpu().numpy() # all batches are concatenated
             lg_fde2=torch.cat(lg_fde2, dim=1).cpu().numpy() # all batches are concatenated
