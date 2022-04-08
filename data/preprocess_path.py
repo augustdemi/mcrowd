@@ -298,13 +298,13 @@ class TrajectoryDataset(Dataset):
                     dist = dist.reshape(num_peds_considered, num_peds_considered)
                     target_agent_idx = []
                     for d in range(len(dist)):
-                        neighbor_idx = np.where((dist[d] < 10))[0]
+                        neighbor_idx = np.where((dist[d] < 5))[0]
                         if len(neighbor_idx) > len(target_agent_idx):
                             target_agent_idx = neighbor_idx
-                    seq_traj = curr_seq[target_agent_idx]
+                    seq_traj = seq_traj[target_agent_idx]
 
                     num_peds_considered = len(target_agent_idx)
-                    # print(num_peds_considered)
+                    print(num_peds_considered)
 
                     seq_list.append(seq_traj)
                     num_data_from_one_file += num_peds_considered
@@ -399,8 +399,8 @@ class TrajectoryDataset(Dataset):
 
 
 if __name__ == '__main__':
-    path = '../../datasets/Trajectories/Trajectories'
-    path = 'D:\crowd\datasets\Trajectories\pfsd_raw'
+    path = '../../datasets/Trajectories'
+    # path = 'D:\crowd\datasets\Trajectories'
     coll_th = 0.5
     traj = TrajectoryDataset(
             data_dir=path,
