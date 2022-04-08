@@ -399,7 +399,7 @@ class PoolHiddenNet(nn.Module):
     """Pooling module as proposed in our paper"""
     def __init__(
         self, h_dim=64, context_dim=32,
-        activation='relu', batch_norm=True, dropout=0.0
+        activation='relu', batch_norm=False, dropout=0.0
     ):
         super(PoolHiddenNet, self).__init__()
 
