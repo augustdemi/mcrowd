@@ -1657,7 +1657,7 @@ class Solver(object):
 
                     pred_sg_wc = []
                     for i in range(batch_size):
-                        map_size = local_map[i].shape
+                        map_size = local_map[i][0].shape
                         pred_sg_ic = []
                         for heat_map in pred_sg_heat[i]:
                             argmax_idx = heat_map.argmax()
