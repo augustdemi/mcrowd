@@ -64,6 +64,7 @@ def compute_ECFL(output_traj, binary_navmaps, local_homo):
 
     ecfl = 0.0
     for i in range(output_traj.shape[0]):
+        env_map = 1-binary_navmaps[i][0]
         for k in range(output_traj.shape[1]):
             collided = False
             wc = output_traj[i, k]
@@ -74,12 +75,12 @@ def compute_ECFL(output_traj, binary_navmaps, local_homo):
 
             for t in range(output_traj.shape[2]):
                 pos = all_pixel_local[t]
-                if pos[1] < 0 or pos[1] >= binary_navmaps[i][0].shape[0] or pos[0] < 0 or pos[0] >= \
-                        binary_navmaps[i][0].shape[1]:
+                if pos[1] < 0 or pos[1] >= env_map.shape[0] or pos[0] < 0 or pos[0] >= \
+                        env_map.shape[1]:
                     collided = True
                     break
 
-                if binary_navmaps[i][0][pos[0], pos[1]] == 0:
+                if env_map[pos[0], pos[1]] == 0:
                     collided = True
                     break
 
