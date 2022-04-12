@@ -2321,15 +2321,15 @@ class Solver(object):
 
 
         if self.device == 'cuda':
+            self.lg_cvae = torch.load(lg_cvae_path)
+            self.sg_unet = torch.load(sg_unet_path)
             self.encoderMx = torch.load(encoderMx_path)
             self.encoderMy = torch.load(encoderMy_path)
             self.decoderMy = torch.load(decoderMy_path)
-            self.lg_cvae = torch.load(lg_cvae_path)
-            self.sg_unet = torch.load(sg_unet_path)
 
         else:
+            self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
+            self.sg_unet = torch.load(sg_unet_path, map_location='cpu')
             self.encoderMx = torch.load(encoderMx_path, map_location='cpu')
             self.encoderMy = torch.load(encoderMy_path, map_location='cpu')
             self.decoderMy = torch.load(decoderMy_path, map_location='cpu')
-            self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
-            self.sg_unet = torch.load(sg_unet_path, map_location='cpu')
