@@ -2295,11 +2295,15 @@ class Solver(object):
 
 
     def pretrain_load_checkpoint(self, traj, lg, sg):
+        lg_cvae_path = os.path.join(
+            lg['ckpt_dir'],
+            'iter_%s_lg_cvae.pt' %  lg['iter']
+        )
+
         sg_unet_path = os.path.join(
             sg['ckpt_dir'],
             'iter_%s_sg_unet.pt' % sg['iter']
         )
-
 
         encoderMx_path = os.path.join(
             traj['ckpt_dir'],
@@ -2313,10 +2317,7 @@ class Solver(object):
             traj['ckpt_dir'],
             'iter_%s_decoderMy.pt' %  traj['iter']
         )
-        lg_cvae_path = os.path.join(
-            lg['ckpt_dir'],
-            'iter_%s_lg_cvae.pt' %  lg['iter']
-        )
+
 
 
         if self.device == 'cuda':
