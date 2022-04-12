@@ -1752,8 +1752,8 @@ class Solver(object):
 
                             sg_at_this_step.append(final_seq_pred_sg)
                         pred_sg_wc.append(torch.cat(sg_at_this_step))  # bs, 2
-                        pred_sg_wc = torch.stack(pred_sg_wc).transpose(1, 0)  # bs, #sg, 2
-                        pred_sg_wcs.append(pred_sg_wc)  # for differe w_prior
+                    pred_sg_wc = torch.stack(pred_sg_wc).transpose(1, 0)  # bs, #sg, 2
+                    pred_sg_wcs.append(pred_sg_wc)  # for differe w_prior
 
                 ##### trajectories per long&short goal ####
 
