@@ -1654,7 +1654,7 @@ class Solver(object):
                 obs_heat_map, _, _= self.make_heatmap(local_ic, local_map)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
-                predictions = []
+                fut_rel_pos_dists = []
                 pred_lg_wcs = []
                 pred_sg_wcs = []
 
@@ -1690,16 +1690,14 @@ class Solver(object):
                     pred_lg_wcs.append(pred_lg_wc)
                     # -------- short term goal --------
 
-                    if generate_heat:
-                        pred_lg_heat_from_ic = []
-                        for i in range(len(pred_lg_ics)):
-                            pred_lg_heat_from_ic.append(self.make_one_heatmap(pred_lg_ics[i][
-                                0].detach().cpu().numpy().astype(int)))
-                        pred_lg_heat_from_ic = torch.tensor(np.stack(pred_lg_heat_from_ic)).unsqueeze(1).float().to(
-                            self.device)
-                        pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1)))
-                    else:
-                        pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat], dim=1)))
+                    pred_lg_heat_from_ic = []
+                    for i in range(len(pred_lg_ics)):
+                        pred_lg_heat_from_ic.append(self.make_one_heatmap(pred_lg_ics[i][
+                                                                              0].detach().cpu().numpy().astype(int)))
+                    pred_lg_heat_from_ic = torch.tensor(np.stack(pred_lg_heat_from_ic)).unsqueeze(1).float().to(
+                        self.device)
+                    pred_sg_heat = F.sigmoid(
+                        self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1)))
 
                     pred_sg_wc = []
                     for t in range(len(self.sg_idx)):
@@ -1711,47 +1709,18 @@ class Solver(object):
                                 map_size = local_map[i][0].shape
                                 pred_sg_ic = []
                                 heat_map = pred_sg_heat[i,t]
-                                for argmax_idx in heat_map.flatten().sort().indices[-50:]:
-                                    argmax_idx = [argmax_idx // map_size[0], argmax_idx % map_size[0]]
-                                    pred_sg_ic.append(argmax_idx)
+                                argmax_idx = heat_map.argmax()
+                                argmax_idx = [argmax_idx // map_size[0], argmax_idx % map_size[0]]
+                                pred_sg_ic.append(argmax_idx)
                                 pred_sg_ic = torch.tensor(pred_sg_ic).float().to(self.device)
                                 back_wc = torch.matmul(
                                     torch.cat([pred_sg_ic, torch.ones((len(pred_sg_ic), 1)).to(self.device)], dim=1),
                                     torch.transpose(local_homo[i], 1, 0))
-                                back_wc /= back_wc[:, 2].unsqueeze(1)
+                                back_wc = back_wc / back_wc[:, 2].unsqueeze(1)
                                 seq_pred_sg_wcs.append(back_wc[:, :2])
                             # check distance btw neighbors within seq_s_e
                             seq_pred_sg_wcs = torch.stack(seq_pred_sg_wcs)
                             final_seq_pred_sg = seq_pred_sg_wcs[:,-1]
-
-                            coll_th = 0.5
-                            curr1 = final_seq_pred_sg.repeat(num_ped, 1)
-                            curr2 = self.repeat(final_seq_pred_sg, num_ped)
-                            dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
-                            dist = dist.reshape(num_ped, num_ped) + np.eye(num_ped)*100
-                            dist[np.triu_indices(num_ped, k=1)] += 100
-                            coll_agents = np.where(dist < coll_th)
-                            if len(coll_agents[0]) > 0:
-                                # print('--------------------------------')
-                                # print('before correction: ', len(coll_agents[0]))
-                                for c in range(len(coll_agents[0])):
-                                    a1_center = final_seq_pred_sg[coll_agents[0][c]]
-                                    a2_positions = seq_pred_sg_wcs[coll_agents[1][c]]
-                                    dist = torch.sqrt(torch.pow(a2_positions - a1_center, 2).sum(1)).cpu().numpy()
-                                    if len(np.where(dist>=coll_th)[0]) > 0:
-                                        dist[np.where(dist<coll_th)] +=100
-                                        final_seq_pred_sg[coll_agents[1][c]] = a2_positions[dist.argmin()]
-
-                                        curr1 = final_seq_pred_sg.repeat(num_ped, 1)
-                                        curr2 = self.repeat(final_seq_pred_sg, num_ped)
-                                        dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
-                                        dist = dist.reshape(num_ped, num_ped) + np.eye(num_ped) * 100
-                                        dist[np.triu_indices(num_ped, k=1)] += 100
-                                        if len(np.where(dist < coll_th)[0]) == 0 :
-                                            break
-                                    else:
-                                        final_seq_pred_sg[coll_agents[1][c]] = a2_positions[dist.argmax()]
-
                             sg_at_this_step.append(final_seq_pred_sg)
                         pred_sg_wc.append(torch.cat(sg_at_this_step)) # bs, 2
                     pred_sg_wc = torch.stack(pred_sg_wc).transpose(1,0) # bs, #sg, 2
@@ -1772,7 +1741,7 @@ class Solver(object):
                     for z_prior in z_priors:
                         # -------- trajectories --------
                         # NO TF, pred_goals, z~prior
-                        micro_pred = self.decoderMy.make_prediction(
+                        fut_rel_pos_dist_prior = self.decoderMy(
                             seq_start_end,
                             obs_traj_st[-1],
                             obs_traj[-1, :, :2],
@@ -1781,7 +1750,7 @@ class Solver(object):
                             pred_sg_wc,  # goal
                             self.sg_idx
                         )
-                        predictions.append(micro_pred)
+                        fut_rel_pos_dists.append(fut_rel_pos_dist_prior)
 
 
                 ade, fde = [], []
@@ -1793,8 +1762,8 @@ class Solver(object):
                 multi_coll30 = []
                 n_scene += sum([e-s for s, e in seq_start_end])
                 pred=[]
-                for vel_pred in predictions:
-                    pred_fut_traj=integrate_samples(vel_pred, obs_traj[-1, :, :2], dt=self.dt)
+                for dist in fut_rel_pos_dists:
+                    pred_fut_traj=integrate_samples(dist.rsample(), obs_traj[-1, :, :2], dt=self.dt)
                     ade.append(displacement_error(
                         pred_fut_traj, fut_traj[:,:,:2], mode='raw'
                     ))
