@@ -1664,8 +1664,9 @@ class Solver(object):
                     w_priors.append(self.lg_cvae.prior_latent_space.sample())
 
                 for w_prior in w_priors:
+                    print('>>>>>> w: ', w_prior.sum())
                     # -------- long term goal --------
-                    pred_lg_heat = F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, w_prior))
+                    pred_lg_heat = F.sigmoid(self.lg_cvae.sample(z_prior=w_prior))
                     pred_lg_ics = []
                     pred_lg_wc = []
                     for i in range(batch_size):
@@ -1687,6 +1688,7 @@ class Solver(object):
                         pred_lg_wc.append(back_wc[0, :2] / back_wc[0, 2])
                         # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
                     pred_lg_wc = torch.stack(pred_lg_wc)
+                    print(pred_lg_wc)
                     pred_lg_wcs.append(pred_lg_wc)
                     # -------- short term goal --------
 
@@ -2307,14 +2309,14 @@ class Solver(object):
     def set_mode(self, train=True):
 
         if train:
-            self.sg_unet.train()
             self.lg_cvae.train()
+            self.sg_unet.train()
             self.encoderMx.train()
             self.encoderMy.train()
             self.decoderMy.train()
         else:
-            self.sg_unet.eval()
             self.lg_cvae.eval()
+            self.sg_unet.eval()
             self.encoderMx.eval()
             self.encoderMy.eval()
             self.decoderMy.eval()
