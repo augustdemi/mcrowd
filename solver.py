@@ -156,6 +156,11 @@ class Solver(object):
         self.decoder_h_dim = args.decoder_h_dim
 
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
+            lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1.0_a_0.25_r_2.0_fb_0.7_anneal_e_10_load_e_1_run_308'
+            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_42880_lg_cvae.pt')
+            if self.device == 'cuda':
+                self.lg_cvae = torch.load(lg_cvae_path)
+
             self.encoderMx = EncoderX(
                 args.zS_dim,
                 enc_h_dim=args.encoder_h_dim,
@@ -220,6 +225,11 @@ class Solver(object):
                 'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
             )
         print('...done')
+
+    def temmp(self):
+        aa = torch.zeros((120, 2, 256, 256)).to(self.device)
+        self.lg_cvae.unet.down_forward(aa)
+
 
     ####
     def train(self):
