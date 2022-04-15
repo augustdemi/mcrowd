@@ -280,8 +280,8 @@ class Decoder(nn.Module):
                 context = self.pool_net(decoder_h, seq_start_end, curr_pos)  # batchsize, 1024
                 decoder_h = self.mlp_context(torch.cat([decoder_h, context], dim=1))  # mlp : 1152 -> 1024 -> 128
                 # refine the prediction
-                mu = self.fc_mu(decoder_h)
-                logVar = self.fc_std(decoder_h)
+                mu = self.fc_mu(F.relu(decoder_h))
+                logVar = self.fc_std(F.relu(decoder_h))
                 mu = torch.clamp(mu, min=-1e8, max=1e8)
                 logVar = torch.clamp(logVar, max=8e1)
                 std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
@@ -353,8 +353,8 @@ class Decoder(nn.Module):
                 context = self.pool_net(decoder_h, seq_start_end, curr_pos)  # batchsize, 1024
                 decoder_h = self.mlp_context(torch.cat([decoder_h, context], dim=1))  # mlp : 1152 -> 1024 -> 128
                 # refine the prediction
-                mu = self.fc_mu(decoder_h)
-                logVar = self.fc_std(decoder_h)
+                mu = self.fc_mu(F.relu(decoder_h))
+                logVar = self.fc_std(F.relu(decoder_h))
                 mu = torch.clamp(mu, min=-1e8, max=1e8)
                 logVar = torch.clamp(logVar, max=8e1)
                 std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
@@ -439,8 +439,7 @@ class PoolHiddenNet(nn.Module):
         Output:
         - pool_h: Tensor of shape (batch, bottleneck_dim)
         """
-        mlp_h_inputs = []
-        cum_sum = [0]
+        pool_h = []
         for _, (start, end) in enumerate(seq_start_end):
             num_ped = end - start
             curr_hidden = h_states[start:end] # (num_layer, batchsize, hidden_size) -> (num_layer*batchsize, hidden_size)
@@ -455,13 +454,8 @@ class PoolHiddenNet(nn.Module):
             # curr_rel_embedding = self.spatial_embedding(curr_rel_pos) # 다른 agent와의 relative거리의 embedding: (repeated data, 64)
             # mlp_h_input = torch.cat([curr_rel_embedding, curr_hidden_1], dim=1) #(repeated data, 64+128)
             mlp_h_input = torch.cat([curr_rel_pos, curr_hidden_1, curr_hidden_2], dim=1) #(repeated data, 64+128)
-            mlp_h_inputs.append(mlp_h_input)
-            cum_sum.append(cum_sum[-1] + num_ped**2)
-        mlp_h_inputs = torch.cat(mlp_h_inputs, dim=0)
-        pool_h = self.mlp_pre_pool(mlp_h_inputs) # 64+128 -> 512 -> (repeated data, bottleneck_dim)
-        total_pool_h = []
-        for i in range(len(cum_sum)-1):
-            num_ped = seq_start_end[i][1] - seq_start_end[i][0]
-            total_pool_h.append(pool_h[cum_sum[i]:cum_sum[i+1]].view(num_ped, num_ped, -1).max(1)[0]) # (sqrt(repeated data), sqrt(repeated data), 1024) 로 바꾼후, 각 agent별로 상대와의 거리가 가장 큰걸 골라냄. (argmax말로 value를)
-
-        return torch.cat(total_pool_h, dim=0)
+            curr_pool_h = self.mlp_pre_pool(mlp_h_input) # 64+128 -> 512 -> (repeated data, bottleneck_dim)
+            curr_pool_h = curr_pool_h.view(num_ped, num_ped, -1).max(1)[0] # (sqrt(repeated data), sqrt(repeated data), 1024) 로 바꾼후, 각 agent별로 상대와의 거리가 가장 큰걸 골라냄. (argmax말로 value를)
+            pool_h.append(curr_pool_h)
+        pool_h = torch.cat(pool_h, dim=0)
+        return pool_h
