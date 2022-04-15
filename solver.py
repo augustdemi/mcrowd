@@ -379,7 +379,7 @@ class Solver(object):
                     ade_avg, fde_avg, \
                     ade_std, fde_std, \
                     test_loss_recon, test_loss_kl, test_loss_coll, test_total_coll = self.evaluate_dist(self.val_loader, loss=True)
-                    self.line_gather.insert(iter=e,
+                    self.line_gather.insert(iter=epoch,
                                             ade_min=ade_min,
                                             fde_min=fde_min,
                                             ade_avg=ade_avg,
