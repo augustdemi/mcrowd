@@ -370,7 +370,7 @@ class Solver(object):
 
             # save model parameters
             if epoch > 50 and (iteration % (iter_per_epoch*10) == 0):
-                self.save_checkpoint(iteration)
+                self.save_checkpoint(epoch)
 
             # (visdom) insert current line stats
             if iteration > 0:
