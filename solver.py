@@ -10,8 +10,6 @@ import imageio
 from scipy import ndimage
 
 import matplotlib.pyplot as plt
-from torch.distributions import RelaxedOneHotCategorical as concrete
-from torch.distributions import OneHotCategorical as discrete
 from torch.distributions import kl_divergence
 from scipy.interpolate import RectBivariateSpline
 from scipy.ndimage import binary_dilation
@@ -100,30 +98,7 @@ class Solver(object):
         self.beta2_VAE = args.beta2_VAE
         print(args.desc)
 
-        # visdom setup
-        self.viz_on = args.viz_on
-        if self.viz_on:
-            self.win_id = dict(
-                recon='win_recon', loss_kl='win_loss_kl', loss_recon='win_loss_recon',
-                ade_min='win_ade_min', fde_min='win_fde_min', ade_avg='win_ade_avg', fde_avg='win_fde_avg',
-                ade_std='win_ade_std', fde_std='win_fde_std',
-                test_loss_recon='win_test_loss_recon', test_loss_kl='win_test_loss_kl',
-                loss_recon_prior='win_loss_recon_prior', loss_coll='win_loss_coll', test_loss_coll = 'win_test_loss_coll',
-                test_total_coll='win_test_total_coll', total_coll='win_total_coll'
-            )
-            self.line_gather = DataGather(
-                'iter', 'loss_recon', 'loss_kl',  'loss_recon_prior',
-                'ade_min', 'fde_min', 'ade_avg', 'fde_avg', 'ade_std', 'fde_std',
-                'test_loss_recon', 'test_loss_kl', 'test_loss_coll', 'loss_coll', 'test_total_coll', 'total_coll'
-            )
 
-
-            self.viz_port = args.viz_port  # port number, eg, 8097
-            self.viz = visdom.Visdom(port=self.viz_port)
-            self.viz_ll_iter = args.viz_ll_iter
-            self.viz_la_iter = args.viz_la_iter
-
-            self.viz_init()
 
         # create dirs: "records", "ckpts", "outputs" (if not exist)
         mkdirs("records");
@@ -144,19 +119,33 @@ class Solver(object):
         # finalize name
         self.name = self.name + '_run_' + str(self.run_id)
 
-        # records (text file to store console outputs)
-        self.record_file = 'records/%s.txt' % self.name
-
         # checkpoints
         self.ckpt_dir = os.path.join("ckpts", self.name)
 
-        # outputs
-        self.output_dir_recon = os.path.join("outputs", self.name + '_recon')
-        # dir for reconstructed images
-        self.output_dir_synth = os.path.join("outputs", self.name + '_synth')
-        # dir for synthesized images
-        self.output_dir_trvsl = os.path.join("outputs", self.name + '_trvsl')
+        # visdom setup
+        self.viz_on = args.viz_on
+        if self.viz_on:
+            self.win_id = dict(
+                recon='win_recon', loss_kl='win_loss_kl', loss_recon='win_loss_recon',
+                ade_min='win_ade_min', fde_min='win_fde_min', ade_avg='win_ade_avg', fde_avg='win_fde_avg',
+                ade_std='win_ade_std', fde_std='win_fde_std',
+                test_loss_recon='win_test_loss_recon', test_loss_kl='win_test_loss_kl',
+                loss_recon_prior='win_loss_recon_prior', loss_coll='win_loss_coll', test_loss_coll = 'win_test_loss_coll',
+                test_total_coll='win_test_total_coll', total_coll='win_total_coll'
+            )
+            self.line_gather = DataGather(
+                'iter', 'loss_recon', 'loss_kl',  'loss_recon_prior',
+                'ade_min', 'fde_min', 'ade_avg', 'fde_avg', 'ade_std', 'fde_std',
+                'test_loss_recon', 'test_loss_kl', 'test_loss_coll', 'loss_coll', 'test_total_coll', 'total_coll'
+            )
 
+
+            self.viz_port = args.viz_port  # port number, eg, 8097
+            self.viz = visdom.Visdom(port=self.viz_port, env=self.name)
+            self.viz_ll_iter = args.viz_ll_iter
+            self.viz_la_iter = args.viz_la_iter
+
+            self.viz_init()
         #### create a new model or load a previously saved model
 
         self.ckpt_load_iter = args.ckpt_load_iter
@@ -594,18 +583,18 @@ class Solver(object):
 
     ####
     def viz_init(self):
-        self.viz.close(env=self.name + '/lines', win=self.win_id['loss_recon'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['loss_recon_prior'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['loss_kl'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['test_loss_recon'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['test_loss_kl'])
+        self.viz.close(env=self.name , win=self.win_id['loss_recon'])
+        self.viz.close(env=self.name , win=self.win_id['loss_recon_prior'])
+        self.viz.close(env=self.name , win=self.win_id['loss_kl'])
+        self.viz.close(env=self.name , win=self.win_id['test_loss_recon'])
+        self.viz.close(env=self.name , win=self.win_id['test_loss_kl'])
 
-        self.viz.close(env=self.name + '/lines', win=self.win_id['ade_min'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['fde_min'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['ade_avg'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['fde_avg'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['ade_std'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['fde_std'])
+        self.viz.close(env=self.name , win=self.win_id['ade_min'])
+        self.viz.close(env=self.name , win=self.win_id['fde_min'])
+        self.viz.close(env=self.name , win=self.win_id['ade_avg'])
+        self.viz.close(env=self.name , win=self.win_id['fde_avg'])
+        self.viz.close(env=self.name , win=self.win_id['ade_std'])
+        self.viz.close(env=self.name , win=self.win_id['fde_std'])
     ####
     def visualize_line(self):
 
@@ -629,14 +618,14 @@ class Solver(object):
         test_total_coll = torch.Tensor(data['test_total_coll'])
 
         self.viz.line(
-            X=iters, Y=total_coll, env=self.name + '/lines',
+            X=iters, Y=total_coll, env=self.name ,
             win=self.win_id['total_coll'], update='append',
             opts=dict(xlabel='iter', ylabel='total_coll',
                       title='total_coll')
         )
 
         self.viz.line(
-            X=iters, Y=test_total_coll, env=self.name + '/lines',
+            X=iters, Y=test_total_coll, env=self.name ,
             win=self.win_id['test_total_coll'], update='append',
             opts=dict(xlabel='iter', ylabel='test_total_coll',
                       title='test_total_coll')
@@ -644,27 +633,27 @@ class Solver(object):
 
 
         self.viz.line(
-            X=iters, Y=test_loss_coll, env=self.name + '/lines',
+            X=iters, Y=test_loss_coll, env=self.name ,
             win=self.win_id['test_loss_coll'], update='append',
             opts=dict(xlabel='iter', ylabel='test_loss_coll',
                       title='test_loss_coll')
         )
 
         self.viz.line(
-            X=iters, Y=loss_coll, env=self.name + '/lines',
+            X=iters, Y=loss_coll, env=self.name ,
             win=self.win_id['loss_coll'], update='append',
             opts=dict(xlabel='iter', ylabel='loss_coll',
                       title='loss_coll')
         )
         self.viz.line(
-            X=iters, Y=loss_recon, env=self.name + '/lines',
+            X=iters, Y=loss_recon, env=self.name ,
             win=self.win_id['loss_recon'], update='append',
             opts=dict(xlabel='iter', ylabel='-loglikelihood',
                       title='Recon. loss of predicted future traj')
         )
 
         self.viz.line(
-            X=iters, Y=loss_recon_prior, env=self.name + '/lines',
+            X=iters, Y=loss_recon_prior, env=self.name ,
             win=self.win_id['loss_recon_prior'], update='append',
             opts=dict(xlabel='iter', ylabel='-loglikelihood',
                       title='Recon. loss - prior')
@@ -672,7 +661,7 @@ class Solver(object):
 
 
         self.viz.line(
-            X=iters, Y=loss_kl, env=self.name + '/lines',
+            X=iters, Y=loss_kl, env=self.name ,
             win=self.win_id['loss_kl'], update='append',
             opts=dict(xlabel='iter', ylabel='kl divergence',
                       title='KL div. btw posterior and c. prior'),
@@ -680,14 +669,14 @@ class Solver(object):
 
 
         self.viz.line(
-            X=iters, Y=test_loss_recon, env=self.name + '/lines',
+            X=iters, Y=test_loss_recon, env=self.name ,
             win=self.win_id['test_loss_recon'], update='append',
             opts=dict(xlabel='iter', ylabel='-loglikelihood',
                       title='Test Recon. loss of predicted future traj')
         )
 
         self.viz.line(
-            X=iters, Y=test_loss_kl, env=self.name + '/lines',
+            X=iters, Y=test_loss_kl, env=self.name ,
             win=self.win_id['test_loss_kl'], update='append',
             opts=dict(xlabel='iter', ylabel='kl divergence',
                       title='Test KL div. btw posterior and c. prior'),
@@ -695,39 +684,39 @@ class Solver(object):
 
 
         self.viz.line(
-            X=iters, Y=ade_min, env=self.name + '/lines',
+            X=iters, Y=ade_min, env=self.name ,
             win=self.win_id['ade_min'], update='append',
             opts=dict(xlabel='iter', ylabel='ade',
                       title='ADE min'),
         )
         self.viz.line(
-            X=iters, Y=fde_min, env=self.name + '/lines',
+            X=iters, Y=fde_min, env=self.name ,
             win=self.win_id['fde_min'], update='append',
             opts=dict(xlabel='iter', ylabel='fde',
                       title='FDE min'),
         )
         self.viz.line(
-            X=iters, Y=ade_avg, env=self.name + '/lines',
+            X=iters, Y=ade_avg, env=self.name ,
             win=self.win_id['ade_avg'], update='append',
             opts=dict(xlabel='iter', ylabel='ade',
                       title='ADE avg'),
         )
 
         self.viz.line(
-            X=iters, Y=fde_avg, env=self.name + '/lines',
+            X=iters, Y=fde_avg, env=self.name ,
             win=self.win_id['fde_avg'], update='append',
             opts=dict(xlabel='iter', ylabel='fde',
                       title='FDE avg'),
         )
         self.viz.line(
-            X=iters, Y=ade_std, env=self.name + '/lines',
+            X=iters, Y=ade_std, env=self.name ,
             win=self.win_id['ade_std'], update='append',
             opts=dict(xlabel='iter', ylabel='ade std',
                       title='ADE std'),
         )
 
         self.viz.line(
-            X=iters, Y=fde_std, env=self.name + '/lines',
+            X=iters, Y=fde_std, env=self.name ,
             win=self.win_id['fde_std'], update='append',
             opts=dict(xlabel='iter', ylabel='fde std',
                       title='FDE std'),
