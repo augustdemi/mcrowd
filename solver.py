@@ -242,7 +242,7 @@ class Solver(object):
 
         iter_per_epoch = len(iterator)
         start_iter = self.ckpt_load_iter + 1
-        epoch = int(start_iter / iter_per_epoch)
+        epoch = int(start_iter / iter_per_epoch) + 1
 
         e_coll_loss = 0
         e_total_coll = 0
