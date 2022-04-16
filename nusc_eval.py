@@ -1820,6 +1820,54 @@ class Solver(object):
 
 
 
+    def collision_stat(self, data_loader):
+        self.set_mode(train=False)
+
+        n_scene= 0
+        total_ped = []
+        avg_dist = []
+        min_dist = 10000
+        max_dist = 0
+        with torch.no_grad():
+            b=0
+            while not data_loader.is_epoch_end():
+                data = data_loader.next_sample()
+                if data is None:
+                    continue
+                b+=1
+                data = data_loader.next_sample()
+
+                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
+                 maps, local_map, local_ic, local_homo) = data
+                for s, e in seq_start_end:
+                    n_scene +=1
+                    num_ped = e - s
+                    total_ped.append(num_ped.item())
+
+                    # seq_traj = fut_traj[:,s:e,:2]
+                    seq_traj = torch.cat([obs_traj[:,s:e,:2], fut_traj[:,s:e,:2]])
+                    for i in range(len(seq_traj)):
+                        curr1 = seq_traj[i].repeat(num_ped, 1)
+                        curr2 = self.repeat(seq_traj[i], num_ped)
+                        dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
+                        dist = dist.reshape(num_ped, num_ped)
+                        diff_agent_idx = np.triu_indices(num_ped, k=1)
+                        diff_agent_dist = dist[diff_agent_idx]
+                        avg_dist.append(diff_agent_dist.mean())
+                        min_dist = min(min_dist, diff_agent_dist.min())
+                        max_dist = max(max_dist, diff_agent_dist.max())
+
+
+        print('n_scene: ', n_scene)
+        total_ped = np.array(total_ped)
+        print('seq ped min/mean/max:', total_ped.min(), total_ped.mean(),  total_ped.max())
+        print('avg_dist:', np.array(avg_dist).mean())
+        print('min_dist:', min_dist)
+        print('max_dist:', max_dist)
+
+
+
+
     def pretrain_load_checkpoint(self, traj, lg, sg):
         sg_unet_path = os.path.join(
             sg['ckpt_dir'],
