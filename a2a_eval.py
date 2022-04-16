@@ -1100,27 +1100,62 @@ class Solver(object):
                         pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat], dim=1)))
 
                     pred_sg_wc = []
-                    for i in range(batch_size):
-                        map_size = local_map[i].shape
-                        pred_sg_ic = []
-                        for heat_map in pred_sg_heat[i]:
-                            heat_map = nnf.interpolate(heat_map.unsqueeze(0).unsqueeze(0),
-                                                       size=map_size, mode='bicubic',
-                                                       align_corners=False).squeeze(0).squeeze(0)
-                            argmax_idx = heat_map.argmax()
-                            argmax_idx = [argmax_idx // map_size[0], argmax_idx % map_size[0]]
-                            pred_sg_ic.append(argmax_idx)
-                        pred_sg_ic = torch.tensor(pred_sg_ic).float().to(self.device)
-                        # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
-                        back_wc = torch.matmul(
-                            torch.cat([pred_sg_ic, torch.ones((len(pred_sg_ic), 1)).to(self.device)], dim=1),
-                            torch.transpose(local_homo[i], 1, 0))
-                        back_wc /= back_wc[:, 2].unsqueeze(1)
-                        pred_sg_wc.append(back_wc[:, :2])
-                        # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
-                    pred_sg_wc = torch.stack(pred_sg_wc)
-                    pred_sg_wcs.append(pred_sg_wc)
+                    for t in range(len(self.sg_idx)):
+                        sg_at_this_step = []
+                        for s, e in seq_start_end:
+                            num_ped = e-s
+                            seq_pred_sg_wcs = []
+                            for i in range(s,e):
+                                map_size = local_map[i].shape
+                                pred_sg_ic = []
+                                heat_map = nnf.interpolate(pred_sg_heat[i,t].unsqueeze(0).unsqueeze(0),
+                                                           size=map_size, mode='bicubic',
+                                                           align_corners=False).squeeze(0).squeeze(0)
+                                for argmax_idx in heat_map.flatten().sort().indices[-50:]:
+                                    argmax_idx = [argmax_idx // map_size[0], argmax_idx % map_size[0]]
+                                    pred_sg_ic.append(argmax_idx)
+                                pred_sg_ic = torch.tensor(pred_sg_ic).float().to(self.device)
+                                back_wc = torch.matmul(
+                                    torch.cat([pred_sg_ic, torch.ones((len(pred_sg_ic), 1)).to(self.device)], dim=1),
+                                    torch.transpose(local_homo[i], 1, 0))
+                                back_wc /= back_wc[:, 2].unsqueeze(1)
+                                seq_pred_sg_wcs.append(back_wc[:, :2])
+                            # check distance btw neighbors within seq_s_e
+                            seq_pred_sg_wcs = torch.stack(seq_pred_sg_wcs)
+                            final_seq_pred_sg = seq_pred_sg_wcs[:,-1]
 
+                            coll_th = 2.8
+                            curr1 = final_seq_pred_sg.repeat(num_ped, 1)
+                            curr2 = self.repeat(final_seq_pred_sg, num_ped)
+                            dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
+                            dist = dist.reshape(num_ped, num_ped) + np.eye(num_ped)*100
+                            dist[np.triu_indices(num_ped, k=1)] += 100
+                            coll_agents = np.where(dist < coll_th)
+                            if len(coll_agents[0]) > 0:
+                                # print('--------------------------------')
+                                # print('before correction: ', len(coll_agents[0]))
+                                for c in range(len(coll_agents[0])):
+                                    a1_center = final_seq_pred_sg[coll_agents[0][c]]
+                                    a2_positions = seq_pred_sg_wcs[coll_agents[1][c]]
+                                    dist = torch.sqrt(torch.pow(a2_positions - a1_center, 2).sum(1)).cpu().numpy()
+                                    if len(np.where(dist>=coll_th)[0]) > 0:
+                                        dist[np.where(dist<coll_th)] +=100
+                                        final_seq_pred_sg[coll_agents[1][c]] = a2_positions[dist.argmin()]
+
+                                        curr1 = final_seq_pred_sg.repeat(num_ped, 1)
+                                        curr2 = self.repeat(final_seq_pred_sg, num_ped)
+                                        dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
+                                        dist = dist.reshape(num_ped, num_ped) + np.eye(num_ped) * 100
+                                        dist[np.triu_indices(num_ped, k=1)] += 100
+                                        if len(np.where(dist < coll_th)[0]) == 0 :
+                                            break
+                                    else:
+                                        final_seq_pred_sg[coll_agents[1][c]] = a2_positions[dist.argmax()]
+
+                            sg_at_this_step.append(final_seq_pred_sg)
+                        pred_sg_wc.append(torch.cat(sg_at_this_step)) # bs, 2
+                    pred_sg_wc = torch.stack(pred_sg_wc).transpose(1,0) # bs, #sg, 2
+                    pred_sg_wcs.append(pred_sg_wc) # for differe w_prior
 
 
                 ##### trajectories per long&short goal ####
@@ -1277,6 +1312,52 @@ class Solver(object):
                ade_std, fde_std, \
                sg_ade_min, sg_ade_avg, sg_ade_std, \
                lg_fde_min, lg_fde_avg, lg_fde_std
+
+
+
+    def collision_stat(self, data_loader):
+        self.set_mode(train=False)
+
+        n_scene= 0
+        total_ped = []
+        avg_dist = []
+        min_dist = 10000
+        max_dist = 0
+        with torch.no_grad():
+            b=0
+            for batch in data_loader:
+                b+=1
+                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
+                 obs_frames, fut_frames, map_path, inv_h_t,
+                 local_map, local_ic, local_homo) = batch
+                for s, e in seq_start_end:
+                    n_scene +=1
+                    num_ped = e - s
+                    total_ped.append(num_ped.item())
+
+                    if num_ped == 1:
+                        continue
+
+                    # seq_traj = fut_traj[:,s:e,:2]
+                    seq_traj = torch.cat([obs_traj[:,s:e,:2], fut_traj[:,s:e,:2]])
+                    for i in range(len(seq_traj)):
+                        curr1 = seq_traj[i].repeat(num_ped, 1)
+                        curr2 = self.repeat(seq_traj[i], num_ped)
+                        dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
+                        dist = dist.reshape(num_ped, num_ped)
+                        diff_agent_idx = np.triu_indices(num_ped, k=1)
+                        diff_agent_dist = dist[diff_agent_idx]
+                        avg_dist.append(diff_agent_dist.mean())
+                        min_dist = min(min_dist, diff_agent_dist.min())
+                        max_dist = max(max_dist, diff_agent_dist.max())
+
+
+        print('n_scene: ', n_scene)
+        total_ped = np.array(total_ped)
+        print('seq ped min/mean/max:', total_ped.min(), total_ped.mean(),  total_ped.max())
+        print('avg_dist:', np.array(avg_dist).mean())
+        print('min_dist:', min_dist)
+        print('max_dist:', max_dist)
 
 
 
