@@ -1835,14 +1835,15 @@ class Solver(object):
                 if data is None:
                     continue
                 b+=1
-                data = data_loader.next_sample()
 
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
                  maps, local_map, local_ic, local_homo) = data
                 for s, e in seq_start_end:
                     n_scene +=1
                     num_ped = e - s
-                    total_ped.append(num_ped.item())
+                    total_ped.append(num_ped)
+                    if num_ped == 1:
+                        continue
 
                     # seq_traj = fut_traj[:,s:e,:2]
                     seq_traj = torch.cat([obs_traj[:,s:e,:2], fut_traj[:,s:e,:2]])
