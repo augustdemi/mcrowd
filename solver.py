@@ -359,6 +359,8 @@ class Solver(object):
                         total_coll += (len(torch.where(diff_agent_dist_post < 0.5)[0]) / 2)
 
             coll_loss = coll_loss.div(batch_size)
+            total_coll = total_coll/batch_size
+
             loss = - traj_elbo + self.w_coll * coll_loss
             e_coll_loss +=coll_loss.item()
             e_total_coll +=total_coll
@@ -493,6 +495,8 @@ class Solver(object):
                                 # diff_agent_dist[torch.where(diff_agent_dist > self.coll_th)] += self.beta
                                 coll_loss += (torch.sigmoid(-(diff_agent_dist - self.coll_th) * self.beta)).sum()
                                 total_coll += (len(torch.where(diff_agent_dist < 0.5)[0])/2)
+                    coll_loss = coll_loss.div(batch_size)
+                    total_coll = total_coll / batch_size
 
                 ade, fde = [], []
                 for dist in fut_rel_pos_dist20:
