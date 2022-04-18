@@ -1901,6 +1901,495 @@ class Solver(object):
 
 
 
+
+
+
+    def all_evaluation_original(self, data_loader, lg_num=5, traj_num=4, generate_heat=True, theta=0):
+        self.set_mode(train=False)
+        total_traj = 0
+
+        total_coll5 = [0] * (lg_num * traj_num)
+        total_coll10 = [0] * (lg_num * traj_num)
+        total_coll15 = [0] * (lg_num * traj_num)
+        total_coll20 = [0] * (lg_num * traj_num)
+        total_coll25 = [0] * (lg_num * traj_num)
+        total_coll30 = [0] * (lg_num * traj_num)
+        n_scene = 0
+
+
+        all_ade =[]
+        all_fde =[]
+        sg_ade=[]
+        lg_fde=[]
+        pred_c = []
+
+        with torch.no_grad():
+            b=0
+            for batch in data_loader:
+                b+=1
+                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
+                 obs_frames, pred_frames, map_path, inv_h_t,
+                 local_map, local_ic, local_homo) = batch
+                batch_size = obs_traj.size(1)
+                total_traj += fut_traj.size(1)
+
+                obs_heat_map, _, _= self.make_heatmap(local_ic, local_map)
+
+                self.lg_cvae.forward(obs_heat_map, None, training=False)
+                fut_rel_pos_dists = []
+                pred_lg_wcs = []
+                pred_sg_wcs = []
+
+                ####### long term goals and the corresponding (deterministic) short term goals ########
+                w_priors = []
+                for _ in range(lg_num):
+                    w_priors.append(self.lg_cvae.prior_latent_space.sample())
+
+                for w_prior in w_priors:
+                    # -------- long term goal --------
+                    pred_lg_heat = F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, w_prior))
+                    pred_lg_ics = []
+                    pred_lg_wc = []
+                    for i in range(batch_size):
+                        map_size = local_map[i][0].shape
+                        pred_lg_ic = []
+                        for heat_map in pred_lg_heat[i]:
+                            argmax_idx = heat_map.argmax()
+                            argmax_idx = [argmax_idx // map_size[0], argmax_idx % map_size[0]]
+                            pred_lg_ic.append(argmax_idx)
+
+                        pred_lg_ic = torch.tensor(pred_lg_ic).float().to(self.device)
+
+                        pred_lg_ics.append(pred_lg_ic)
+
+                        # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
+                        back_wc = torch.matmul(
+                            torch.cat([pred_lg_ic, torch.ones((len(pred_lg_ic), 1)).to(self.device)], dim=1),
+                            torch.transpose(local_homo[i], 1, 0))
+                        pred_lg_wc.append(back_wc[0, :2] / back_wc[0, 2])
+                        # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
+                    pred_lg_wc = torch.stack(pred_lg_wc)
+                    pred_lg_wcs.append(pred_lg_wc)
+                    # -------- short term goal --------
+
+                    pred_lg_heat_from_ic = []
+                    for i in range(len(pred_lg_ics)):
+                        pred_lg_heat_from_ic.append(self.make_one_heatmap(pred_lg_ics[i][
+                                                                              0].detach().cpu().numpy().astype(int)))
+                    pred_lg_heat_from_ic = torch.tensor(np.stack(pred_lg_heat_from_ic)).unsqueeze(1).float().to(
+                        self.device)
+                    pred_sg_heat = F.sigmoid(
+                        self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1)))
+
+                    pred_sg_wc = []
+                    for i in range(batch_size):
+                        map_size = local_map[i][0].shape
+                        pred_sg_ic = []
+                        for heat_map in pred_sg_heat[i]:
+                            argmax_idx = heat_map.argmax()
+                            argmax_idx = [argmax_idx // map_size[0], argmax_idx % map_size[0]]
+                            pred_sg_ic.append(argmax_idx)
+                        pred_sg_ic = torch.tensor(pred_sg_ic).float().to(self.device)
+                        # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
+                        back_wc = torch.matmul(
+                            torch.cat([pred_sg_ic, torch.ones((len(pred_sg_ic), 1)).to(self.device)], dim=1),
+                            torch.transpose(local_homo[i], 1, 0))
+                        back_wc /= back_wc[:, 2].unsqueeze(1)
+                        pred_sg_wc.append(back_wc[:, :2])
+                        # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
+                    pred_sg_wc = torch.stack(pred_sg_wc)
+                    pred_sg_wcs.append(pred_sg_wc)
+
+                ##### trajectories per long&short goal ####
+
+                # -------- trajectories --------
+                (hx, mux, log_varx) \
+                    = self.encoderMx(obs_traj_st, seq_start_end)
+
+                p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
+                z_priors = []
+                for _ in range(traj_num):
+                    z_priors.append(p_dist.sample())
+
+                for pred_sg_wc in pred_sg_wcs:
+                    for z_prior in z_priors:
+                        # -------- trajectories --------
+                        # NO TF, pred_goals, z~prior
+                        fut_rel_pos_dist_prior = self.decoderMy(
+                            seq_start_end,
+                            obs_traj_st[-1],
+                            obs_traj[-1, :, :2],
+                            hx,
+                            z_prior,
+                            pred_sg_wc,  # goal
+                            self.sg_idx
+                        )
+                        fut_rel_pos_dists.append(fut_rel_pos_dist_prior)
+
+
+                ade, fde = [], []
+                multi_coll5 = []
+                multi_coll10 = []
+                multi_coll15 = []
+                multi_coll20 = []
+                multi_coll25 = []
+                multi_coll30 = []
+                n_scene += sum([e-s for s, e in seq_start_end])
+                pred=[]
+                for dist in fut_rel_pos_dists:
+                    pred_fut_traj=integrate_samples(dist.rsample(), obs_traj[-1, :, :2], dt=self.dt)
+                    ade.append(displacement_error(
+                        pred_fut_traj, fut_traj[:,:,:2], mode='raw'
+                    ))
+                    fde.append(final_displacement_error(
+                        pred_fut_traj[-1], fut_traj[-1,:,:2], mode='raw'
+                    ))
+                    coll5 = 0
+                    coll10 = 0
+                    coll15 = 0
+                    coll20 = 0
+                    coll25 = 0
+                    coll30 = 0
+                    for s, e in seq_start_end:
+                        num_ped = e - s
+                        if num_ped == 1:
+                            continue
+                        seq_traj = pred_fut_traj[:, s:e]
+                        for i in range(len(seq_traj)):
+                            curr1 = seq_traj[i].repeat(num_ped, 1)
+                            curr2 = self.repeat(seq_traj[i], num_ped)
+                            dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
+                            dist = dist.reshape(num_ped, num_ped)
+                            diff_agent_idx = np.triu_indices(num_ped, k=1)
+                            diff_agent_dist = dist[diff_agent_idx]
+                            coll5 += (diff_agent_dist < 0.05).sum()
+                            coll10 += (diff_agent_dist < 0.1).sum()
+                            coll15 += (diff_agent_dist < 0.2).sum()
+                            coll20 += (diff_agent_dist < 0.3).sum()
+                            coll25 += (diff_agent_dist < 0.4).sum()
+                            coll30 += (diff_agent_dist < 0.5).sum()
+                    multi_coll5.append(coll5)
+                    multi_coll10.append(coll10)
+                    multi_coll15.append(coll15)
+                    multi_coll20.append(coll20)
+                    multi_coll25.append(coll25)
+                    multi_coll30.append(coll30)
+                    pred.append(pred_fut_traj.transpose(1, 0).detach().cpu().numpy())
+
+                # a2a collision
+                for i in range(lg_num * traj_num):
+                    total_coll5[i] += multi_coll5[i]
+                    total_coll10[i] += multi_coll10[i]
+                    total_coll15[i] += multi_coll15[i]
+                    total_coll20[i] += multi_coll20[i]
+                    total_coll25[i] += multi_coll25[i]
+                    total_coll30[i] += multi_coll30[i]
+
+                # a2e collision
+                pred = np.stack(pred, 1)
+                pred_c.append(compute_ECFL(pred, local_map, local_homo.cpu().numpy()))
+
+                # ade / fde
+
+                all_ade.append(torch.stack(ade))
+                all_fde.append(torch.stack(fde))
+                sg_ade.append(torch.sqrt(((torch.stack(pred_sg_wcs).permute(0, 2, 1, 3)
+                                           - fut_traj[list(self.sg_idx),:,:2].unsqueeze(0).repeat((lg_num,1,1,1)))**2).sum(-1)).sum(1)) # 20, 3, 4, 2
+                lg_fde.append(torch.sqrt(((torch.stack(pred_lg_wcs)
+                                           - fut_traj[-1,:,:2].unsqueeze(0).repeat((lg_num,1,1)))**2).sum(-1))) # 20, 3, 4, 2
+
+            print("PRED ECFLS: ", np.array(pred_c).mean())
+
+
+            all_ade=torch.cat(all_ade, dim=1).cpu().numpy()
+            all_fde=torch.cat(all_fde, dim=1).cpu().numpy()
+            sg_ade=torch.cat(sg_ade, dim=1).cpu().numpy()
+            lg_fde=torch.cat(lg_fde, dim=1).cpu().numpy() # all batches are concatenated
+
+            ade_min = np.min(all_ade, axis=0).mean()/self.pred_len
+            fde_min = np.min(all_fde, axis=0).mean()
+            ade_avg = np.mean(all_ade, axis=0).mean()/self.pred_len
+            fde_avg = np.mean(all_fde, axis=0).mean()
+            ade_std = np.std(all_ade, axis=0).mean()/self.pred_len
+            fde_std = np.std(all_fde, axis=0).mean()
+
+            sg_ade_min = np.min(sg_ade, axis=0).mean()/len(self.sg_idx)
+            sg_ade_avg = np.mean(sg_ade, axis=0).mean()/len(self.sg_idx)
+            sg_ade_std = np.std(sg_ade, axis=0).mean()/len(self.sg_idx)
+
+            lg_fde_min = np.min(lg_fde, axis=0).mean()
+            lg_fde_avg = np.mean(lg_fde, axis=0).mean()
+            lg_fde_std = np.std(lg_fde, axis=0).mean()
+
+            total_coll5=np.array(total_coll5)
+            total_coll10=np.array(total_coll10)
+            total_coll15=np.array(total_coll15)
+            total_coll20=np.array(total_coll20)
+            total_coll25=np.array(total_coll25)
+            total_coll30=np.array(total_coll30)
+
+            print('total 5: ', np.min(total_coll5, axis=0).mean(), np.mean(total_coll5, axis=0).mean(), np.std(total_coll5, axis=0).mean())
+            print('total 10: ', np.min(total_coll10, axis=0).mean(), np.mean(total_coll10, axis=0).mean(), np.std(total_coll10, axis=0).mean())
+            print('total 15: ', np.min(total_coll15, axis=0).mean(), np.mean(total_coll15, axis=0).mean(), np.std(total_coll15, axis=0).mean())
+            print('total 20: ', np.min(total_coll20, axis=0).mean(), np.mean(total_coll20, axis=0).mean(), np.std(total_coll20, axis=0).mean())
+            print('total 25: ', np.min(total_coll25, axis=0).mean(), np.mean(total_coll25, axis=0).mean(), np.std(total_coll25, axis=0).mean())
+            print('total 30: ', np.min(total_coll30, axis=0).mean(), np.mean(total_coll30, axis=0).mean(), np.std(total_coll30, axis=0).mean())
+
+            print(n_scene)
+
+        self.set_mode(train=True)
+        return ade_min, fde_min, \
+               ade_avg, fde_avg, \
+               ade_std, fde_std, \
+               sg_ade_min, sg_ade_avg, sg_ade_std, \
+               lg_fde_min, lg_fde_avg, lg_fde_std
+
+    def all_evaluation_nopool(self, data_loader, lg_num=5, traj_num=4, generate_heat=True, theta=0):
+        self.set_mode(train=False)
+        total_traj = 0
+
+        total_coll5 = [0] * (lg_num * traj_num)
+        total_coll10 = [0] * (lg_num * traj_num)
+        total_coll15 = [0] * (lg_num * traj_num)
+        total_coll20 = [0] * (lg_num * traj_num)
+        total_coll25 = [0] * (lg_num * traj_num)
+        total_coll30 = [0] * (lg_num * traj_num)
+        n_scene = 0
+
+        all_ade = []
+        all_fde = []
+        sg_ade = []
+        lg_fde = []
+        pred_c = []
+
+        with torch.no_grad():
+            b = 0
+            for batch in data_loader:
+                b += 1
+                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
+                 obs_frames, pred_frames, map_path, inv_h_t,
+                 local_map, local_ic, local_homo) = batch
+                batch_size = obs_traj.size(1)
+                total_traj += fut_traj.size(1)
+
+                obs_heat_map, _, _ = self.make_heatmap(local_ic, local_map)
+
+                self.lg_cvae.forward(obs_heat_map, None, training=False)
+                predictions = []
+                pred_lg_wcs = []
+                pred_sg_wcs = []
+
+                ####### long term goals and the corresponding (deterministic) short term goals ########
+                w_priors = []
+                for _ in range(lg_num):
+                    w_priors.append(self.lg_cvae.prior_latent_space.sample())
+
+                for w_prior in w_priors:
+                    # -------- long term goal --------
+                    pred_lg_heat = F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, w_prior))
+                    pred_lg_ics = []
+                    pred_lg_wc = []
+                    for i in range(batch_size):
+                        map_size = local_map[i][0].shape
+                        pred_lg_ic = []
+                        for heat_map in pred_lg_heat[i]:
+                            argmax_idx = heat_map.argmax()
+                            argmax_idx = [argmax_idx // map_size[0], argmax_idx % map_size[0]]
+                            pred_lg_ic.append(argmax_idx)
+
+                        pred_lg_ic = torch.tensor(pred_lg_ic).float().to(self.device)
+
+                        pred_lg_ics.append(pred_lg_ic)
+
+                        # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
+                        back_wc = torch.matmul(
+                            torch.cat([pred_lg_ic, torch.ones((len(pred_lg_ic), 1)).to(self.device)], dim=1),
+                            torch.transpose(local_homo[i], 1, 0))
+                        pred_lg_wc.append(back_wc[0, :2] / back_wc[0, 2])
+                        # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
+                    pred_lg_wc = torch.stack(pred_lg_wc)
+                    pred_lg_wcs.append(pred_lg_wc)
+                    # -------- short term goal --------
+
+                    pred_lg_heat_from_ic = []
+                    for i in range(len(pred_lg_ics)):
+                        pred_lg_heat_from_ic.append(self.make_one_heatmap(pred_lg_ics[i][
+                                                                              0].detach().cpu().numpy().astype(int)))
+                    pred_lg_heat_from_ic = torch.tensor(np.stack(pred_lg_heat_from_ic)).unsqueeze(1).float().to(
+                        self.device)
+                    pred_sg_heat = F.sigmoid(
+                        self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1)))
+
+                    pred_sg_wc = []
+                    for i in range(batch_size):
+                        map_size = local_map[i][0].shape
+                        pred_sg_ic = []
+                        for heat_map in pred_sg_heat[i]:
+                            argmax_idx = heat_map.argmax()
+                            argmax_idx = [argmax_idx // map_size[0], argmax_idx % map_size[0]]
+                            pred_sg_ic.append(argmax_idx)
+                        pred_sg_ic = torch.tensor(pred_sg_ic).float().to(self.device)
+                        # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
+                        back_wc = torch.matmul(
+                            torch.cat([pred_sg_ic, torch.ones((len(pred_sg_ic), 1)).to(self.device)], dim=1),
+                            torch.transpose(local_homo[i], 1, 0))
+                        back_wc /= back_wc[:, 2].unsqueeze(1)
+                        pred_sg_wc.append(back_wc[:, :2])
+                        # ((back_wc - fut_traj[[3, 7, 11], 0, :2]) ** 2).sum(1).mean()
+                    pred_sg_wc = torch.stack(pred_sg_wc)
+                    pred_sg_wcs.append(pred_sg_wc)
+
+                ##### trajectories per long&short goal ####
+
+                # -------- trajectories --------
+                (hx, mux, log_varx) \
+                    = self.encoderMx(obs_traj_st, seq_start_end)
+
+                p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
+                z_priors = []
+                for _ in range(traj_num):
+                    z_priors.append(p_dist.sample())
+
+                for pred_sg_wc in pred_sg_wcs:
+                    for z_prior in z_priors:
+                        # -------- trajectories --------
+                        # NO TF, pred_goals, z~prior
+                        micro_pred = self.decoderMy.make_prediction(
+                            seq_start_end,
+                            obs_traj_st[-1],
+                            obs_traj[-1, :, :2],
+                            hx,
+                            z_prior,
+                            pred_sg_wc,  # goal
+                            self.sg_idx
+                        )
+                        predictions.append(micro_pred)
+
+
+                ade, fde = [], []
+                multi_coll5 = []
+                multi_coll10 = []
+                multi_coll15 = []
+                multi_coll20 = []
+                multi_coll25 = []
+                multi_coll30 = []
+                n_scene += sum([e - s for s, e in seq_start_end])
+                pred = []
+                for vel_pred in predictions:
+                    pred_fut_traj = integrate_samples(vel_pred, obs_traj[-1, :, :2], dt=self.dt)
+                    ade.append(displacement_error(
+                        pred_fut_traj, fut_traj[:, :, :2], mode='raw'
+                    ))
+                    fde.append(final_displacement_error(
+                        pred_fut_traj[-1], fut_traj[-1, :, :2], mode='raw'
+                    ))
+                    coll5 = 0
+                    coll10 = 0
+                    coll15 = 0
+                    coll20 = 0
+                    coll25 = 0
+                    coll30 = 0
+                    for s, e in seq_start_end:
+                        num_ped = e - s
+                        if num_ped == 1:
+                            continue
+                        seq_traj = pred_fut_traj[:, s:e]
+                        for i in range(len(seq_traj)):
+                            curr1 = seq_traj[i].repeat(num_ped, 1)
+                            curr2 = self.repeat(seq_traj[i], num_ped)
+                            dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
+                            dist = dist.reshape(num_ped, num_ped)
+                            diff_agent_idx = np.triu_indices(num_ped, k=1)
+                            diff_agent_dist = dist[diff_agent_idx]
+                            coll5 += (diff_agent_dist < 0.05).sum()
+                            coll10 += (diff_agent_dist < 0.1).sum()
+                            coll15 += (diff_agent_dist < 0.2).sum()
+                            coll20 += (diff_agent_dist < 0.3).sum()
+                            coll25 += (diff_agent_dist < 0.4).sum()
+                            coll30 += (diff_agent_dist < 0.5).sum()
+                    multi_coll5.append(coll5)
+                    multi_coll10.append(coll10)
+                    multi_coll15.append(coll15)
+                    multi_coll20.append(coll20)
+                    multi_coll25.append(coll25)
+                    multi_coll30.append(coll30)
+                    pred.append(pred_fut_traj.transpose(1, 0).detach().cpu().numpy())
+
+                # a2a collision
+                for i in range(lg_num * traj_num):
+                    total_coll5[i] += multi_coll5[i]
+                    total_coll10[i] += multi_coll10[i]
+                    total_coll15[i] += multi_coll15[i]
+                    total_coll20[i] += multi_coll20[i]
+                    total_coll25[i] += multi_coll25[i]
+                    total_coll30[i] += multi_coll30[i]
+
+                # a2e collision
+                pred = np.stack(pred, 1)
+                pred_c.append(compute_ECFL(pred, local_map, local_homo.cpu().numpy()))
+
+                # ade / fde
+
+                all_ade.append(torch.stack(ade))
+                all_fde.append(torch.stack(fde))
+                sg_ade.append(torch.sqrt(((torch.stack(pred_sg_wcs).permute(0, 2, 1, 3)
+                                           - fut_traj[list(self.sg_idx), :, :2].unsqueeze(0).repeat(
+                            (lg_num, 1, 1, 1))) ** 2).sum(-1)).sum(1))  # 20, 3, 4, 2
+                lg_fde.append(torch.sqrt(((torch.stack(pred_lg_wcs)
+                                           - fut_traj[-1, :, :2].unsqueeze(0).repeat((lg_num, 1, 1))) ** 2).sum(
+                    -1)))  # 20, 3, 4, 2
+
+            print("PRED ECFLS: ", np.array(pred_c).mean())
+
+            all_ade = torch.cat(all_ade, dim=1).cpu().numpy()
+            all_fde = torch.cat(all_fde, dim=1).cpu().numpy()
+            sg_ade = torch.cat(sg_ade, dim=1).cpu().numpy()
+            lg_fde = torch.cat(lg_fde, dim=1).cpu().numpy()  # all batches are concatenated
+
+            ade_min = np.min(all_ade, axis=0).mean() / self.pred_len
+            fde_min = np.min(all_fde, axis=0).mean()
+            ade_avg = np.mean(all_ade, axis=0).mean() / self.pred_len
+            fde_avg = np.mean(all_fde, axis=0).mean()
+            ade_std = np.std(all_ade, axis=0).mean() / self.pred_len
+            fde_std = np.std(all_fde, axis=0).mean()
+
+            sg_ade_min = np.min(sg_ade, axis=0).mean() / len(self.sg_idx)
+            sg_ade_avg = np.mean(sg_ade, axis=0).mean() / len(self.sg_idx)
+            sg_ade_std = np.std(sg_ade, axis=0).mean() / len(self.sg_idx)
+
+            lg_fde_min = np.min(lg_fde, axis=0).mean()
+            lg_fde_avg = np.mean(lg_fde, axis=0).mean()
+            lg_fde_std = np.std(lg_fde, axis=0).mean()
+
+            total_coll5 = np.array(total_coll5)
+            total_coll10 = np.array(total_coll10)
+            total_coll15 = np.array(total_coll15)
+            total_coll20 = np.array(total_coll20)
+            total_coll25 = np.array(total_coll25)
+            total_coll30 = np.array(total_coll30)
+
+            print('total 5: ', np.min(total_coll5, axis=0).mean(), np.mean(total_coll5, axis=0).mean(),
+                  np.std(total_coll5, axis=0).mean())
+            print('total 10: ', np.min(total_coll10, axis=0).mean(), np.mean(total_coll10, axis=0).mean(),
+                  np.std(total_coll10, axis=0).mean())
+            print('total 15: ', np.min(total_coll15, axis=0).mean(), np.mean(total_coll15, axis=0).mean(),
+                  np.std(total_coll15, axis=0).mean())
+            print('total 20: ', np.min(total_coll20, axis=0).mean(), np.mean(total_coll20, axis=0).mean(),
+                  np.std(total_coll20, axis=0).mean())
+            print('total 25: ', np.min(total_coll25, axis=0).mean(), np.mean(total_coll25, axis=0).mean(),
+                  np.std(total_coll25, axis=0).mean())
+            print('total 30: ', np.min(total_coll30, axis=0).mean(), np.mean(total_coll30, axis=0).mean(),
+                  np.std(total_coll30, axis=0).mean())
+
+            print(n_scene)
+
+        self.set_mode(train=True)
+        return ade_min, fde_min, \
+               ade_avg, fde_avg, \
+               ade_std, fde_std, \
+               sg_ade_min, sg_ade_avg, sg_ade_std, \
+               lg_fde_min, lg_fde_avg, lg_fde_std
+
     def make_pred(self, data_loader, lg_num=5, traj_num=4, generate_heat=True):
         self.set_mode(train=False)
         total_traj = 0
