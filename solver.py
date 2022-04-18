@@ -250,15 +250,18 @@ class Solver(object):
 
             # reset data iterators for each epoch
             if iteration % iter_per_epoch == 0:
+                # print(iteration)
                 print('==== epoch %d done ====' % epoch)
-                epoch +=1
-                iterator = iter(data_loader)
-                if self.optim_vae.param_groups[0]['lr'] > 5e-5:
-                    self.scheduler.step()
-                else:
-                    self.optim_vae.param_groups[0]['lr'] = 5e-5
+                if epoch % 10 == 0:
+                    if self.optim_vae.param_groups[0]['lr'] > 1e-4:
+                        self.scheduler.step()
+                    else:
+                        self.optim_vae.param_groups[0]['lr'] = 1e-4
                 print("lr: ", self.optim_vae.param_groups[0]['lr'], ' // w_coll: ', self.w_coll)
                 print('e_coll_loss: ', e_coll_loss, ' // e_total_coll: ', e_total_coll)
+
+                epoch +=1
+                iterator = iter(data_loader)
                 prev_e_coll_loss = e_coll_loss
                 prev_e_total_coll = e_total_coll
                 e_coll_loss = 0
