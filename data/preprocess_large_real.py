@@ -129,6 +129,16 @@ def get_local_map_ic(map, all_traj, zoom=10, radius=8):
     return 1-local_map/255, all_pixel_local, h
 
 
+def trajectory_curvature(t):
+    path_distance = np.linalg.norm(t[-1] - t[0])
+
+    lengths = np.sqrt(np.sum(np.diff(t, axis=0) ** 2, axis=1))  # Length between points
+    path_length = np.sum(lengths)
+    if np.isclose(path_distance, 0.):
+        return 0, 0, 0
+    return (path_length / path_distance) - 1
+
+
 class TrajectoryDataset(Dataset):
     """Dataloder for the Trajectory datasets"""
 
@@ -165,19 +175,18 @@ class TrajectoryDataset(Dataset):
         # root_dir = os.path.join(data_dir, data_name)
         # root_dir = 'D:\crowd\datasets\Trajectories\Trajectories'
 
-        # all_files = [e for e in os.listdir(os.path.join(data_dir, 'Trajectories')) if ('.csv' in e) and ('homo' not in e)]
-        all_files = [e for e in os.listdir(data_dir) if ('.csv' in e) and (int(e.split('.csv')[0])%10 == 0)]
+        if data_split == 'train':
+            n=0
+            n_sample = 4000
+        elif data_split == 'val':
+            n=1
+            n_sample=500
+        else:
+            n=2
+            n_sample=1000
+        all_files = [e for e in os.listdir(data_dir) if ('.csv' in e) and ( (int(e.split('.csv')[0]) - n) % 10 == 0)]
         all_files = np.array(sorted(all_files, key=lambda x: int(x.split('.')[0])))
-
-        # if data_split == 'train':
-        #     all_files = all_files[:30]
-        # elif data_split == 'val':
-        #     all_files = all_files[[20]]
-        # else:
-        #     all_files = all_files[[43,47,48,49]]
-
-        # with open(os.path.join(root_dir, 'exit_wc.json')) as data_file:
-        #     all_exit_wc = json.load(data_file)
+        # all_files = [all_files[-1]]
 
 
         num_peds_in_seq = []
@@ -187,7 +196,7 @@ class TrajectoryDataset(Dataset):
         fut_frame_num = []
         map_file_names=[]
         inv_h_ts=[]
-
+        curvature = []
 
         for path in all_files:
             # exit_wc = np.array(all_exit_wc[path])
@@ -248,67 +257,59 @@ class TrajectoryDataset(Dataset):
 
                     num_peds_considered += 1
                 if num_peds_considered > min_ped:  # 주어진 하나의 sliding(16초)동안 등장한 agent수가 min_ped보다 큼을 만족하는 경우에만 이 slide데이터를 채택
-                    seq_traj = curr_seq[:num_peds_considered][:,:2]
-
-                    exclude_idx = []
-                    for i in range(20):
-                        curr1 = seq_traj[:,:,i].repeat(num_peds_considered, 0) # AAABBBCCC
-                        curr2 = np.stack([seq_traj[:,:,i]] * num_peds_considered).reshape(-1,2) # ABCABC
-                        dist = np.linalg.norm(curr1 - curr2, axis=1)
-                        dist = dist.reshape(num_peds_considered, num_peds_considered)
-
-                        diff_agent_idx = np.triu_indices(num_peds_considered, k=1)
-                        dist[diff_agent_idx] = 0
-                        under_th_idx = np.array(np.where((dist > 0) & (dist < coll_th)))
-                        # under_th_idx = np.where((dist > 0) & (dist < coll_th))
-
-                        # print(len(np.array(np.where((dist > 0.5) & (dist < 1))[0])))
-
-                        # for elt in np.unique(under_th_idx):
-                        #     np.count_nonzero(under_th_idx == elt)
-                        for j in range(len(under_th_idx[0])):
-                            idx_pair = under_th_idx[:,j]
-                            exclude_idx.append(idx_pair[0])
-                    exclude_idx = np.unique(exclude_idx)
-
-                    if len(exclude_idx) == num_peds_considered:
-                        continue
-                    if len(exclude_idx) > 0:
-                        print(len(exclude_idx), '/', num_peds_considered)
-                        valid_idx = [i for i in range(num_peds_considered) if i not in exclude_idx]
-                        seq_traj = curr_seq[valid_idx]
-                        num_peds_considered = len(valid_idx)
-
-                        #======================
-                        # for i in range(20):
-                        #     curr1 = seq_traj[:, :2, i].repeat(num_peds_considered, 0)  # AAABBBCCC
-                        #     curr2 = np.stack([seq_traj[:, :2, i]] * num_peds_considered).reshape(-1, 2)  # ABCABC
-                        #     dist = np.linalg.norm(curr1 - curr2, axis=1)
-                        #     dist = dist.reshape(num_peds_considered, num_peds_considered)
-                        #
-                        #     diff_agent_idx = np.triu_indices(num_peds_considered, k=1)
-                        #     dist[diff_agent_idx] = 0
-                        #     print(len(np.array(np.where((dist > 0) & (dist < 2))[0])))
-                        #======================
-                    else:
-                        seq_traj = curr_seq[:num_peds_considered]
+                    seq_traj = curr_seq[:num_peds_considered]
 
                     ## find the agent with max num of neighbors at the beginning of future steps
                     curr1 = seq_traj[:, :2, self.obs_len].repeat(num_peds_considered, 0)  # AAABBBCCC
                     curr2 = np.stack([seq_traj[:, :2, self.obs_len]] * num_peds_considered).reshape(-1, 2)  # ABCABC
                     dist = np.linalg.norm(curr1 - curr2, axis=1)
                     dist = dist.reshape(num_peds_considered, num_peds_considered)
-                    d = random.randint(0, len(dist)-1)
-                    target_agent_idx = np.where((dist[d] < 5))[0]
-                    # target_agent_idx = []
-                    # for d in range(len(dist)):
-                    #     neighbor_idx = np.where((dist[d] < 5))[0]
-                    #     if len(neighbor_idx) > len(target_agent_idx):
-                    #         target_agent_idx = neighbor_idx
+
+                    if random.random() < 0.5:
+                        d = random.randint(0, len(dist)-1)
+                        target_agent_idx = np.where((dist[d] < 5))[0]
+                    else:
+                        target_agent_idx = []
+                        for d in range(len(dist)):
+                            neighbor_idx = np.where((dist[d] < 5))[0]
+                            if len(neighbor_idx) > len(target_agent_idx):
+                                target_agent_idx = neighbor_idx
 
                     seq_traj = seq_traj[target_agent_idx]
                     num_peds_considered = len(target_agent_idx)
-                    print(num_peds_considered)
+
+                    for a in range(seq_traj.shape[0]):
+                        gt_traj = seq_traj[a, :2].T
+                        c = np.round(trajectory_curvature(gt_traj), 4)
+                        curvature.append(c)
+                        # if c > 100:
+                        #     print(c)
+
+                    '''
+                    colors = ['red', 'magenta', 'lightgreen', 'slateblue', 'blue', 'darkgreen', 'darkorange',
+                              'gray', 'purple', 'turquoise', 'midnightblue', 'olive', 'black', 'pink', 'burlywood',
+                              'yellow']
+                    global_map = imageio.imread(map_file_name)
+                    env = np.stack([global_map, global_map, global_map]).transpose(1, 2, 0) / 255
+                    plt.imshow(env)
+                    
+                    cc = []
+                    for idx in range(seq_traj.shape[0]):
+                        gt_xy = seq_traj[idx, :2].T
+                        c = np.round(trajectory_curvature(gt_xy),4)
+                        cc.append(c)
+                        print(c, colors[idx%16])
+                        all_traj = gt_xy * 2
+                        plt.plot(all_traj[:, 0], all_traj[:, 1], c=colors[idx % 16], marker='.', linewidth=1)
+                        plt.scatter(all_traj[0, 0], all_traj[0, 1], s=30, c=colors[idx % 16], marker='x')
+                        # plt.scatter(all_traj[:, 0], all_traj[:, 1], c=colors[idx%16], s=1)
+                        # plt.scatter(all_traj[0, 0], all_traj[0, 1], s=20, c=colors[idx%16], marker='x')
+                    plt.show()
+                    cc = np.array(cc)
+                    n, bins, patches = plt.hist(cc)
+
+                    '''
+
                     #######
                     # curr1 = seq_traj[:, :2, self.obs_len].repeat(num_peds_considered, 0)  # AAABBBCCC
                     # curr2 = np.stack([seq_traj[:, :2, self.obs_len]] * num_peds_considered).reshape(-1, 2)  # ABCABC
@@ -329,7 +330,9 @@ class TrajectoryDataset(Dataset):
                     # map_file_names.append(num_peds_considered*[map_file_name])
                     map_file_names.append(map_file_name)
                     inv_h_ts.append(inv_h_t)
-                if num_data_from_one_file > 1000:
+                # if frames[idx + self.obs_len] >= 1840:
+                #     break
+                if num_data_from_one_file > n_sample:
                     break
             cum_start_idx = [0] + np.cumsum(num_peds_in_seq).tolist()
             aa = np.array([(start, end) for start, end in zip(cum_start_idx, cum_start_idx[1:])])
@@ -360,6 +363,15 @@ class TrajectoryDataset(Dataset):
         self.local_homo = []
         self.local_ic = []
         print(self.seq_start_end[-1])
+
+
+        c = np.array(curvature)
+        # n, bins, patches = plt.hist(c)
+        # plt.show()
+        np.save(data_split + '_curvature.npy', c)
+        print(c.min(), np.round(c.mean(),4), np.round(c.max(),4))
+        c.sort()
+        print(np.round(c[len(c)//2]))
 
 
         for seq_i in range(len(self.seq_start_end)):
@@ -424,7 +436,7 @@ class TrajectoryDataset(Dataset):
              'local_homo': self.local_homo,
              }
 
-        save_path = os.path.join(data_dir, data_split + '_threshold' +  str(coll_th) + '.pkl')
+        save_path = os.path.join(data_dir, data_split + '.pkl')
         with open(save_path, 'wb') as handle:
             pickle5.dump(all_data, handle, protocol=pickle5.HIGHEST_PROTOCOL)
 
@@ -434,7 +446,7 @@ class TrajectoryDataset(Dataset):
 
 
 if __name__ == '__main__':
-    path = '../../datasets/large-real/Trajectories'
+    path = '../../datasets/large_real/Trajectories'
     # path = 'C:\dataset\large-real/Trajectories'
     coll_th = 0.5
     traj = TrajectoryDataset(
