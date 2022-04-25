@@ -177,7 +177,7 @@ class TrajectoryDataset(Dataset):
 
         if data_split == 'train':
             n=0
-            n_sample = 4000
+            n_sample = 3000
         elif data_split == 'val':
             n=1
             n_sample=500
@@ -373,8 +373,11 @@ class TrajectoryDataset(Dataset):
         c.sort()
         print(np.round(c[len(c)//2]))
 
-
+        u=0
         for seq_i in range(len(self.seq_start_end)):
+            u+=1
+            if u % 500 ==0:
+                print(u)
             start, end = self.seq_start_end[seq_i]
             global_map = imageio.imread(self.map_file_name[seq_i])
 
