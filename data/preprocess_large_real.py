@@ -180,10 +180,10 @@ class TrajectoryDataset(Dataset):
             n_sample = 3000
         elif data_split == 'val':
             n=1
-            n_sample=500
+            n_sample = 500
         else:
             n=2
-            n_sample=1000
+            n_sample = 800
         all_files = [e for e in os.listdir(data_dir) if ('.csv' in e) and ( (int(e.split('.csv')[0]) - n) % 10 == 0)]
         all_files = np.array(sorted(all_files, key=lambda x: int(x.split('.')[0])))
         # all_files = [all_files[-1]]
@@ -203,8 +203,6 @@ class TrajectoryDataset(Dataset):
             num_data_from_one_file = 0
             path = os.path.join(data_dir, path.rstrip().replace('\\', '/'))
             print('data path:', path)
-            # if 'Pathfinding' not in path:
-            #     continue
             map_file_name = path.replace('.csv', '.png')
             print('map path: ', map_file_name)
             inv_h_t = np.eye(3)*2
@@ -213,7 +211,6 @@ class TrajectoryDataset(Dataset):
 
             data = pd.DataFrame(loaded_data[:,:4])
             data.columns = ['f', 'a', 'pos_x', 'pos_y']
-            # data.sort_values(by=['f', 'a'], inplace=True)
             data.sort_values(by=['f', 'a'], inplace=True)
 
             frames = data['f'].unique().tolist()
@@ -226,10 +223,9 @@ class TrajectoryDataset(Dataset):
                 math.ceil((len(frames) - self.seq_len + 1) / skip))
             # print('num_sequences: ', num_sequences)
 
-            # all frames를 seq_len(kernel size)만큼씩 sliding해가며 볼것. 이때 skip = stride.
             for idx in range(0, num_sequences * skip + 1, skip):
                 curr_seq_data = np.concatenate(
-                    frame_data[idx:idx + self.seq_len], axis=0) # frame을 seq_len만큼씩 잘라서 볼것 = curr_seq_data. 각 frame이 가진 데이터(agent)수는 다를수 잇음. 하지만 각 데이터의 길이는 4(frame #, agent id, pos_x, pos_y)
+                    frame_data[idx:idx + self.seq_len], axis=0)
                 peds_in_curr_seq = np.unique(curr_seq_data[:, 1]) # unique agent id
 
                 curr_seq = np.zeros((len(peds_in_curr_seq), n_state, self.seq_len))
@@ -278,10 +274,10 @@ class TrajectoryDataset(Dataset):
                     seq_traj = seq_traj[target_agent_idx]
                     num_peds_considered = len(target_agent_idx)
 
-                    for a in range(seq_traj.shape[0]):
-                        gt_traj = seq_traj[a, :2].T
-                        c = np.round(trajectory_curvature(gt_traj), 4)
-                        curvature.append(c)
+                    # for a in range(seq_traj.shape[0]):
+                    #     gt_traj = seq_traj[a, :2].T
+                    #     c = np.round(trajectory_curvature(gt_traj), 4)
+                    #     curvature.append(c)
                         # if c > 100:
                         #     print(c)
 
@@ -324,9 +320,8 @@ class TrajectoryDataset(Dataset):
                     seq_list.append(seq_traj)
                     num_data_from_one_file += num_peds_considered
                     num_peds_in_seq.append(num_peds_considered)
-                    obs_frame_num.append(np.ones((num_peds_considered, self.obs_len)) * frames[idx:idx + self.obs_len])
-                    fut_frame_num.append(
-                        np.ones((num_peds_considered, self.pred_len)) * frames[idx + self.obs_len:idx + self.seq_len])
+                    obs_frame_num.append(frames[idx:idx + self.obs_len])
+                    fut_frame_num.append(frames[idx + self.obs_len:idx + self.seq_len])
                     # map_file_names.append(num_peds_considered*[map_file_name])
                     map_file_names.append(map_file_name)
                     inv_h_ts.append(inv_h_t)
@@ -340,8 +335,8 @@ class TrajectoryDataset(Dataset):
             print(num_data_from_one_file, np.round((aa[:, 1] - aa[:, 0]).min(),2), np.round((aa[:, 1] - aa[:, 0]).mean(), 2), np.round((aa[:, 1] - aa[:, 0]).max(), 2))
 
         seq_list = np.concatenate(seq_list, axis=0)  # (32686, 2, 16)
-        self.obs_frame_num = np.concatenate(obs_frame_num, axis=0)
-        self.fut_frame_num = np.concatenate(fut_frame_num, axis=0)
+        self.obs_frame_num = np.stack(obs_frame_num)
+        self.fut_frame_num = np.stack(fut_frame_num)
 
         # Convert numpy -> Torch Tensor
         self.obs_traj = seq_list[:, :, :self.obs_len]
@@ -397,9 +392,7 @@ class TrajectoryDataset(Dataset):
                 # plt.imshow(local_map[0])
                 # plt.scatter(local_ic[:,1], local_ic[:,0], s=1, c='r')
                 # plt.show()
-            obs_real = np.concatenate([self.obs_traj[idx, :2].transpose(1,0), np.ones((self.obs_len, 1))], axis=1)
-            obs_pixel = np.matmul(obs_real, inv_h_t)
-            obs_pixel /= np.expand_dims(obs_pixel[:, 2], 1)
+
             '''
             seq_i+=1
             start, end = self.seq_start_end[seq_i]
