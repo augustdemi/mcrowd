@@ -268,8 +268,9 @@ class TrajectoryDataset(Dataset):
                         target_agent_idx = []
                         for d in range(len(dist)):
                             neighbor_idx = np.where((dist[d] < 5))[0]
-                            if len(neighbor_idx) > len(target_agent_idx):
+                            if (len(neighbor_idx) > len(target_agent_idx)) and len(neighbor_idx) < 60:
                                 target_agent_idx = neighbor_idx
+                                break
 
                     seq_traj = seq_traj[target_agent_idx]
                     num_peds_considered = len(target_agent_idx)
@@ -282,6 +283,21 @@ class TrajectoryDataset(Dataset):
                         #     print(c)
 
                     '''
+                    with open('C:\dataset\large-real\Trajectories/test.pkl', 'rb') as f:
+                        aa = pickle5.load(f)
+                    o_traj = aa['obs_traj'][:,:2]
+                    f_traj = aa['fut_traj'][:,:2]
+                    seq_s_e = aa['seq_start_end']
+                    
+                    s_idx = 12
+                    s, e = seq_s_e[s_idx]
+                    print(s,e)
+                    map_file_name = aa['map_file_name'][s_idx].replace('../../datasets', 'C:/dataset')
+                    print(map_file_name)
+                    
+                    seq_traj = np.concatenate([o_traj[s:e], f_traj[s:e]], -1)
+                    
+                    #===================================
                     colors = ['red', 'magenta', 'lightgreen', 'slateblue', 'blue', 'darkgreen', 'darkorange',
                               'gray', 'purple', 'turquoise', 'midnightblue', 'olive', 'black', 'pink', 'burlywood',
                               'yellow']
@@ -296,11 +312,13 @@ class TrajectoryDataset(Dataset):
                         cc.append(c)
                         print(c, colors[idx%16])
                         all_traj = gt_xy * 2
-                        plt.plot(all_traj[:, 0], all_traj[:, 1], c=colors[idx % 16], marker='.', linewidth=1)
-                        plt.scatter(all_traj[0, 0], all_traj[0, 1], s=30, c=colors[idx % 16], marker='x')
-                        # plt.scatter(all_traj[:, 0], all_traj[:, 1], c=colors[idx%16], s=1)
-                        # plt.scatter(all_traj[0, 0], all_traj[0, 1], s=20, c=colors[idx%16], marker='x')
+                        # plt.plot(all_traj[:, 0], all_traj[:, 1], c=colors[idx % 16], marker='.', linewidth=1)
+                        # plt.scatter(all_traj[0, 0], all_traj[0, 1], s=30, c=colors[idx % 16], marker='x')
+                        plt.scatter(all_traj[:, 0], all_traj[:, 1], c=colors[idx%16], s=1)
+                        plt.scatter(all_traj[0, 0], all_traj[0, 1], s=20, c=colors[idx%16], marker='x')
                     plt.show()
+                    
+                    
                     cc = np.array(cc)
                     n, bins, patches = plt.hist(cc)
 
@@ -360,13 +378,13 @@ class TrajectoryDataset(Dataset):
         print(self.seq_start_end[-1])
 
 
-        # c = np.array(curvature)
-        # # n, bins, patches = plt.hist(c)
-        # # plt.show()
-        # np.save(data_split + '_curvature.npy', c)
-        # print(c.min(), np.round(c.mean(),4), np.round(c.max(),4))
-        # c.sort()
-        # print(np.round(c[len(c)//2]))
+        c = np.array(curvature)
+        # n, bins, patches = plt.hist(c)
+        # plt.show()
+        np.save(data_split + '_curvature.npy', c)
+        print(c.min(), np.round(c.mean(),4), np.round(c.max(),4))
+        c.sort()
+        print(np.round(c[len(c)//2]))
 
         u=0
         for seq_i in range(len(self.seq_start_end)):
@@ -432,7 +450,7 @@ class TrajectoryDataset(Dataset):
              'local_homo': self.local_homo,
              }
 
-        save_path = os.path.join(data_dir, data_split + '.pkl')
+        save_path = os.path.join(data_dir, data_split + '3.pkl')
         with open(save_path, 'wb') as handle:
             pickle5.dump(all_data, handle, protocol=pickle5.HIGHEST_PROTOCOL)
 
@@ -443,11 +461,11 @@ class TrajectoryDataset(Dataset):
 
 if __name__ == '__main__':
     path = '../../datasets/large_real/Trajectories'
-    # path = 'C:\dataset\large-real/Trajectories'
+    # path = 'C:\dataset\large_real/Trajectories'
     coll_th = 0.5
     traj = TrajectoryDataset(
             data_dir=path,
-            data_split='test',
+            data_split='train',
             device='cpu',
             scale=1,
             coll_th=coll_th)
