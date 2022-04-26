@@ -177,7 +177,7 @@ class TrajectoryDataset(Dataset):
 
         if data_split == 'train':
             n=0
-            n_sample = 3000
+            n_sample = 2500
         elif data_split == 'val':
             n=1
             n_sample = 500
@@ -360,18 +360,18 @@ class TrajectoryDataset(Dataset):
         print(self.seq_start_end[-1])
 
 
-        c = np.array(curvature)
-        # n, bins, patches = plt.hist(c)
-        # plt.show()
-        np.save(data_split + '_curvature.npy', c)
-        print(c.min(), np.round(c.mean(),4), np.round(c.max(),4))
-        c.sort()
-        print(np.round(c[len(c)//2]))
+        # c = np.array(curvature)
+        # # n, bins, patches = plt.hist(c)
+        # # plt.show()
+        # np.save(data_split + '_curvature.npy', c)
+        # print(c.min(), np.round(c.mean(),4), np.round(c.max(),4))
+        # c.sort()
+        # print(np.round(c[len(c)//2]))
 
         u=0
         for seq_i in range(len(self.seq_start_end)):
             u+=1
-            if u % 500 ==0:
+            if u % 100 ==0:
                 print(u)
             start, end = self.seq_start_end[seq_i]
             global_map = imageio.imread(self.map_file_name[seq_i])
