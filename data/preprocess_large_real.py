@@ -175,7 +175,7 @@ class TrajectoryDataset(Dataset):
 
         if data_split == 'train':
             n=0
-            n_sample = 25
+            n_sample = 2500
         elif data_split == 'val':
             n=1
             n_sample = 500
@@ -184,7 +184,7 @@ class TrajectoryDataset(Dataset):
             n_sample = 800
         all_files = [e for e in os.listdir(data_dir) if ('.csv' in e) and ( (int(e.split('.csv')[0]) - n) % 10 == 0)]
         all_files = np.array(sorted(all_files, key=lambda x: int(x.split('.')[0])))
-        all_files = [all_files[-1]]
+        # all_files = [all_files[-1]]
 
 
         num_peds_in_seq = []
