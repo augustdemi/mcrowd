@@ -38,8 +38,8 @@ def read_file(_path, delim='\t'):
             data.append(line)
     return np.asarray(data)
 
-def get_local_map_ic(map, all_traj, zoom=10, radius=8):
-    radius = radius * zoom
+def get_local_map_ic(map, all_traj, zoom=10, radius=11.2):
+    radius = int(radius * zoom)
     context_size = radius * 2
 
     global_map = np.kron(map, np.ones((zoom, zoom)))
@@ -52,8 +52,8 @@ def get_local_map_ic(map, all_traj, zoom=10, radius=8):
     all_pixel = context_size // 2 + np.round(all_pixel).astype(int)
 
     # plt.imshow(expanded_obs_img)
-    # plt.scatter(all_pixel[:8, 1], all_pixel[:8, 0], s=1, c='b')
-    # plt.scatter(all_pixel[8:, 1], all_pixel[8:, 0], s=1, c='r')
+    # plt.scatter(all_pixel[:8, 0], all_pixel[:8, 1], s=1, c='b')
+    # plt.scatter(all_pixel[8:, 0], all_pixel[8:, 1], s=1, c='r')
     # plt.show()
 
 
@@ -78,7 +78,7 @@ def get_local_map_ic(map, all_traj, zoom=10, radius=8):
     '''
 
     fake_pt = [all_traj[7]]
-    for i in range(1, 6):
+    for i in range(1, 4):
         fake_pt.append(all_traj[7] + [i, i] + np.random.rand(2)*0.3)
         fake_pt.append(all_traj[7] + [-i, -i] + np.random.rand(2)*0.3)
         fake_pt.append(all_traj[7] + [i, -i] + np.random.rand(2)*0.3)
@@ -108,23 +108,21 @@ def get_local_map_ic(map, all_traj, zoom=10, radius=8):
     all_pixel_local /= np.expand_dims(all_pixel_local[:, 2], 1)
     all_pixel_local = np.round(all_pixel_local).astype(int)[:,:2]
 
+    '''
     # back to wc
-    # back_wc = np.matmul(np.concatenate([all_pixel_local, np.ones((len(all_pixel_local), 1))], axis=1), np.transpose(h))
-    # back_wc /= np.expand_dims(back_wc[:, 2], 1)
-    # back_wc = back_wc[:,:2]
+    back_wc = np.matmul(np.concatenate([all_pixel_local, np.ones((len(all_pixel_local), 1))], axis=1), np.transpose(h))
+    back_wc /= np.expand_dims(back_wc[:, 2], 1)
+    back_wc = back_wc[:,:2]
+    print(np.sqrt(((back_wc - all_traj)**2).sum(1)).mean())
 
     #
-    # plt.imshow(local_map)
-    # plt.scatter(all_pixel_local[:8, 1], all_pixel_local[:8, 0], s=1, c='b')
-    # plt.scatter(all_pixel_local[8:, 1], all_pixel_local[8:, 0], s=1, c='r')
-    # plt.show()
-    # per_step_pixel = np.sqrt(((all_pixel_local[1:] - all_pixel_local[:-1]) ** 2).sum(1)).mean()
-    # per_step_wc = np.sqrt(((all_traj[1:] - all_traj[:-1]) ** 2).sum(1)).mean()
-
-
-    # local_map = transforms.Compose([
-    #     transforms.ToTensor()
-    # ])(Image.fromarray(1-local_map/255))
+    plt.imshow(local_map)
+    plt.scatter(all_pixel_local[:8, 1], all_pixel_local[:8, 0], s=1, c='b')
+    plt.scatter(all_pixel_local[8:, 1], all_pixel_local[8:, 0], s=1, c='r')
+    plt.show()
+    per_step_pixel = np.sqrt(((all_pixel_local[1:] - all_pixel_local[:-1]) ** 2).sum(1)).mean()
+    per_step_wc = np.sqrt(((all_traj[1:] - all_traj[:-1]) ** 2).sum(1)).mean()
+    '''
 
     return 1-local_map/255, all_pixel_local, h
 
@@ -177,7 +175,7 @@ class TrajectoryDataset(Dataset):
 
         if data_split == 'train':
             n=0
-            n_sample = 2500
+            n_sample = 25
         elif data_split == 'val':
             n=1
             n_sample = 500
@@ -186,7 +184,7 @@ class TrajectoryDataset(Dataset):
             n_sample = 800
         all_files = [e for e in os.listdir(data_dir) if ('.csv' in e) and ( (int(e.split('.csv')[0]) - n) % 10 == 0)]
         all_files = np.array(sorted(all_files, key=lambda x: int(x.split('.')[0])))
-        # all_files = [all_files[-1]]
+        all_files = [all_files[-1]]
 
 
         num_peds_in_seq = []
@@ -197,6 +195,7 @@ class TrajectoryDataset(Dataset):
         map_file_names=[]
         inv_h_ts=[]
         curvature = []
+        max_dist = 0
 
         for path in all_files:
             # exit_wc = np.array(all_exit_wc[path])
@@ -261,18 +260,23 @@ class TrajectoryDataset(Dataset):
                     dist = np.linalg.norm(curr1 - curr2, axis=1)
                     dist = dist.reshape(num_peds_considered, num_peds_considered)
 
+
                     if random.random() < 0.5:
-                        d = random.randint(0, len(dist)-1)
-                        target_agent_idx = np.where((dist[d] < 5))[0]
+                        target_agent_idx = [0] * 100
+                        while len(target_agent_idx) > 60:
+                            d = random.randint(0, len(dist)-1)
+                            target_agent_idx = np.where((dist[d] < 5))[0]
+
                     else:
                         target_agent_idx = []
                         for d in range(len(dist)):
                             neighbor_idx = np.where((dist[d] < 5))[0]
-                            if (len(neighbor_idx) > len(target_agent_idx)) and len(neighbor_idx) < 60:
+                            if (len(neighbor_idx) > len(target_agent_idx)) and len(neighbor_idx) <= 60:
                                 target_agent_idx = neighbor_idx
-                                break
 
                     seq_traj = seq_traj[target_agent_idx]
+                    dist = np.sqrt(((seq_traj[:,:2, 7] - seq_traj[:,:2, -1])**2).sum(-1))
+                    max_dist = max(max_dist, dist.max())
                     num_peds_considered = len(target_agent_idx)
 
                     # for a in range(seq_traj.shape[0]):
@@ -376,15 +380,16 @@ class TrajectoryDataset(Dataset):
         self.local_homo = []
         self.local_ic = []
         print(self.seq_start_end[-1])
+        print(max_dist)
 
 
-        c = np.array(curvature)
-        # n, bins, patches = plt.hist(c)
-        # plt.show()
-        np.save(data_split + '_curvature.npy', c)
-        print(c.min(), np.round(c.mean(),4), np.round(c.max(),4))
-        c.sort()
-        print(np.round(c[len(c)//2]))
+        # c = np.array(curvature)
+        # # n, bins, patches = plt.hist(c)
+        # # plt.show()
+        # np.save(data_split + '_curvature.npy', c)
+        # print(c.min(), np.round(c.mean(),4), np.round(c.max(),4))
+        # c.sort()
+        # print(np.round(c[len(c)//2]))
 
         u=0
         for seq_i in range(len(self.seq_start_end)):
@@ -403,7 +408,7 @@ class TrajectoryDataset(Dataset):
                 # plt.scatter(all_traj[:8,0], all_traj[:8,1], s=1, c='b')
                 # plt.scatter(all_traj[8:,0], all_traj[8:,1], s=1, c='r')
                 # plt.show()
-                local_map, local_ic, local_h = get_local_map_ic(global_map, all_traj, zoom=10, radius=8)
+                local_map, local_ic, local_h = get_local_map_ic(global_map, all_traj, zoom=10, radius=11.2)
                 local_maps.append(local_map)
                 local_ics.append(local_ic)
                 local_homos.append(local_h)
