@@ -186,7 +186,7 @@ class TrajectoryDataset(Dataset):
             n_sample = 2500
         elif data_split == 'val':
             n=1
-            n_sample = 400
+            n_sample = 500
         else:
             n=2
             n_sample = 800
