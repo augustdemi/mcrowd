@@ -95,55 +95,16 @@ class Solver(object):
         self.beta2_VAE = args.beta2_VAE
         print(args.desc)
 
-        # visdom setup
-        self.viz_on = args.viz_on
-        if self.viz_on:
-            self.win_id = dict(
-                recon='win_recon', total_loss='win_total_loss', test_total_loss='win_test_total_loss',
-                lg_recon='win_lg_recon', lg_kl='win_lg_kl',
-                test_lg_recon='win_test_lg_recon', test_lg_kl='win_test_lg_kl',
-                lg_fde_min='win_lg_fde_min', lg_fde_avg='win_lg_fde_avg', lg_fde_std='win_lg_fde_std'
-            )
-            self.line_gather = DataGather(
-                'iter', 'total_loss',
-                'test_total_loss',
-                'lg_recon', 'lg_kl',
-                'test_lg_recon', 'test_lg_kl',
-                'lg_fde_min', 'lg_fde_avg', 'lg_fde_std'
-            )
 
 
-            self.viz_port = args.viz_port  # port number, eg, 8097
-            self.viz = visdom.Visdom(port=self.viz_port)
-            self.viz_ll_iter = args.viz_ll_iter
-            self.viz_la_iter = args.viz_la_iter
-
-            self.viz_init()
-
-        # create dirs: "records", "ckpts", "outputs" (if not exist)
-        mkdirs("records");
-        mkdirs("ckpts");
-        mkdirs("outputs")
-
-        # set run id
-        if args.run_id < 0:  # create a new id
-            k = 0
-            rfname = os.path.join("records", self.name + '_run_0.txt')
-            while os.path.exists(rfname):
-                k += 1
-                rfname = os.path.join("records", self.name + '_run_%d.txt' % k)
-            self.run_id = k
-        else:  # user-provided id
-            self.run_id = args.run_id
+        self.run_id = args.run_id
 
         # finalize name
         self.name = self.name + '_run_' + str(self.run_id)
 
-        # records (text file to store console outputs)
-        self.record_file = 'records/%s.txt' % self.name
-
         # checkpoints
         self.ckpt_dir = os.path.join("ckpts", self.name)
+
 
         #### create a new model or load a previously saved model
 
@@ -196,19 +157,45 @@ class Solver(object):
         print('...done')
 
 
+        # visdom setup
+        self.viz_on = args.viz_on
+        if self.viz_on:
+            self.win_id = dict(
+                recon='win_recon', total_loss='win_total_loss', test_total_loss='win_test_total_loss',
+                lg_recon='win_lg_recon', lg_kl='win_lg_kl',
+                test_lg_recon='win_test_lg_recon', test_lg_kl='win_test_lg_kl',
+                lg_fde_min='win_lg_fde_min', lg_fde_avg='win_lg_fde_avg', lg_fde_std='win_lg_fde_std'
+            )
+            self.line_gather = DataGather(
+                'iter', 'total_loss',
+                'test_total_loss',
+                'lg_recon', 'lg_kl',
+                'test_lg_recon', 'test_lg_kl',
+                'lg_fde_min', 'lg_fde_avg', 'lg_fde_std'
+            )
+
+
+            self.viz_port = args.viz_port  # port number, eg, 8097
+            self.viz = visdom.Visdom(port=self.viz_port, env=self.name)
+            self.viz_ll_iter = args.viz_ll_iter
+            self.viz_la_iter = args.viz_la_iter
+
+            self.viz_init()
+
+
     def make_heatmap(self, local_ic, local_map, aug=False):
         heatmaps = []
         for i in range(len(local_ic)):
             ohm = [local_map[i, 0]]
 
-            heat_map_traj = np.zeros((160, 160))
+            heat_map_traj = np.zeros((224, 224))
             for t in range(self.obs_len):
                 heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
                 # as Y-net used variance 4 for the GT heatmap representation.
             heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
             ohm.append( heat_map_traj/heat_map_traj.sum())
 
-            heat_map_traj = np.zeros((160, 160))
+            heat_map_traj = np.zeros((224, 224))
             heat_map_traj[local_ic[i, -1, 0], local_ic[i,-1, 1]] = 1
             # as Y-net used variance 4 for the GT heatmap representation.
             heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
@@ -217,7 +204,7 @@ class Solver(object):
 
             heatmaps.append(np.stack(ohm))
             '''
-            heat_map_traj = np.zeros((160, 160))
+            heat_map_traj = np.zeros((224, 224))
             # for t in range(self.obs_len + self.pred_len):
             for t in [0,1,2,3,4,5,6,7,11,14,17]:
                 heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
@@ -427,7 +414,7 @@ class Solver(object):
                 plt.imshow(local_map[i, 0])
 
                 # ----------- 12 traj
-                # heat_map_traj = np.zeros((160, 160))
+                # heat_map_traj = np.zeros((224, 224))
                 heat_map_traj = local_map[i, 0].detach().cpu().numpy().copy()
                 # for t in range(self.obs_len):
                 for t in [0, 1, 2, 3, 4, 5, 6, 7, 11, 15, 19]:
@@ -1104,15 +1091,15 @@ class Solver(object):
 
     ####
     def viz_init(self):
-        self.viz.close(env=self.name + '/lines', win=self.win_id['total_loss'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['test_total_loss'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['lg_recon'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['lg_kl'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['test_lg_recon'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['test_lg_kl'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['lg_fde_min'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['lg_fde_avg'])
-        self.viz.close(env=self.name + '/lines', win=self.win_id['lg_fde_std'])
+        self.viz.close(env=self.name, win=self.win_id['total_loss'])
+        self.viz.close(env=self.name, win=self.win_id['test_total_loss'])
+        self.viz.close(env=self.name, win=self.win_id['lg_recon'])
+        self.viz.close(env=self.name, win=self.win_id['lg_kl'])
+        self.viz.close(env=self.name, win=self.win_id['test_lg_recon'])
+        self.viz.close(env=self.name, win=self.win_id['test_lg_kl'])
+        self.viz.close(env=self.name, win=self.win_id['lg_fde_min'])
+        self.viz.close(env=self.name, win=self.win_id['lg_fde_avg'])
+        self.viz.close(env=self.name, win=self.win_id['lg_fde_std'])
     ####
     def visualize_line(self):
 
@@ -1133,14 +1120,14 @@ class Solver(object):
 
 
         self.viz.line(
-            X=iters, Y=total_loss, env=self.name + '/lines',
+            X=iters, Y=total_loss, env=self.name,
             win=self.win_id['total_loss'], update='append',
             opts=dict(xlabel='iter', ylabel='elbo',
                       title='elbo')
         )
 
         self.viz.line(
-            X=iters, Y=test_total_loss, env=self.name + '/lines',
+            X=iters, Y=test_total_loss, env=self.name,
             win=self.win_id['test_total_loss'], update='append',
             opts=dict(xlabel='iter', ylabel='elbo',
                       title='test_elbo')
@@ -1148,14 +1135,14 @@ class Solver(object):
 
 
         self.viz.line(
-            X=iters, Y=lg_kl, env=self.name + '/lines',
+            X=iters, Y=lg_kl, env=self.name,
             win=self.win_id['lg_kl'], update='append',
             opts=dict(xlabel='iter', ylabel='lg_kl',
                       title='lg_kl'),
         )
 
         self.viz.line(
-            X=iters, Y=lg_recon, env=self.name + '/lines',
+            X=iters, Y=lg_recon, env=self.name,
             win=self.win_id['lg_recon'], update='append',
             opts=dict(xlabel='iter', ylabel='lg_recon',
                       title='lg_recon')
@@ -1163,7 +1150,7 @@ class Solver(object):
 
 
         self.viz.line(
-            X=iters, Y=test_lg_recon, env=self.name + '/lines',
+            X=iters, Y=test_lg_recon, env=self.name,
             win=self.win_id['test_lg_recon'], update='append',
             opts=dict(xlabel='iter', ylabel='test_lg_recon',
                       title='test_lg_recon')
@@ -1172,7 +1159,7 @@ class Solver(object):
 
 
         self.viz.line(
-            X=iters, Y=test_lg_kl, env=self.name + '/lines',
+            X=iters, Y=test_lg_kl, env=self.name,
             win=self.win_id['test_lg_kl'], update='append',
             opts=dict(xlabel='iter', ylabel='test_lg_kl',
                       title='test_lg_kl'),
@@ -1181,19 +1168,19 @@ class Solver(object):
 
 
         self.viz.line(
-            X=iters, Y=lg_fde_min, env=self.name + '/lines',
+            X=iters, Y=lg_fde_min, env=self.name,
             win=self.win_id['lg_fde_min'], update='append',
             opts=dict(xlabel='iter', ylabel='lg_fde_min',
                       title='lg_fde_min'),
         )
         self.viz.line(
-            X=iters, Y=lg_fde_avg, env=self.name + '/lines',
+            X=iters, Y=lg_fde_avg, env=self.name,
             win=self.win_id['lg_fde_avg'], update='append',
             opts=dict(xlabel='iter', ylabel='lg_fde_avg',
                       title='lg_fde_avg'),
         )
         self.viz.line(
-            X=iters, Y=lg_fde_std, env=self.name + '/lines',
+            X=iters, Y=lg_fde_std, env=self.name,
             win=self.win_id['lg_fde_std'], update='append',
             opts=dict(xlabel='iter', ylabel='lg_fde_std',
                       title='lg_fde_std'),
