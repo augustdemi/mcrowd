@@ -38,7 +38,7 @@ def read_file(_path, delim='\t'):
             data.append(line)
     return np.asarray(data)
 
-def get_local_map_ic(map, all_traj, zoom=10, radius=11.2):
+def get_local_map_ic(map, all_traj, zoom=10, radius=19.2):
     radius = int(radius * zoom)
     context_size = radius * 2
 
@@ -48,13 +48,15 @@ def get_local_map_ic(map, all_traj, zoom=10, radius=11.2):
     expanded_obs_img[radius:-radius, radius:-radius] = global_map.astype(np.float32)  # 99~-99
 
 
-    all_pixel = all_traj[:, [1, 0]] * zoom
+    all_pixel = all_traj[:, [1, 0]] *2* zoom
     all_pixel = context_size // 2 + np.round(all_pixel).astype(int)
 
-    # plt.imshow(expanded_obs_img)
-    # plt.scatter(all_pixel[:8, 0], all_pixel[:8, 1], s=1, c='b')
-    # plt.scatter(all_pixel[8:, 0], all_pixel[8:, 1], s=1, c='r')
-    # plt.show()
+    '''
+    plt.imshow(expanded_obs_img)
+    plt.scatter(all_pixel[:8, 1], all_pixel[:8, 0], s=1, c='b')
+    plt.scatter(all_pixel[8:, 1], all_pixel[8:, 0], s=1, c='r')
+    plt.show()
+    '''
 
 
     local_map = expanded_obs_img[all_pixel[7,0] - radius: all_pixel[7,0] + radius,
@@ -78,14 +80,19 @@ def get_local_map_ic(map, all_traj, zoom=10, radius=11.2):
     '''
 
     fake_pt = [all_traj[7]]
-    for i in range(1, 4):
+    for i in range(1, 3):
         fake_pt.append(all_traj[7] + [i, i] + np.random.rand(2)*0.3)
         fake_pt.append(all_traj[7] + [-i, -i] + np.random.rand(2)*0.3)
         fake_pt.append(all_traj[7] + [i, -i] + np.random.rand(2)*0.3)
         fake_pt.append(all_traj[7] + [-i, i] + np.random.rand(2)*0.3)
     fake_pt = np.array(fake_pt)
-    fake_pixel = fake_pt[:,[1, 0]] * zoom
+    fake_pixel = fake_pt[:,[1, 0]] *2* zoom
     fake_pixel = radius + np.round(fake_pixel).astype(int)
+
+    '''
+    plt.imshow(expanded_obs_img)
+    plt.scatter(fake_pixel[:, 1], fake_pixel[:, 0], s=10, c='r', marker='x')
+    '''
 
     temp_map_val = []
     for i in range(len(fake_pixel)):
@@ -114,7 +121,7 @@ def get_local_map_ic(map, all_traj, zoom=10, radius=11.2):
     back_wc /= np.expand_dims(back_wc[:, 2], 1)
     back_wc = back_wc[:,:2]
     print(np.sqrt(((back_wc - all_traj)**2).sum(1)).mean())
-
+    
     #
     plt.imshow(local_map)
     plt.scatter(all_pixel_local[:8, 1], all_pixel_local[:8, 0], s=1, c='b')
@@ -122,8 +129,9 @@ def get_local_map_ic(map, all_traj, zoom=10, radius=11.2):
     plt.show()
     per_step_pixel = np.sqrt(((all_pixel_local[1:] - all_pixel_local[:-1]) ** 2).sum(1)).mean()
     per_step_wc = np.sqrt(((all_traj[1:] - all_traj[:-1]) ** 2).sum(1)).mean()
+    np.sqrt(((all_traj[7] - all_traj[-1]) ** 2).sum())
+    np.sqrt(((all_pixel_local[7] - all_pixel_local[-1]) ** 2).sum())
     '''
-
     return 1-local_map/255, all_pixel_local, h
 
 
@@ -178,13 +186,13 @@ class TrajectoryDataset(Dataset):
             n_sample = 2500
         elif data_split == 'val':
             n=1
-            n_sample = 500
+            n_sample = 400
         else:
             n=2
             n_sample = 800
-        all_files = [e for e in os.listdir(data_dir) if ('.csv' in e) and ( (int(e.split('.csv')[0]) - n) % 10 == 0)]
+        all_files = [e for e in os.listdir(data_dir) if ('.csv' in e) and ((int(e.split('.csv')[0]) - n) % 10 == 0)]
         all_files = np.array(sorted(all_files, key=lambda x: int(x.split('.')[0])))
-        # all_files = [all_files[-1]]
+        # all_files = [all_files[1]]
 
 
         num_peds_in_seq = []
@@ -211,6 +219,7 @@ class TrajectoryDataset(Dataset):
             data = pd.DataFrame(loaded_data[:,:4])
             data.columns = ['f', 'a', 'pos_x', 'pos_y']
             data.sort_values(by=['f', 'a'], inplace=True)
+            # data = data[150000:400000]
 
             frames = data['f'].unique().tolist()
 
@@ -404,11 +413,13 @@ class TrajectoryDataset(Dataset):
             local_homos =[]
             for idx in range(start, end):
                 all_traj = np.concatenate([self.obs_traj[idx, :2], self.fut_traj[idx, :2]], axis=1).transpose(1, 0)
-                # plt.imshow(global_map)
-                # plt.scatter(all_traj[:8,0], all_traj[:8,1], s=1, c='b')
-                # plt.scatter(all_traj[8:,0], all_traj[8:,1], s=1, c='r')
-                # plt.show()
-                local_map, local_ic, local_h = get_local_map_ic(global_map, all_traj, zoom=10, radius=11.2)
+                '''
+                plt.imshow(global_map)
+                plt.scatter(all_traj[:8,0]*2, all_traj[:8,1]*2, s=1, c='b')
+                plt.scatter(all_traj[8:,0]*2, all_traj[8:,1]*2, s=1, c='r')
+                plt.show()
+                '''
+                local_map, local_ic, local_h = get_local_map_ic(global_map, all_traj, zoom=5, radius=19.2)
                 local_maps.append(local_map)
                 local_ics.append(local_ic)
                 local_homos.append(local_h)
@@ -455,7 +466,7 @@ class TrajectoryDataset(Dataset):
              'local_homo': self.local_homo,
              }
 
-        save_path = os.path.join(data_dir, data_split + '3.pkl')
+        save_path = os.path.join(data_dir, data_split + '.pkl')
         with open(save_path, 'wb') as handle:
             pickle5.dump(all_data, handle, protocol=pickle5.HIGHEST_PROTOCOL)
 
@@ -470,7 +481,7 @@ if __name__ == '__main__':
     coll_th = 0.5
     traj = TrajectoryDataset(
             data_dir=path,
-            data_split='train',
+            data_split='val',
             device='cpu',
             scale=1,
             coll_th=coll_th)
