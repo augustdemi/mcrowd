@@ -122,8 +122,8 @@ class Solver(object):
             # # input = env + 8 past / output = env + lg
 
             if args.load_e > 0:
-                lg_cvae_path = 'pathseq.lg.ae_enc_block_%s_fcomb_block_%s_wD_10_lr_0.0001_a_0.25_r_2.0_run_2' % (args.no_convs_fcomb, args.no_convs_per_block)
-                lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_12570_lg_cvae.pt')
+                lg_cvae_path = 'large_real.lg.ae_enc_block_%s_fcomb_block_%s_wD_10_lr_0.0001_a_0.25_r_2.0_run_2' % (args.no_convs_per_block, args.no_convs_fcomb)
+                lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_10_lg_cvae.pt')
 
                 if self.device == 'cuda':
                     self.lg_cvae = torch.load(lg_cvae_path)
@@ -658,6 +658,5 @@ class Solver(object):
             self.lg_cvae = torch.load(lg_cvae_path)
 
         else:
-            lg_cvae_path = './ckpts/lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_1.0_anneal_e_10_load_e_3_run_101/iter_21000_lg_cvae.pt'
             self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
 
