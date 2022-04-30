@@ -139,17 +139,14 @@ class Solver(object):
             lr=self.lr_VAE,
             betas=[self.beta1_VAE, self.beta2_VAE]
         )
-        # self.lg_optimizer = torch.optim.Adam(, lr=self., weight_decay=0)
 
-        # prepare dataloader (iterable)
         print('Start loading data...')
-        # args.batch_size=4
 
         if self.ckpt_load_iter != self.max_iter:
             print("Initializing train dataset")
-            _, self.train_loader = data_loader(self.args, args.dataset_dir, 'test', shuffle=True)
+            _, self.train_loader = data_loader(self.args, args.dataset_dir, 'train', shuffle=True)
             print("Initializing val dataset")
-            _, self.val_loader = data_loader(self.args, args.dataset_dir, 'test', shuffle=True)
+            _, self.val_loader = data_loader(self.args, args.dataset_dir, 'val', shuffle=True)
 
             print(
                 'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
