@@ -357,7 +357,20 @@ class Solver(object):
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
-                obs_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
+                sampled_local_ic = []
+                sampled_local_map = []
+                for s, e in seq_start_end:
+                    rng = list(range(s, e))
+                    random.shuffle(rng)
+                    sampled_local_ic.append(local_ic[rng[:2]])
+                    sampled_local_map.append(local_map[rng[:2]])
+
+                sampled_local_ic = np.concatenate(sampled_local_ic)
+                sampled_local_map = np.concatenate(sampled_local_map)
+
+                batch_size = sampled_local_map.shape[0]
+
+                obs_heat_map, lg_heat_map = self.make_heatmap(sampled_local_ic, sampled_local_map)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 pred_lg_wc20 = []
