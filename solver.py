@@ -146,7 +146,9 @@ class Solver(object):
             print("Initializing train dataset")
             _, self.train_loader = data_loader(self.args, args.dataset_dir, 'train', shuffle=True)
             print("Initializing val dataset")
+            self.args.batch_size = 1
             _, self.val_loader = data_loader(self.args, args.dataset_dir, 'val', shuffle=True)
+            self.args.batch_size = args.batch_size
 
             print(
                 'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
@@ -300,7 +302,7 @@ class Solver(object):
             if (iteration % (iter_per_epoch * 2) == 0):
                 self.save_checkpoint(epoch)
 
-            if (self.viz_on and (iteration % (iter_per_epoch * 2) == 0)):
+            if (iteration == iter_per_epoch) or (self.viz_on and (iteration % (iter_per_epoch * 2) == 0)):
 
                 lg_fde_min, lg_fde_avg, lg_fde_std, test_lg_recon, test_lg_kl = self.evaluate_dist(self.val_loader, loss=True)
                 test_total_loss = test_lg_recon - lg_kl_weight * test_lg_kl
@@ -357,20 +359,7 @@ class Solver(object):
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
-                sampled_local_ic = []
-                sampled_local_map = []
-                for s, e in seq_start_end:
-                    rng = list(range(s, e))
-                    random.shuffle(rng)
-                    sampled_local_ic.append(local_ic[rng[:2]])
-                    sampled_local_map.append(local_map[rng[:2]])
-
-                sampled_local_ic = np.concatenate(sampled_local_ic)
-                sampled_local_map = np.concatenate(sampled_local_map)
-
-                batch_size = sampled_local_map.shape[0]
-
-                obs_heat_map, lg_heat_map = self.make_heatmap(sampled_local_ic, sampled_local_map)
+                obs_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 pred_lg_wc20 = []
