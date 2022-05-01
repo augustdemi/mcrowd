@@ -144,10 +144,10 @@ class Solver(object):
 
         if self.ckpt_load_iter != self.max_iter:
             print("Initializing train dataset")
-            _, self.train_loader = data_loader(self.args, args.dataset_dir, 'train', shuffle=True)
+            _, self.train_loader = data_loader(self.args, args.dataset_dir, 'train2', shuffle=True)
             print("Initializing val dataset")
             self.args.batch_size = 1
-            _, self.val_loader = data_loader(self.args, args.dataset_dir, 'val', shuffle=True)
+            _, self.val_loader = data_loader(self.args, args.dataset_dir, 'val2', shuffle=True)
             self.args.batch_size = args.batch_size
 
             print(
@@ -288,7 +288,6 @@ class Solver(object):
 
             lg_kl = self.lg_cvae.kl_divergence(analytic=True).sum().div(batch_size)
 
-            # lg_recon_loss = self.recon_loss_with_logit(input=recon_lg_heat, target=lg_heat_map).sum().div(np.prod([*lg_heat_map.size()[:3]]))
             lg_elbo = focal_loss
 
 
