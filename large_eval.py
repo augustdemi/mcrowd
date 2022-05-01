@@ -1030,7 +1030,7 @@ class Solver(object):
         lg_num = 20
         traj_num = 1
         generate_heat = True
-        root = 'D:\crowd\datasets\Trajectories'
+        root = 'D:\crowd\datasets\large_real/Trajectories'
         with torch.no_grad():
             batch = data_loader.dataset.__getitem__(27)
             (obs_traj, fut_traj,
@@ -2749,7 +2749,8 @@ class Solver(object):
                     n_scene +=1
                     num_ped = e - s
                     total_ped.append(num_ped.item())
-
+                    if num_ped==1:
+                        continue
                     # seq_traj = fut_traj[:,s:e,:2]
                     seq_traj = torch.cat([obs_traj[:,s:e,:2], fut_traj[:,s:e,:2]])
                     for i in range(len(seq_traj)):
@@ -2767,9 +2768,7 @@ class Solver(object):
         print('n_scene: ', n_scene)
         total_ped = np.array(total_ped)
         print('seq ped min/mean/max:', total_ped.min(), total_ped.mean(),  total_ped.max())
-        print('avg_dist:', np.array(avg_dist).mean())
-        print('min_dist:', min_dist)
-        print('max_dist:', max_dist)
+        print('dist min/mean/max:', min_dist, np.array(avg_dist).mean(), max_dist)
 
 
 
