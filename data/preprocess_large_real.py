@@ -149,7 +149,7 @@ class TrajectoryDataset(Dataset):
     """Dataloder for the Trajectory datasets"""
 
     def __init__(
-            self, data_dir, data_split, device='cpu', scale=1, coll_th=0.2
+            self, data_dir, data_split, device='cpu', scale=1, k_fold=0
     ):
         """
         Args:
@@ -181,18 +181,27 @@ class TrajectoryDataset(Dataset):
         # root_dir = os.path.join(data_dir, data_name)
         # root_dir = 'D:\crowd\datasets\Trajectories\Trajectories'
 
+
         if data_split == 'train':
             n=0
-            n_sample = 2500
+            n_sample = 3000
         elif data_split == 'val':
             n=1
             n_sample = 500
         else:
             n=2
-            n_sample = 800
+            n_sample = 3000
+
         all_files = [e for e in os.listdir(data_dir) if ('.csv' in e) and ((int(e.split('.csv')[0]) - n) % 10 == 0)]
-        all_files = np.array(sorted(all_files, key=lambda x: int(x.split('.')[0])))
+        all_files = sorted(all_files, key=lambda x: int(x.split('.')[0]))
         # all_files = [all_files[1]]
+        if data_split == 'test':
+            all_files = all_files[3*k_fold:3*k_fold+3]
+        else:
+            all_files = all_files[:3*k_fold] + all_files[3*k_fold+3:]
+
+        all_files = np.array(all_files)
+        print(', '.join(all_files))
 
 
         num_peds_in_seq = []
@@ -466,7 +475,8 @@ class TrajectoryDataset(Dataset):
              'local_homo': self.local_homo,
              }
 
-        save_path = os.path.join(data_dir, data_split + '.pkl')
+
+        save_path = os.path.join(data_dir, str(k_fold), data_split + '.pkl')
         with open(save_path, 'wb') as handle:
             pickle5.dump(all_data, handle, protocol=pickle5.HIGHEST_PROTOCOL)
 
@@ -481,7 +491,7 @@ if __name__ == '__main__':
     coll_th = 0.5
     traj = TrajectoryDataset(
             data_dir=path,
-            data_split='val',
+            data_split='test',
             device='cpu',
             scale=1,
-            coll_th=coll_th)
+            k_fold=1)
