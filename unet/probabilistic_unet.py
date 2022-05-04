@@ -111,7 +111,6 @@ class AxisAlignedConvGaussian(nn.Module):
         mu = mu_log_sigma[:, :self.latent_dim]
         log_var = mu_log_sigma[:, self.latent_dim:]
 
-
         return mu, log_var
 
 
@@ -230,8 +229,9 @@ class ProbabilisticUnet(nn.Module):
 
         # latent dist
         if training:
-            self.posterior_latent_space = self.posterior.forward(patch, segm)
-        self.prior_latent_space = self.prior.forward(self.unet_enc_feat)
+            post_mu, post_log_var = self.posterior.forward(patch, segm)
+
+        prior_mu, prior_log_var = self.prior.forward(self.unet_enc_feat)
 
         if training:
             z = self.posterior_latent_space.rsample()
@@ -246,8 +246,10 @@ class ProbabilisticUnet(nn.Module):
         x = torch.cat([self.unet_enc_feat, z], dim=1)  # channel dim concat
         '''
         x = self.fcomb.forward(self.unet_enc_feat, z)
-
-        return self.unet.up_forward(x)
+        if training:
+            return self.unet.up_forward(x), post_mu, post_log_var, prior_mu, prior_log_var
+        else:
+            return self.unet.up_forward(x), prior_mu, prior_log_var
 
 
 
