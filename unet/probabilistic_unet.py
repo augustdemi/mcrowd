@@ -246,10 +246,8 @@ class ProbabilisticUnet(nn.Module):
         x = torch.cat([self.unet_enc_feat, z], dim=1)  # channel dim concat
         '''
         x = self.fcomb.forward(self.unet_enc_feat, z)
-        if training:
-            return self.unet.up_forward(x), self.posterior_latent_space, self.prior_latent_space
-        else:
-            return self.unet.up_forward(x), self.prior_latent_space
+
+        return self.unet.up_forward(x)
 
 
 
