@@ -365,11 +365,13 @@ class Solver(object):
 
                 obs_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
 
-                self.lg_cvae.forward(obs_heat_map, None, training=False)
+                prior_mu, prior_log_var = self.lg_cvae.forward(obs_heat_map, None, training=False)
+                prior_dist = Normal(loc=prior_mu, scale=torch.sqrt(torch.exp(prior_log_var)))
+
                 pred_lg_wc20 = []
                 for _ in range(20):
                     # -------- long term goal --------
-                    pred_lg_heat = F.sigmoid(self.lg_cvae.sample(testing=True))
+                    pred_lg_heat = F.sigmoid(self.lg_cvae.sample(prior_dist))
 
                     pred_lg_wc = []
                     for i in range(batch_size):

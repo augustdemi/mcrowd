@@ -254,25 +254,16 @@ class ProbabilisticUnet(nn.Module):
         if training:
             return self.unet.up_forward(x), kl_div.sum()
         else:
-            return self.unet.up_forward(x)
+            return self.unet.up_forward(x), prior_mu, prior_log_var
 
 
 
-    def sample(self, testing=False, z_prior=None):
+    def sample(self, prior_dist):
         """
         Sample a segmentation by reconstructing from a prior sample
         and combining this with UNet features
         """
-        if z_prior is None:
-            if testing:
-                # You can choose whether you mean a sample or the mean here. For the GED it is important to take a sample.
-                # z_prior = self.prior_latent_space.base_dist.loc
-                z_prior = self.prior_latent_space.sample()
-                # self.z_prior_sample = z_prior
-            else:
-                z_prior = self.prior_latent_space.rsample()
-                # self.z_prior_sample = z_prior
-        x = self.fcomb.forward(self.unet_enc_feat, z_prior)
+        x = self.fcomb.forward(self.unet_enc_feat, prior_dist.sample())
         return self.unet.up_forward(x)
 
     def reconstruct(self, use_posterior_mean=False, calculate_posterior=False, z_posterior=None):
