@@ -45,14 +45,14 @@ def create_parser():
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--run_id', default=14, type=int,
+    parser.add_argument('--run_id', default=3, type=int,
                         help='run id (default=-1 to create a new id)')
 
     parser.add_argument('--device', default='cpu', type=str,
                         help='cpu/cuda')
 
     # training hyperparameters
-    parser.add_argument('--batch_size', default=2, type=int,
+    parser.add_argument('--batch_size', default=5, type=int,
                         help='batch size')
     parser.add_argument('--lr_VAE', default=1e-3, type=float,
                         help='learning rate of the VAE')
@@ -97,10 +97,11 @@ def create_parser():
     parser.add_argument('--obs_len', default=8, type=int)
     parser.add_argument('--pred_len', default=12, type=int)
     # dataset
+    parser.add_argument('--dataset_dir', default='c:/dataset\large_real\Trajectories/', type=str, help='dataset directory')
     # parser.add_argument('--dataset_dir', default='../datasets/Trajectories', type=str, help='dataset directory')
     # parser.add_argument('--dataset_dir', default='../datasets/SDD', type=str, help='dataset directory')
     # parser.add_argument('--dataset_dir', default='C:/dataset/KITTI-trajectory-prediction', type=str, help='dataset directory')
-    parser.add_argument('--dataset_dir', default='C:\dataset\HTP-benchmark\A2A Data', type=str, help='dataset directory')
+    # parser.add_argument('--dataset_dir', default='C:\dataset\HTP-benchmark\A2A Data', type=str, help='dataset directory')
     parser.add_argument('--dataset_name', default='sdd.lgcvae', type=str,
                         help='dataset name')
     parser.add_argument('--model_name', default='', type=str,
@@ -144,6 +145,7 @@ def create_parser():
     parser.add_argument('--w_coll', default=1.0, type=float)
     parser.add_argument('--w_map', default=1.0, type=float)
     parser.add_argument('--beta', default=1, type=float)
+    parser.add_argument('--k_fold', default=0, type=int)
     parser.add_argument('--lr_e', default=0.8, type=float)
 
 
