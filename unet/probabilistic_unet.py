@@ -111,8 +111,8 @@ class AxisAlignedConvGaussian(nn.Module):
         mu = mu_log_sigma[:, :self.latent_dim]
         log_var = mu_log_sigma[:, self.latent_dim:]
 
-        dist = Normal(loc=mu, scale=torch.sqrt(torch.exp(log_var)))
-        return dist
+
+        return mu, log_var
 
 
 
