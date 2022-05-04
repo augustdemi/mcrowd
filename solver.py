@@ -21,7 +21,7 @@ from unet.unet import Unet
 import numpy as np
 import visdom
 # from parallel import DataParallelModel, DataParallelCriterion
-
+from torch.distributions import kl
 
 ###############################################################################
 
@@ -143,7 +143,7 @@ class Solver(object):
 
 
 
-        self.lg_cvae = _CustomDataParallel(self.lg_cvae)
+        self.lg_cvae = DataParallel(self.lg_cvae)
 
         # get VAE parameters
         vae_params = \
@@ -277,7 +277,7 @@ class Solver(object):
             obs_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map, aug=True)
 
             #-------- long term goal --------
-            recon_lg_heat = self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
+            recon_lg_heat, post_dist, prior_dist = self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
             recon_lg_heat = F.normalize(F.sigmoid(recon_lg_heat).view(recon_lg_heat.shape[0],-1), p=1)
             lg_heat_map= lg_heat_map.view(lg_heat_map.shape[0], -1)
 
@@ -289,9 +289,8 @@ class Solver(object):
                 recon_lg_heat ** self.gamma)).sum().div(batch_size)
 
 
-            lg_kl = self.lg_cvae.kl_divergence(analytic=True).sum().div(batch_size)
+            lg_kl =  kl.kl_divergence(post_dist, prior_dist).sum().div(batch_size)
 
-            # lg_recon_loss = self.recon_loss_with_logit(input=recon_lg_heat, target=lg_heat_map).sum().div(np.prod([*lg_heat_map.size()[:3]]))
             lg_elbo = focal_loss
 
             loss = - lg_elbo
