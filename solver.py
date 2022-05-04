@@ -289,8 +289,11 @@ class Solver(object):
 
             #-------- long term goal --------
             unet_enc_feat = self.unet.down_forward(obs_heat_map)
-            post_dist = self.posterior.forward(obs_heat_map, lg_heat_map)
-            prior_dist = self.prior.forward(unet_enc_feat)
+            post_mu, post_logvar = self.posterior.forward(obs_heat_map, lg_heat_map)
+            post_dist = Normal(loc=post_mu, scale=torch.sqrt(torch.exp(post_logvar)))
+            prior_mu, prior_logvar = self.prior.forward(unet_enc_feat)
+            prior_dist = Normal(loc=prior_mu, scale=torch.sqrt(torch.exp(prior_logvar)))
+
             x = self.fcomb.forward(unet_enc_feat, post_dist.rsample())
             recon_lg_heat = self.unet.up_forward(x)
             recon_lg_heat = F.normalize(F.sigmoid(recon_lg_heat).view(recon_lg_heat.shape[0],-1), p=1)
