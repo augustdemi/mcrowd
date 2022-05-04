@@ -228,15 +228,20 @@ class ProbabilisticUnet(nn.Module):
 
 
         # latent dist
+        prior_mu, prior_log_var = self.prior.forward(self.unet_enc_feat)
+        prior_dist = Normal(loc=prior_mu, scale=torch.sqrt(torch.exp(prior_log_var)))
+
         if training:
             post_mu, post_log_var = self.posterior.forward(patch, segm)
+            post_dist = Normal(loc=post_mu, scale=torch.sqrt(torch.exp(post_log_var)))
+            z = post_dist.rsample()
+            kl_div = kl.kl_divergence(post_dist, prior_dist)
 
-        prior_mu, prior_log_var = self.prior.forward(self.unet_enc_feat)
-
-        if training:
-            z = self.posterior_latent_space.rsample()
         else:
-            z = self.prior_latent_space.rsample()
+            z = prior_dist.rsample()
+
+
+
         '''
         # expand z in spatial dim by replicating
         z = torch.unsqueeze(z, 2)  # (bs, latent_dim) -> (bs, l_d, 1)
@@ -247,9 +252,9 @@ class ProbabilisticUnet(nn.Module):
         '''
         x = self.fcomb.forward(self.unet_enc_feat, z)
         if training:
-            return self.unet.up_forward(x), post_mu, post_log_var, prior_mu, prior_log_var
+            return self.unet.up_forward(x), kl_div.sum()
         else:
-            return self.unet.up_forward(x), prior_mu, prior_log_var
+            return self.unet.up_forward(x)
 
 
 

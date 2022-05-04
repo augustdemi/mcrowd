@@ -277,9 +277,8 @@ class Solver(object):
             obs_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map, aug=True)
 
             #-------- long term goal --------
-            recon_lg_heat, post_mu, post_log_var, prior_mu, prior_log_var = self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
-            post_dist = Normal(loc=post_mu, scale=torch.sqrt(torch.exp(post_log_var)))
-            prior_dist = Normal(loc=prior_mu, scale=torch.sqrt(torch.exp(prior_log_var)))
+            recon_lg_heat, lg_kl = self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
+
 
 
             recon_lg_heat = F.normalize(F.sigmoid(recon_lg_heat).view(recon_lg_heat.shape[0],-1), p=1)
@@ -293,7 +292,7 @@ class Solver(object):
                 recon_lg_heat ** self.gamma)).sum().div(batch_size)
 
 
-            lg_kl =  kl.kl_divergence(post_dist, prior_dist).sum().div(batch_size)
+            lg_kl =  lg_kl.div(batch_size)
 
             lg_elbo = focal_loss
 
