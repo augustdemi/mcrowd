@@ -16,12 +16,12 @@ from torch.distributions import kl_divergence
 from scipy.interpolate import RectBivariateSpline
 from scipy.ndimage import binary_dilation
 # from model_map_ae import Decoder as Map_Decoder
-from unet.probabilistic_unet import ProbabilisticUnet
+from unet.probabilistic_unet import *
 from unet.unet import Unet
 import numpy as np
 import visdom
 # from parallel import DataParallelModel, DataParallelCriterion
-
+from torch.distributions import kl
 
 ###############################################################################
 
@@ -131,9 +131,17 @@ class Solver(object):
 
             # input = env + 8 past / output = env + lg
             num_filters = [32,32,64,64,64]
-            self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
-                                    no_convs_fcomb=self.no_convs_fcomb, no_convs_per_block=self.no_convs_per_block, beta=self.lg_kl_weight).to(self.device)
+            input_channels = 2
+            num_classes = 1
 
+            self.unet = Unet(input_channels, num_classes, num_filters, apply_last_layer=False,
+                             padding=True).to(device)
+            self.prior = AxisAlignedConvGaussian(input_channels, num_filters, args.no_convs_per_block,
+                                                 self.w_dim).to(device)
+            self.posterior = AxisAlignedConvGaussian(input_channels, num_filters, args.no_convs_per_block,
+                                                     self.w_dim, num_classes=num_classes, posterior=True).to(device)
+            self.fcomb = Fcomb(num_filters, self.w_dim, input_channels, num_classes,
+                               args.no_convs_fcomb, {'w': 'orthogonal', 'b': 'normal'}, use_tile=True).to(device)
 
         else:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
@@ -143,7 +151,10 @@ class Solver(object):
 
 
 
-        self.lg_cvae = _CustomDataParallel(self.lg_cvae)
+        self.unet = _CustomDataParallel(self.unet)
+        self.prior = _CustomDataParallel(self.prior)
+        self.posterior = _CustomDataParallel(self.posterior)
+        self.fcomb = _CustomDataParallel(self.fcomb)
 
         # get VAE parameters
         vae_params = \
@@ -277,21 +288,22 @@ class Solver(object):
             obs_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map, aug=True)
 
             #-------- long term goal --------
-            recon_lg_heat = self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
+            unet_enc_feat = self.unet.down_forward(obs_heat_map)
+            post_dist = self.posterior.forward(obs_heat_map, lg_heat_map)
+            prior_dist = self.prior.forward(unet_enc_feat)
+            x = self.fcomb.forward(unet_enc_feat, post_dist.rsample())
+            recon_lg_heat = self.unet.up_forward(x)
             recon_lg_heat = F.normalize(F.sigmoid(recon_lg_heat).view(recon_lg_heat.shape[0],-1), p=1)
-            lg_heat_map= lg_heat_map.view(lg_heat_map.shape[0], -1)
 
+            lg_heat_map= lg_heat_map.view(lg_heat_map.shape[0], -1)
             # Focal loss:
-            # alpha to handle the imblanced classes: α for positive(foreground) class and 1-α for negative(background) class.
-            # gamma to handle the hard positive/negative, i.e., the misclassified negative/positivle examples.
             focal_loss = (self.alpha * lg_heat_map * torch.log(recon_lg_heat + self.eps) * ((1 - recon_lg_heat) ** self.gamma) \
                          + (1 - self.alpha) * (1 - lg_heat_map) * torch.log(1 - recon_lg_heat + self.eps) * (
                 recon_lg_heat ** self.gamma)).sum().div(batch_size)
 
 
-            lg_kl = self.lg_cvae.kl_divergence(analytic=True).sum().div(batch_size)
+            lg_kl = kl.kl_divergence(post_dist, prior_dist).sum().div(batch_size)
 
-            # lg_recon_loss = self.recon_loss_with_logit(input=recon_lg_heat, target=lg_heat_map).sum().div(np.prod([*lg_heat_map.size()[:3]]))
             lg_elbo = focal_loss
 
             loss = - lg_elbo
