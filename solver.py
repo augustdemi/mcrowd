@@ -158,7 +158,7 @@ class Solver(object):
 
         # get VAE parameters
         vae_params = \
-            list(self.lg_cvae.parameters())
+            list(self.unet.parameters()) + list(self.prior.parameters())  + list(self.posterior.parameters())  + list(self.fcomb.parameters())
 
         # create optimizers
         self.optim_vae = optim.Adam(
@@ -1220,9 +1220,15 @@ class Solver(object):
     def set_mode(self, train=True):
 
         if train:
-            self.lg_cvae.train()
+            self.unet.train()
+            self.prior.train()
+            self.posterior.train()
+            self.fcomb.train()
         else:
-            self.lg_cvae.eval()
+            self.unet.eval()
+            self.prior.eval()
+            self.posterior.eval()
+            self.fcomb.eval()
 
     ####
     def save_checkpoint(self, iteration):
