@@ -1293,7 +1293,7 @@ class Solver(object):
                     seq_curv = []
                     for i in range(s,e):
                         seq_map_ratio.append(np.sum(local_map[i,0]))
-                        gt_xy = torch.cat([obs_traj[:,i,:2], fut_traj[:,i,:2]]).numpy()
+                        gt_xy = torch.cat([obs_traj[:,i,:2], fut_traj[:,i,:2]]).detach().cpu().numpy()
                         c = np.round(trajectory_curvature(gt_xy), 4)
                         seq_curv.append(min(c, 10))
                     total_map_ratio.append(np.array(seq_map_ratio).mean() /(192*192))
