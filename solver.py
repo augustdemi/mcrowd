@@ -143,7 +143,7 @@ class Solver(object):
 
 
 
-        self.lg_cvae = DataParallel(self.lg_cvae)
+        self.lg_cvae = nn.DataParallel(self.lg_cvae)
 
         # get VAE parameters
         vae_params = \
@@ -277,19 +277,21 @@ class Solver(object):
             obs_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map, aug=True)
 
             #-------- long term goal --------
-            recon_lg_heat, post_dist, prior_dist = self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
+            unet_enc_feat = self.lg_cvae.unet.down_forward(obs_heat_map)
+            post_dist = self.lg_cvae.posterior.forward(obs_heat_map, lg_heat_map)
+            prior_dist = self.lg_cvae.prior.forward(unet_enc_feat)
+            x = self.lg_cvae.fcomb.forward(unet_enc_feat, post_dist.rsample())
+            recon_lg_heat = self.lg_cvae.unet.up_forward(x)
             recon_lg_heat = F.normalize(F.sigmoid(recon_lg_heat).view(recon_lg_heat.shape[0],-1), p=1)
-            lg_heat_map= lg_heat_map.view(lg_heat_map.shape[0], -1)
 
+            lg_heat_map= lg_heat_map.view(lg_heat_map.shape[0], -1)
             # Focal loss:
-            # alpha to handle the imblanced classes: α for positive(foreground) class and 1-α for negative(background) class.
-            # gamma to handle the hard positive/negative, i.e., the misclassified negative/positivle examples.
             focal_loss = (self.alpha * lg_heat_map * torch.log(recon_lg_heat + self.eps) * ((1 - recon_lg_heat) ** self.gamma) \
                          + (1 - self.alpha) * (1 - lg_heat_map) * torch.log(1 - recon_lg_heat + self.eps) * (
                 recon_lg_heat ** self.gamma)).sum().div(batch_size)
 
 
-            lg_kl =  kl.kl_divergence(post_dist, prior_dist).sum().div(batch_size)
+            lg_kl = kl.kl_divergence(post_dist, prior_dist).sum().div(batch_size)
 
             lg_elbo = focal_loss
 
