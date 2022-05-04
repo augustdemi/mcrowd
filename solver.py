@@ -39,7 +39,15 @@ def integrate_samples(v, p_0, dt=1):
 # def recon_loss_with_logit(input, target):
 #     nn.BCEWithLogitsLoss(size_average = False, reduce=False, reduction=None)
 
+class _CustomDataParallel(nn.DataParallel):
+    def __init__(self, model):
+        super(_CustomDataParallel, self).__init__(model)
 
+    def __getattr__(self, name):
+        try:
+            return super(_CustomDataParallel, self).__getattr__(name)
+        except AttributeError:
+            return getattr(self.module, name)
 
 class Solver(object):
 
@@ -132,9 +140,10 @@ class Solver(object):
             self.load_checkpoint()
             print('...done')
 
-        self.lg_cvae = nn.DataParallel(self.lg_cvae)
-        self.lg_cvae.kl_divergence = nn.DataParallel(self.lg_cvae.kl_divergence)
-        self.lg_cvae.sample = nn.DataParallel(self.lg_cvae.sample)
+
+
+
+        self.lg_cvae = _CustomDataParallel(self.lg_cvae)
 
         # get VAE parameters
         vae_params = \
@@ -153,9 +162,7 @@ class Solver(object):
             print("Initializing train dataset")
             _, self.train_loader = data_loader(self.args, args.dataset_dir, 'train', shuffle=True)
             print("Initializing val dataset")
-            self.args.batch_size = 1
             _, self.val_loader = data_loader(self.args, args.dataset_dir, 'val', shuffle=True)
-            self.args.batch_size = args.batch_size
 
             print(
                 'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
