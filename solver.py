@@ -52,7 +52,7 @@ class Solver(object):
                     (args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE,
                      args.k_fold)
 
-        os.environ["CUDA_VISIBLE_DEVICES"] = '0, 1, 2, 3'
+        # os.environ["CUDA_VISIBLE_DEVICES"] = '0, 1, 2, 3'
 
         # to be appended by run_id
 
@@ -133,6 +133,9 @@ class Solver(object):
             print('...done')
 
         self.lg_cvae = nn.DataParallel(self.lg_cvae)
+        self.lg_cvae.kl_divergence = nn.DataParallel(self.lg_cvae.kl_divergence)
+        self.lg_cvae.sample = nn.DataParallel(self.lg_cvae.sample)
+
         # get VAE parameters
         vae_params = \
             list(self.lg_cvae.parameters())
@@ -262,20 +265,9 @@ class Solver(object):
              obs_frames, pred_frames, map_path, inv_h_t,
              local_map, local_ic, local_homo) = next(iterator)
 
-            sampled_local_ic = []
-            sampled_local_map = []
-            for s, e in seq_start_end:
-                rng = list(range(s,e))
-                random.shuffle(rng)
-                sampled_local_ic.append(local_ic[rng[:2]])
-                sampled_local_map.append(local_map[rng[:2]])
+            batch_size = local_ic.shape[0]
 
-            sampled_local_ic = np.concatenate(sampled_local_ic)
-            sampled_local_map = np.concatenate(sampled_local_map)
-
-            batch_size = sampled_local_map.shape[0]
-
-            obs_heat_map, lg_heat_map = self.make_heatmap(sampled_local_ic, sampled_local_map, aug=True)
+            obs_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map, aug=True)
 
             #-------- long term goal --------
             recon_lg_heat = self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
