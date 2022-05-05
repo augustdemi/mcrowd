@@ -285,7 +285,8 @@ class Solver(object):
 
             # -------- short term goal --------
 
-            recon_sg_heat = self.sg_unet.forward(torch.cat([obs_heat_map, lg_heat_map], dim=1))
+            unet_enc_feat = self.sg_unet.down_forward(torch.cat([obs_heat_map, lg_heat_map], dim=1))
+            recon_sg_heat = self.sg_unet.up_forward(unet_enc_feat)
             recon_sg_heat = F.sigmoid(recon_sg_heat)
             normalized_recon_sg_heat = []
             for i in range(len(self.sg_idx)):
@@ -412,8 +413,9 @@ class Solver(object):
                         pred_lg_heat_from_ic.append(heat_map_traj)
                     pred_lg_heat_from_ic = torch.tensor(np.stack(pred_lg_heat_from_ic)).unsqueeze(1).float().to(self.device)
 
-                    pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1)))
-                    # pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat], dim=1)))
+                    unet_enc_feat = self.sg_unet.down_forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1))
+                    pred_sg_heat = self.sg_unet.up_forward(unet_enc_feat)
+                    pred_sg_heat = F.sigmoid(pred_sg_heat)
 
                     pred_sg_wc = []
                     for i in range(batch_size):
