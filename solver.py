@@ -55,8 +55,8 @@ class Solver(object):
 
         self.args = args
 
-        self.name = '%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_k_%s' % \
-                    (args.dataset_name, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE,
+        self.name = '%s_bs_%s_enc_block_%s_fcomb_block_%s_wD_%s_lr_%s_k_%s' % \
+                    (args.dataset_name, args.batch_size, args.no_convs_per_block, args.no_convs_fcomb, args.w_dim, args.lr_VAE,
                      args.k_fold)
 
         # os.environ["CUDA_VISIBLE_DEVICES"] = '0, 1, 2, 3'
