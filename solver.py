@@ -656,7 +656,6 @@ class Solver(object):
             'iter_%s_lg_cvae.pt' % iteration
         )
         mkdirs(self.ckpt_dir)
-        del self.lg_cvae.unet.blocks
         torch.save(self.lg_cvae.module.state_dict(), lg_cvae_path)
 
     ####
