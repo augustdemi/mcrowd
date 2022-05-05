@@ -251,3 +251,8 @@ class ProbabilisticUnet(nn.Module):
         """
         x = self.fcomb.forward(unet_enc_feat, prior_dist.sample())
         return self.unet.up_forward(x)
+
+    def sg_forward(self, obs):
+        unet_enc_feat = self.unet.down_forward(obs)
+        x = self.fcomb.forward(unet_enc_feat)
+        return x

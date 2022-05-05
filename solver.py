@@ -139,8 +139,13 @@ class Solver(object):
 
         num_filters = [32, 32, 64, 64, 64]
         # input = env + 8 past + lg / output = env + sg(including lg)
-        self.sg_unet = Unet(input_channels=3, num_classes=len(self.sg_idx), num_filters=num_filters,
-                            apply_last_layer=True, padding=True).to(self.device)
+        # self.sg_unet = Unet(input_channels=3, num_classes=len(self.sg_idx), num_filters=num_filters,
+        #                     apply_last_layer=True, padding=True).to(self.device)
+
+        self.sg_unet = ProbabilisticUnet(input_channels=3, num_classes=len(self.sg_idx), num_filters=num_filters,
+                                         latent_dim=self.w_dim,
+                                         no_convs_fcomb=self.no_convs_fcomb, no_convs_per_block=self.no_convs_per_block,
+                                         beta=self.lg_kl_weight).to(self.device)
 
         if args.ckpt_load_iter > 0:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % args.ckpt_load_iter)
@@ -285,8 +290,9 @@ class Solver(object):
 
             # -------- short term goal --------
 
-            unet_enc_feat = self.sg_unet.down_forward(torch.cat([obs_heat_map, lg_heat_map], dim=1))
-            recon_sg_heat = self.sg_unet.up_forward(unet_enc_feat)
+            # unet_enc_feat = self.sg_unet.down_forward(torch.cat([obs_heat_map, lg_heat_map], dim=1))
+            # recon_sg_heat = self.sg_unet.up_forward(unet_enc_feat)
+            recon_sg_heat = self.sg_unet.sg_forward(torch.cat([obs_heat_map, lg_heat_map], dim=1))
             recon_sg_heat = F.sigmoid(recon_sg_heat)
             normalized_recon_sg_heat = []
             for i in range(len(self.sg_idx)):
@@ -413,8 +419,10 @@ class Solver(object):
                         pred_lg_heat_from_ic.append(heat_map_traj)
                     pred_lg_heat_from_ic = torch.tensor(np.stack(pred_lg_heat_from_ic)).unsqueeze(1).float().to(self.device)
 
-                    unet_enc_feat = self.sg_unet.down_forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1))
-                    pred_sg_heat = self.sg_unet.up_forward(unet_enc_feat)
+                    # unet_enc_feat = self.sg_unet.down_forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1))
+                    # pred_sg_heat = self.sg_unet.up_forward(unet_enc_feat)
+                    pred_sg_heat = self.sg_unet.sg_forward(torch.cat([obs_heat_map, lg_heat_map], dim=1))
+
                     pred_sg_heat = F.sigmoid(pred_sg_heat)
 
                     pred_sg_wc = []
