@@ -1230,4 +1230,4 @@ class Solver(object):
             self.ckpt_dir,
             'iter_%s_lg_cvae.pt' % self.ckpt_load_iter
         )
-        self.lg_cvae.load_state_dict(lg_cvae_path).to(self.device)
+        self.lg_cvae.load_state_dict(torch.load(lg_cvae_path, map_location=self.device))
