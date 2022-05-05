@@ -254,5 +254,4 @@ class ProbabilisticUnet(nn.Module):
 
     def sg_forward(self, obs):
         unet_enc_feat = self.unet.down_forward(obs)
-        x = self.fcomb.forward(unet_enc_feat)
-        return x
+        return self.unet.up_forward(unet_enc_feat)
