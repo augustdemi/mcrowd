@@ -127,16 +127,15 @@ class Solver(object):
         self.num_layers = args.num_layers
         self.decoder_h_dim = args.decoder_h_dim
 
-        if self.ckpt_load_iter == 0:  # create a new model
+        # input = env + 8 past / output = env + lg
+        num_filters = [32, 32, 64, 64, 64]
+        self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters,
+                                         latent_dim=self.w_dim,
+                                         no_convs_fcomb=self.no_convs_fcomb, no_convs_per_block=self.no_convs_per_block,
+                                         beta=self.lg_kl_weight).to(self.device)
 
-            # input = env + 8 past / output = env + lg
-            num_filters = [32,32,64,64,64]
-            self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters, latent_dim=self.w_dim,
-                                    no_convs_fcomb=self.no_convs_fcomb, no_convs_per_block=self.no_convs_per_block, beta=self.lg_kl_weight).to(self.device)
-
-
-        else:  # load a previously saved model
-            print('Loading saved models (iter: %d)...' % self.ckpt_load_iter)
+        if args.ckpt_load_iter > 0:  # load a previously saved model
+            print('Loading saved models (iter: %d)...' % args.ckpt_load_iter)
             self.load_checkpoint()
             print('...done')
 
@@ -1217,57 +1216,18 @@ class Solver(object):
     ####
     def save_checkpoint(self, iteration):
 
-        encoderMx_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_encoderMx.pt' % iteration
-        )
-        encoderMy_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_encoderMy.pt' % iteration
-        )
-        decoderMy_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_decoderMy.pt' % iteration
-        )
         lg_cvae_path = os.path.join(
             self.ckpt_dir,
             'iter_%s_lg_cvae.pt' % iteration
         )
-        sg_unet_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_sg_unet.pt' % iteration
-        )
         mkdirs(self.ckpt_dir)
-        torch.save(self.lg_cvae, lg_cvae_path)
+        torch.save(self.lg_cvae.module.state_dict(), lg_cvae_path)
 
     ####
     def load_checkpoint(self):
 
-        encoderMx_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_encoderMx.pt' % self.ckpt_load_iter
-        )
-        encoderMy_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_encoderMy.pt' % self.ckpt_load_iter
-        )
-        decoderMy_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_decoderMy.pt' % self.ckpt_load_iter
-        )
         lg_cvae_path = os.path.join(
             self.ckpt_dir,
             'iter_%s_lg_cvae.pt' % self.ckpt_load_iter
         )
-        sg_unet_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_sg_unet.pt' % self.ckpt_load_iter
-        )
-
-
-
-        if self.device == 'cuda':
-            self.lg_cvae = torch.load(lg_cvae_path)
-
-        else:
-            self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
+        self.lg_cvae.load_state_dict(lg_cvae_path).to(self.device)
