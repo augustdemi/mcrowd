@@ -277,9 +277,7 @@ class Solver(object):
             obs_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map, aug=True)
 
             #-------- long term goal --------
-            recon_lg_heat, lg_kl = self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
-
-
+            recon_lg_heat, lg_kl = self.lg_cvae.forward(obs_heat_map, lg_heat_map)
 
             recon_lg_heat = F.normalize(F.sigmoid(recon_lg_heat).view(recon_lg_heat.shape[0],-1), p=1)
             lg_heat_map= lg_heat_map.view(lg_heat_map.shape[0], -1)
@@ -365,13 +363,13 @@ class Solver(object):
 
                 obs_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
 
-                prior_mu, prior_log_var = self.lg_cvae.forward(obs_heat_map, None, training=False)
+                unet_enc_feat, prior_mu, prior_log_var = self.lg_cvae.test_forward(obs_heat_map)
                 prior_dist = Normal(loc=prior_mu, scale=torch.sqrt(torch.exp(prior_log_var)))
 
                 pred_lg_wc20 = []
                 for _ in range(20):
                     # -------- long term goal --------
-                    pred_lg_heat = F.sigmoid(self.lg_cvae.sample(prior_dist))
+                    pred_lg_heat = F.sigmoid(self.lg_cvae.sample(unet_enc_feat, prior_dist))
 
                     pred_lg_wc = []
                     for i in range(batch_size):
@@ -390,11 +388,11 @@ class Solver(object):
                     pred_lg_wc20.append(pred_lg_wc)
 
                 if loss:
-                    self.lg_cvae.forward(obs_heat_map, lg_heat_map, training=True)
+                    _, kl = self.lg_cvae.forward(obs_heat_map, lg_heat_map)
                     pred_lg_heat = F.normalize(pred_lg_heat.view(pred_lg_heat.shape[0], -1), p=1)
                     lg_heat_map = lg_heat_map.view(lg_heat_map.shape[0], -1)
 
-                    lg_kl += self.lg_cvae.kl_divergence(analytic=True).sum().div(batch_size)
+                    lg_kl += kl
                     lg_recon += (self.alpha * lg_heat_map * torch.log(pred_lg_heat + self.eps) * ((1 - pred_lg_heat) ** self.gamma) \
                          + (1 - self.alpha) * (1 - lg_heat_map) * torch.log(1 - pred_lg_heat + self.eps) * (pred_lg_heat ** self.gamma)).sum().div(batch_size)
 

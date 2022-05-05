@@ -88,11 +88,11 @@ class AxisAlignedConvGaussian(nn.Module):
         nn.init.kaiming_normal_(self.conv_layer.weight, mode='fan_in', nonlinearity='relu')
         nn.init.normal_(self.conv_layer.bias)
 
-    def forward(self, input, segm=None):
+    def forward(self, input, fut=None):
 
-        # If segmentation is not none, concatenate the mask to the channel axis of the input
-        if segm is not None:
-            input = torch.cat((input, segm), dim=1)
+        # If fut is not none, concatenate the mask to the channel axis of the input
+        if fut is not None:
+            input = torch.cat((input, fut), dim=1)
 
         encoding = self.encoder(input)  # [4, 128, 10, 10]
         # self.show_enc = encoding
@@ -218,101 +218,36 @@ class ProbabilisticUnet(nn.Module):
         self.fcomb = Fcomb(self.num_filters, self.latent_dim, self.input_channels, self.num_classes,
                            self.no_convs_fcomb, {'w': 'orthogonal', 'b': 'normal'}, use_tile=True).to(device)
 
-    def forward(self, patch, segm, training=True):
+    def forward(self, obs, fut):
         """
-        Construct prior latent space for patch and run patch through UNet,
+        Construct prior latent space for obs and run obs through UNet,
         in case training is True also construct posterior latent space
         """
         # unet encoder
-        self.unet_enc_feat = self.unet.down_forward(patch)
-
+        unet_enc_feat = self.unet.down_forward(obs)
 
         # latent dist
-        prior_mu, prior_log_var = self.prior.forward(self.unet_enc_feat)
+        prior_mu, prior_log_var = self.prior.forward(unet_enc_feat)
         prior_dist = Normal(loc=prior_mu, scale=torch.sqrt(torch.exp(prior_log_var)))
 
-        if training:
-            post_mu, post_log_var = self.posterior.forward(patch, segm)
-            post_dist = Normal(loc=post_mu, scale=torch.sqrt(torch.exp(post_log_var)))
-            z = post_dist.rsample()
-            kl_div = kl.kl_divergence(post_dist, prior_dist)
+        post_mu, post_log_var = self.posterior.forward(obs, fut)
+        post_dist = Normal(loc=post_mu, scale=torch.sqrt(torch.exp(post_log_var)))
+        z = post_dist.rsample()
+        kl_div = kl.kl_divergence(post_dist, prior_dist)
 
-        else:
-            z = prior_dist.rsample()
+        x = self.fcomb.forward(unet_enc_feat, z)
+        return self.unet.up_forward(x), kl_div.sum()
 
+    def test_forward(self, obs):
+        unet_enc_feat = self.unet.down_forward(obs)
+        # latent dist
+        prior_mu, prior_log_var = self.prior.forward(unet_enc_feat)
+        return unet_enc_feat, prior_mu, prior_log_var
 
-
-        '''
-        # expand z in spatial dim by replicating
-        z = torch.unsqueeze(z, 2)  # (bs, latent_dim) -> (bs, l_d, 1)
-        z = self.tile(z, 2, self.unet_enc_feat.shape[2])  # self.spatial_axes = (2,3), feature_map.shape=(4, 32, 160, 160)
-        z = torch.unsqueeze(z, 3)
-        z = self.tile(z, 3, self.unet_enc_feat.shape[3])
-        x = torch.cat([self.unet_enc_feat, z], dim=1)  # channel dim concat
-        '''
-        x = self.fcomb.forward(self.unet_enc_feat, z)
-        if training:
-            return self.unet.up_forward(x), kl_div.sum()
-        else:
-            return self.unet.up_forward(x), prior_mu, prior_log_var
-
-
-
-    def sample(self, prior_dist):
+    def sample(self, unet_enc_feat, prior_dist):
         """
-        Sample a segmentation by reconstructing from a prior sample
+        Sample a fut by reconstructing from a prior sample
         and combining this with UNet features
         """
-        x = self.fcomb.forward(self.unet_enc_feat, prior_dist.sample())
+        x = self.fcomb.forward(unet_enc_feat, prior_dist.sample())
         return self.unet.up_forward(x)
-
-    def reconstruct(self, use_posterior_mean=False, calculate_posterior=False, z_posterior=None):
-        """
-        Reconstruct a segmentation from a posterior sample (decoding a posterior sample) and UNet feature map
-        use_posterior_mean: use posterior_mean instead of sampling z_q
-        calculate_posterior: use a provided sample or sample from posterior latent space
-        """
-        if use_posterior_mean:
-            z_posterior = self.posterior_latent_space.loc
-        else:
-            if calculate_posterior:
-                z_posterior = self.posterior_latent_space.rsample()
-        return self.fcomb.forward(self.unet_features, z_posterior)
-
-    def kl_divergence(self, analytic=True, calculate_posterior=False, z_posterior=None):
-        """
-        Calculate the KL divergence between the posterior and prior KL(Q||P)
-        analytic: calculate KL analytically or via sampling from the posterior
-        calculate_posterior: if we use samapling to approximate KL we can sample here or supply a sample
-        """
-        if analytic:
-            # Neeed to add this to torch source code, see: https://github.com/pytorch/pytorch/issues/13545
-            kl_div = kl.kl_divergence(self.posterior_latent_space, self.prior_latent_space)
-        else:
-            if calculate_posterior:
-                z_posterior = self.posterior_latent_space.rsample()
-            log_posterior_prob = self.posterior_latent_space.log_prob(z_posterior)
-            log_prior_prob = self.prior_latent_space.log_prob(z_posterior)
-            kl_div = log_posterior_prob - log_prior_prob
-        return kl_div
-
-    def elbo(self, segm, analytic_kl=True, reconstruct_posterior_mean=False):
-        """
-        Calculate the evidence lower bound of the log-likelihood of P(Y|X)
-        """
-
-        criterion = nn.BCEWithLogitsLoss(size_average=False, reduce=False, reduction=None)
-        z_posterior = self.posterior_latent_space.rsample()
-
-        self.kl = torch.mean(
-            self.kl_divergence(analytic=analytic_kl, calculate_posterior=False, z_posterior=z_posterior))
-
-        # Here we use the posterior sample sampled above
-        self.reconstruction = self.reconstruct(use_posterior_mean=reconstruct_posterior_mean, calculate_posterior=False,
-                                               z_posterior=z_posterior)
-
-        reconstruction_loss = criterion(input=self.reconstruction, target=segm)
-        self.reconstruction_loss = torch.sum(reconstruction_loss)
-        self.mean_reconstruction_loss = torch.mean(reconstruction_loss)
-
-        return -(self.reconstruction_loss + self.beta * self.kl)
