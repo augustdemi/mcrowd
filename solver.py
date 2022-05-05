@@ -126,6 +126,13 @@ class Solver(object):
         self.num_layers = args.num_layers
         self.decoder_h_dim = args.decoder_h_dim
 
+        num_filters = [32, 32, 64, 64, 64]
+        self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters,
+                                         latent_dim=self.w_dim,
+                                         no_convs_fcomb=self.no_convs_fcomb,
+                                         no_convs_per_block=self.no_convs_per_block, beta=self.lg_kl_weight).to(
+            self.device)
+
         if args.load_e > 0:
             lg_cvae_path = 'large.lg.ae_enc_block_%s_fcomb_block_%s_wD_10_lr_0.0001_k_%s_run_%s' % (
             args.no_convs_per_block, args.no_convs_fcomb, args.k_fold, args.run_id)
@@ -134,19 +141,11 @@ class Solver(object):
             self.lg_cvae.load_state_dict(torch.load(lg_cvae_path, map_location=self.device))
 
             print(">>>>>>>>> Init: ", lg_cvae_path)
-
             ## random init after latent space
             for m in self.lg_cvae.unet.upsampling_path:
                 m.apply(init_weights)
             self.lg_cvae.fcomb.apply(init_weights)
 
-        else:
-            num_filters = [32, 32, 64, 64, 64]
-            self.lg_cvae = ProbabilisticUnet(input_channels=2, num_classes=1, num_filters=num_filters,
-                                             latent_dim=self.w_dim,
-                                             no_convs_fcomb=self.no_convs_fcomb,
-                                             no_convs_per_block=self.no_convs_per_block, beta=self.lg_kl_weight).to(
-                self.device)
 
         if args.ckpt_load_iter > 0:  # load a previously saved model
             print('Loading saved models (iter: %d)...' % args.ckpt_load_iter)
