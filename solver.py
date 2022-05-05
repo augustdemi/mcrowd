@@ -59,8 +59,8 @@ class Solver(object):
         self.args = args
 
         args.num_sg = args.load_e
-        self.name = '%s_lr_%s_num_sg_%s_k_%s' % \
-                    (args.dataset_name, args.lr_VAE, args.num_sg, args.k_fold)
+        self.name = '%s_bs_%s_lr_%s_num_sg_%s_k_%s' % \
+                    (args.dataset_name, args.batch_size, args.lr_VAE, args.num_sg, args.k_fold)
         # self.name = 'sg_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1_a_0.25_r_2.0_fb_2.0_anneal_e_10_load_e_1'
 
         # to be appended by run_id
