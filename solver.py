@@ -92,7 +92,7 @@ class Solver(object):
         self.output_save_iter = args.output_save_iter
 
         # data info
-        # args.dataset_dir = os.path.join(args.dataset_dir, str(args.k_fold))
+        args.dataset_dir = os.path.join(args.dataset_dir, str(args.k_fold))
 
         self.dataset_name = args.dataset_name
 
