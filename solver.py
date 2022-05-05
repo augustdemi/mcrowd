@@ -369,8 +369,7 @@ class Solver(object):
             b=0
             for batch in data_loader:
                 b+=1
-                (obs_traj, fut_traj, _, _, seq_start_end,
-                 obs_frames, pred_frames, map_path, inv_h_t,
+                (obs_traj, fut_traj,
                  local_map, local_ic, local_homo) = batch
                 batch_size = local_ic.shape[0]
                 total_traj += batch_size
