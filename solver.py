@@ -400,7 +400,7 @@ class Solver(object):
                     _, kl = self.lg_cvae.forward(obs_heat_map, lg_heat_map)
                     pred_lg_heat = F.normalize(pred_lg_heat.view(pred_lg_heat.shape[0], -1), p=1)
                     lg_heat_map = lg_heat_map.view(lg_heat_map.shape[0], -1)
-                    lg_kl += torch.clamp(lg_kl, self.fb).sum().div(batch_size)
+                    lg_kl += torch.clamp(kl, self.fb).sum().div(batch_size)
                     lg_recon += (self.alpha * lg_heat_map * torch.log(pred_lg_heat + self.eps) * (
                                 (1 - pred_lg_heat) ** self.gamma) \
                                  + (1 - self.alpha) * (1 - lg_heat_map) * torch.log(1 - pred_lg_heat + self.eps) * (
