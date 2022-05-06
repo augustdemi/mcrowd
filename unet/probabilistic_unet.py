@@ -236,7 +236,7 @@ class ProbabilisticUnet(nn.Module):
         kl_div = kl.kl_divergence(post_dist, prior_dist)
 
         x = self.fcomb.forward(unet_enc_feat, z)
-        return self.unet.up_forward(x), kl_div.sum()
+        return self.unet.up_forward(x), kl_div
 
     def test_forward(self, obs):
         unet_enc_feat = self.unet.down_forward(obs)
@@ -251,3 +251,4 @@ class ProbabilisticUnet(nn.Module):
         """
         x = self.fcomb.forward(unet_enc_feat, prior_dist.sample())
         return self.unet.up_forward(x)
+
