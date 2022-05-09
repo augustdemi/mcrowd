@@ -2564,7 +2564,8 @@ class Solver(object):
             test_enc_feat = []
 
             for batch in test_loader:
-                (obs_traj, fut_traj,
+                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
+                 obs_frames, fut_frames, map_path, inv_h_t,
                  local_map, local_ic, local_homo) = batch
 
                 obs_heat_map = self.make_map_heatmap(local_ic[0], local_map[0])
@@ -2580,6 +2581,7 @@ class Solver(object):
             X_r2 = tsne.fit_transform(test_enc_feat)
 
             np.save('large_tsne.npy', X_r2)
+            print('done')
             '''
             X_r2 = np.load('../path_tsne.npy')
             s=500
