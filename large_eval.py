@@ -1087,12 +1087,36 @@ class Solver(object):
         total_ecfl = []
 
         with torch.no_grad():
-            b=0
+            b=-1
             for batch in data_loader:
                 b+=1
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
                  obs_frames, pred_frames, map_path, inv_h_t,
                  local_map, local_ic, local_homo) = batch
+                if b<208:
+                    continue
+                '''
+                plt.imshow(local_map[i, 0])
+                plt.scatter(local_ic[i,:,1], local_ic[i,:,0])
+                
+                
+                import cv2
+                plt.tight_layout()
+                fig = plt.imshow(cv2.imread('C:/dataset/large_real/Trajectories/' + map_path[0].split('/')[-1]))
+                plt.scatter(obs_traj[:,i,0]*2, obs_traj[:,i,1]*2, s=1, c='b')
+                plt.scatter(fut_traj[:,i,0]*2, fut_traj[:,i,1]*2, s=1, c='r')
+                fig.axes.get_xaxis().set_visible(False)
+                fig.axes.get_yaxis().set_visible(False)
+                '''
+                import cv2
+                colors = ['r', 'g', 'b', 'm', 'c', 'k', 'w', 'k']
+                plt.tight_layout()
+                fig = plt.imshow(cv2.imread('C:/dataset/large_real/Trajectories/' + map_path[0].split('/')[-1]))
+                for i in range(seq_start_end[0][1] - seq_start_end[0][0]):
+                    gt_xy = torch.cat([obs_traj[:, i, :2], fut_traj[:, i, :2]]).detach().cpu().numpy()*2
+                    plt.scatter(gt_xy[:,0], gt_xy[:,1], s=1, c=colors[i % len(colors)])
+
+
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
@@ -2503,52 +2527,59 @@ class Solver(object):
 
 
 
-    def make_feat(self, test_loader, train_loader):
+
+
+
+    def make_map_heatmap(self, local_ic, local_map):
+        heatmaps = []
+        for i in range(len(local_ic)):
+            ohm = [local_map[i, 0]]
+
+            heat_map_traj = np.zeros((192, 192))
+            for t in range(self.obs_len):
+                heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
+                # as Y-net used variance 4 for the GT heatmap representation.
+            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+            ohm.append(heat_map_traj/heat_map_traj.sum())
+            heatmaps.append(np.stack(ohm))
+
+        heatmaps = torch.tensor(np.stack(heatmaps)).float().to(self.device)
+        return heatmaps
+
+
+    def make_feat(self, test_loader):
         from sklearn.manifold import TSNE
-        from data.trajectories import seq_collate
+        # from data.trajectories import seq_collate
+
+        # from data.macro_trajectories import TrajectoryDataset
+        # from torch.utils.data import DataLoader
+
+        # test_dset = TrajectoryDataset('../datasets/large_real/Trajectories', data_split='test', device=self.device)
+        # test_loader = DataLoader(dataset=test_dset, batch_size=1,
+        #                              shuffle=True, num_workers=0)
 
         self.set_mode(train=False)
         with torch.no_grad():
-
-            test_range= list(range(len(test_loader.dataset)))
-            np.random.shuffle(test_range)
-
             n_sample = 10
             test_enc_feat = []
-            train_enc_feat = []
-            for k in range(50):
-                test_sample = []
-                train_sample = []
-                for i in test_range[n_sample*k:n_sample*(k+1)]:
-                    test_sample.append(test_loader.dataset.__getitem__(i))
-                    train_sample.append(train_loader.dataset.__getitem__(i))
 
-                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-                 obs_frames, pred_frames, map_path, inv_h_t,
-                 local_map, local_ic, local_homo, _) = seq_collate(test_sample)
+            for batch in test_loader:
+                (obs_traj, fut_traj,
+                 local_map, local_ic, local_homo) = batch
 
-
-                obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
+                obs_heat_map = self.make_map_heatmap(local_ic[0], local_map[0])
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 test_enc_feat.append(self.lg_cvae.unet_enc_feat.view(len(local_map), -1).detach().cpu().numpy())
 
-                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-                 obs_frames, pred_frames, map_path, inv_h_t,
-                 local_map, local_ic, local_homo, _) = seq_collate(train_sample)
-
-                obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
-
-                self.lg_cvae.forward(obs_heat_map, None, training=False)
-                train_enc_feat.append(self.lg_cvae.unet_enc_feat.view(len(local_map), -1).detach().cpu().numpy())
 
             test_enc_feat = np.concatenate(test_enc_feat)
-            train_enc_feat = np.concatenate(train_enc_feat)
+            print(test_enc_feat.shape)
 
             tsne = TSNE(n_components=2, random_state=0)
-            X_r2 = tsne.fit_transform(np.concatenate([train_enc_feat, test_enc_feat]))
+            X_r2 = tsne.fit_transform(test_enc_feat)
 
-            np.save('path_tsne.npy', X_r2)
+            np.save('large_tsne.npy', X_r2)
             '''
             X_r2 = np.load('../path_tsne.npy')
             s=500
