@@ -2568,7 +2568,7 @@ class Solver(object):
                  obs_frames, fut_frames, map_path, inv_h_t,
                  local_map, local_ic, local_homo) = batch
 
-                obs_heat_map = self.make_map_heatmap(local_ic[0], local_map[0])
+                obs_heat_map = self.make_map_heatmap(local_ic[:1], local_map[:1])
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 test_enc_feat.append(self.lg_cvae.unet_enc_feat.view(len(local_map), -1).detach().cpu().numpy())
