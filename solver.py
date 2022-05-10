@@ -45,11 +45,11 @@ class Solver(object):
 
         self.args = args
         args.num_sg = args.load_e
-        self.name = '%s_bs%s_zD_%s_dr_mlp_%s_dr_rnn_%s_enc_hD_%s_dec_hD_%s_mlpD_%s_lr_%s_klw_%s_ll_prior_w_%s_zfb_%s_scale_%s_num_sg_%s' \
-                    'ctxtD_%s_coll_th_%s_w_coll_%s_beta_%s_lr_e_%s_k_%s' % \
+        self.name = '%s_bs%s_zD_%s_dr_mlp_%s_dr_rnn_%s_enc_hD_%s_dec_hD_%s_mlpD_%s_map_featD_%s_map_mlpD_%s_lr_%s_klw_%s_ll_prior_w_%s_zfb_%s_scale_%s_num_sg_%s' \
+                    'ctxtD_%s_coll_th_%s_w_coll_%s_beta_%s_lr_e_%s' % \
                     (args.dataset_name, args.batch_size, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
-                     args.decoder_h_dim, args.mlp_dim, args.lr_VAE, args.kl_weight,
-                     args.ll_prior_w, args.fb, args.scale, args.num_sg, args.context_dim, args.coll_th, args.w_coll, args.beta, args.lr_e, args.k_fold)
+                     args.decoder_h_dim, args.mlp_dim, args.map_feat_dim , args.map_mlp_dim, args.lr_VAE, args.kl_weight,
+                     args.ll_prior_w, args.fb, args.scale, args.num_sg, args.context_dim, args.coll_th, args.w_coll, args.beta, args.lr_e)
 
         # to be appended by run_id
 
@@ -83,8 +83,6 @@ class Solver(object):
         self.output_save_iter = args.output_save_iter
 
         # data info
-        args.dataset_dir = os.path.join(args.dataset_dir, str(args.k_fold))
-
         self.dataset_dir = args.dataset_dir
         self.dataset_name = args.dataset_name
 
@@ -158,8 +156,8 @@ class Solver(object):
         self.decoder_h_dim = args.decoder_h_dim
 
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
-            lg_cvae_path = 'large.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_5.0_anneal_e_10_load_e_3_run_4'
-            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_150_lg_cvae.pt')
+            lg_cvae_path = 'lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.001_lg_klw_1.0_a_0.25_r_2.0_fb_0.7_anneal_e_10_load_e_1_run_308'
+            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_42880_lg_cvae.pt')
             if self.device == 'cuda':
                 self.lg_cvae = torch.load(lg_cvae_path)
 
@@ -376,12 +374,12 @@ class Solver(object):
 
 
             # save model parameters
-            if epoch > 200 and (iteration % (iter_per_epoch*20) == 0):
+            if epoch > 50 and (iteration % (iter_per_epoch*10) == 0):
                 self.save_checkpoint(epoch)
 
             # (visdom) insert current line stats
-            if epoch > 50:
-                if iteration == iter_per_epoch or (self.viz_on and (iteration % (iter_per_epoch*20) == 0)):
+            if iteration > 0:
+                if iteration == iter_per_epoch or (self.viz_on and (iteration % (iter_per_epoch*10) == 0)):
                     ade_min, fde_min, \
                     ade_avg, fde_avg, \
                     ade_std, fde_std, \
