@@ -253,10 +253,10 @@ class Solver(object):
                 # print(iteration)
                 print('==== epoch %d done ====' % epoch)
                 if epoch % 10 == 0:
-                    if self.optim_vae.param_groups[0]['lr'] > 1e-4:
+                    if self.optim_vae.param_groups[0]['lr'] > 5e-4:
                         self.scheduler.step()
                     else:
-                        self.optim_vae.param_groups[0]['lr'] = 1e-4
+                        self.optim_vae.param_groups[0]['lr'] = 5e-4
                 print("lr: ", self.optim_vae.param_groups[0]['lr'], ' // w_coll: ', self.w_coll)
                 print('e_coll_loss: ', e_coll_loss, ' // e_total_coll: ', e_total_coll)
 
@@ -374,11 +374,11 @@ class Solver(object):
 
 
             # save model parameters
-            if epoch > 50 and (iteration % (iter_per_epoch*10) == 0):
+            if epoch > 100 and (iteration % (iter_per_epoch*10) == 0):
                 self.save_checkpoint(epoch)
 
             # (visdom) insert current line stats
-            if iteration > 0:
+            if epoch > 100:
                 if iteration == iter_per_epoch or (self.viz_on and (iteration % (iter_per_epoch*10) == 0)):
                     ade_min, fde_min, \
                     ade_avg, fde_avg, \
