@@ -388,7 +388,7 @@ class Solver(object):
                  obs_frames, fut_frames, map_path, inv_h_t,
                  local_map, local_ic, local_homo) = batch
 
-                local_map1 = self.preprocess_map(local_ic[:1], aug=False)
+                local_map1 = self.preprocess_map(local_map[:1], aug=False)
 
                 self.sg_unet.forward(local_map1)
                 test_enc_feat.append(self.sg_unet.unet_enc_feat.view(1, -1).detach().cpu().numpy())
