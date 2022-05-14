@@ -367,6 +367,82 @@ class Solver(object):
 
 
 
+
+    def make_feat(self, test_loader):
+        from sklearn.manifold import TSNE
+        # from data.trajectories import seq_collate
+
+        # from data.macro_trajectories import TrajectoryDataset
+        # from torch.utils.data import DataLoader
+
+        # test_dset = TrajectoryDataset('../datasets/large_real/Trajectories', data_split='test', device=self.device)
+        # test_loader = DataLoader(dataset=test_dset, batch_size=1,
+        #                              shuffle=True, num_workers=0)
+
+        sg_unet_path = 'ckpts/large.map.ae_lr_0.0001_a_0.25_r_2.0_run_8/iter_100_sg_unet.pt'
+
+        if self.device == 'cuda':
+            self.sg_unet = torch.load(sg_unet_path)
+
+        self.set_mode(train=False)
+        with torch.no_grad():
+            test_enc_feat = []
+
+            for batch in test_loader:
+                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
+                 obs_frames, fut_frames, map_path, inv_h_t,
+                 local_map, local_ic, local_homo) = batch
+
+                local_map1 = self.preprocess_map(local_ic[:1], local_map[:1])
+
+                self.sg_unet.forward(local_map1)
+                test_enc_feat.append(self.sg_unet.unet_enc_feat.view(1, -1).detach().cpu().numpy())
+
+            import numpy as np
+            import matplotlib.pyplot as plt
+            test_enc_feat = np.concatenate(test_enc_feat)
+            print(test_enc_feat.shape)
+
+            tsne = TSNE(n_components=2, random_state=0)
+            X_r2 = tsne.fit_transform(test_enc_feat)
+
+            np.save('large_tsne_ae.npy', X_r2)
+            print('done')
+
+            '''
+            import pandas as  pd
+            df = pd.read_csv('C:\dataset\large_real/large_5_bs1.csv')
+            data = np.array(df)
+
+
+            X_r2 = np.load('c:\dataset\large_real/large_tsne.npy')
+            s=500
+            # labels = np.concatenate([np.zeros(s), np.ones(s)])
+            # target_names = ['Training', 'Test']
+            # colors = np.array(['blue', 'red'])
+            labels= np.array(df['0.5']) //10
+            labels= np.array(df['# agent']) //10
+            labels= np.array(df['curvature'])*100 //10
+            labels= np.array(df['map ratio'])*100 //10
+
+            target_names = np.unique(labels)
+            colors = np.array(['gray','orange', 'green', 'magenta', 'black', 'cyan', 'red', 'pink', 'blue'])
+
+            # colors = ['red', 'magenta', 'lightgreen', 'slateblue', 'blue', 'darkgreen', 'darkorange',
+            #           'gray', 'purple', 'turquoise', 'midnightblue', 'olive', 'black', 'pink', 'burlywood',
+            #           'yellow']
+
+            fig = plt.figure(figsize=(5,4))
+            fig.tight_layout()
+
+            for color, i, target_name in zip(colors, np.unique(labels), target_names):
+                plt.scatter(X_r2[labels == i, 0], X_r2[labels == i, 1], alpha=.5, color=color,
+                            label=str(target_name), s=5)
+            fig.axes[0]._get_axis_list()[0].set_visible(False)
+            fig.axes[0]._get_axis_list()[1].set_visible(False)
+            plt.legend(loc=4, shadow=False, scatterpoints=1)
+            '''
+
     ####
     def viz_init(self):
         self.viz.close(env=self.name, win=self.win_id['test_map_loss'])
