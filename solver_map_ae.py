@@ -54,6 +54,8 @@ class Solver(object):
         self.output_save_iter = args.output_save_iter
 
         # data info
+        args.dataset_dir = os.path.join(args.dataset_dir, str(args.k_fold))
+
         self.dataset_dir = args.dataset_dir
         self.dataset_name = args.dataset_name
 
@@ -438,7 +440,7 @@ class Solver(object):
             data = np.array(df)
 
 
-            all_feat = np.load('large_tsne_ae1.npy')
+            all_feat = np.load('large_tsne_ae1_tr.npy')
             tsne_faet = all_feat[:,:2]
             obst_ratio = all_feat[:,2]
             curv = all_feat[:,3]
@@ -455,16 +457,26 @@ class Solver(object):
             labels= np.array(df['curvature'])*100 //10
             labels= np.array(df['map ratio'])*100 //10
 
-            target_names = np.unique(labels)
-            colors = np.array(['gray','pink', 'orange', 'magenta', 'darkgreen', 'cyan', 'blue', 'red', 'lightgreen'])
+            colors = np.array(['gray','pink', 'orange', 'magenta', 'darkgreen', 'cyan', 'blue', 'red', 'lightgreen', 'olive', 'burlywood', 'purple'])
 
             # colors = ['red', 'magenta', 'lightgreen', 'slateblue', 'blue', 'darkgreen', 'darkorange',
             #           'gray', 'purple', 'turquoise', 'midnightblue', 'olive', 'black', 'pink', 'burlywood',
             #           'yellow']
 
+
+
+            k=0
+            labels = scenario //10
+            for i in range(len(labels)):
+                if labels[i] in range(k*3,(k+1)*3):
+                    labels[i] = 0
+                else:
+                    labels[i] = 1
+
+
             fig = plt.figure(figsize=(5,4))
             fig.tight_layout()
-
+            target_names = np.unique(labels)
             for color, i, target_name in zip(colors, np.unique(labels), target_names):
                 plt.scatter(tsne_faet[labels == i, 0], tsne_faet[labels == i, 1], alpha=.5, color=color,
                             label=str(target_name), s=10)
