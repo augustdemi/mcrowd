@@ -379,11 +379,6 @@ class Solver(object):
         # test_loader = DataLoader(dataset=test_dset, batch_size=1,
         #                              shuffle=True, num_workers=0)
 
-        sg_unet_path = 'ckpts/large.map.ae_lr_0.0001_a_0.25_r_2.0_run_8/iter_100_sg_unet.pt'
-
-        if self.device == 'cuda':
-            self.sg_unet = torch.load(sg_unet_path)
-
         self.set_mode(train=False)
         with torch.no_grad():
             test_enc_feat = []
@@ -529,8 +524,8 @@ class Solver(object):
             'iter_%s_sg_unet.pt' % self.ckpt_load_iter
         )
 
-
         if self.device == 'cuda':
+            sg_unet_path = 'ckpts/large.map.ae_lr_0.0001_a_0.25_r_2.0_run_8/iter_100_sg_unet.pt'
             self.sg_unet = torch.load(sg_unet_path)
         else:
             sg_unet_path = 'd:\crowd\mcrowd\ckpts\mapae.path_lr_0.001_a_0.25_r_2.0_run_2/iter_3360_sg_unet.pt'
