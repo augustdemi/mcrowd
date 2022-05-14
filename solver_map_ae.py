@@ -394,6 +394,7 @@ class Solver(object):
             test_enc_feat = []
             total_map_ratio = []
             total_curv = []
+            total_scenario = []
             b = 0
             for batch in test_loader:
                 b+=1
@@ -417,6 +418,7 @@ class Solver(object):
                     seq_curv.append(min(c, 10))
                 total_map_ratio.extend(seq_map_ratio)
                 total_curv.extend(seq_curv)
+                total_scenario.extend(int(map_path[0].split('/')[-1].split('.')[0]))
 
 
             import matplotlib.pyplot as plt
@@ -425,7 +427,7 @@ class Solver(object):
 
             tsne = TSNE(n_components=2, random_state=0)
             tsne_feat = tsne.fit_transform(test_enc_feat)
-            all_feat = np.concatenate([tsne_feat, np.expand_dims(np.array(total_map_ratio),1), np.expand_dims(np.array(total_curv),1)], 1)
+            all_feat = np.concatenate([tsne_feat, np.expand_dims(np.array(total_map_ratio),1), np.expand_dims(np.array(total_curv),1), np.expand_dims(np.array(total_scenario),1)], 1)
 
             np.save('large_tsne_ae.npy', all_feat)
             print('done')
@@ -436,18 +438,25 @@ class Solver(object):
             data = np.array(df)
 
 
-            X_r2 = np.load('c:\dataset\large_real/large_tsne.npy')
-            s=500
+            all_feat = np.load('large_tsne_ae1.npy')
+            tsne_faet = all_feat[:,:2]
+            obst_ratio = all_feat[:,2]
+            curv = all_feat[:,3]
+            scenario = all_feat[:,4]
+
+            labels = obst_ratio*100 //10
+            # labels = curv*100 //10
+
             # labels = np.concatenate([np.zeros(s), np.ones(s)])
             # target_names = ['Training', 'Test']
             # colors = np.array(['blue', 'red'])
-            labels= np.array(df['0.5']) //10
-            # labels= np.array(df['# agent']) //10
-            # labels= np.array(df['curvature'])*100 //10
-            # labels= np.array(df['map ratio'])*100 //10
+            labels= np.array(df['0.5']) // 10
+            labels= np.array(df['# agent']) //10
+            labels= np.array(df['curvature'])*100 //10
+            labels= np.array(df['map ratio'])*100 //10
 
             target_names = np.unique(labels)
-            colors = np.array(['gray','orange', 'green', 'magenta', 'black', 'cyan', 'red', 'pink', 'blue'])
+            colors = np.array(['gray','pink', 'orange', 'magenta', 'darkgreen', 'cyan', 'blue', 'red', 'lightgreen'])
 
             # colors = ['red', 'magenta', 'lightgreen', 'slateblue', 'blue', 'darkgreen', 'darkorange',
             #           'gray', 'purple', 'turquoise', 'midnightblue', 'olive', 'black', 'pink', 'burlywood',
@@ -457,11 +466,11 @@ class Solver(object):
             fig.tight_layout()
 
             for color, i, target_name in zip(colors, np.unique(labels), target_names):
-                plt.scatter(X_r2[labels == i, 0], X_r2[labels == i, 1], alpha=.5, color=color,
-                            label=str(target_name), s=5)
+                plt.scatter(tsne_faet[labels == i, 0], tsne_faet[labels == i, 1], alpha=.5, color=color,
+                            label=str(target_name), s=10)
             fig.axes[0]._get_axis_list()[0].set_visible(False)
             fig.axes[0]._get_axis_list()[1].set_visible(False)
-            plt.legend(loc=4, shadow=False, scatterpoints=1)
+            plt.legend(loc=0, shadow=False, scatterpoints=1)
             '''
 
     ####
