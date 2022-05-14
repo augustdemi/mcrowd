@@ -391,7 +391,7 @@ class Solver(object):
                 local_map1 = self.preprocess_map(local_map[:1], aug=False)
 
                 self.sg_unet.forward(local_map1)
-                test_enc_feat.append(self.sg_unet.unet_enc_feat.view(1, -1).detach().cpu().numpy())
+                test_enc_feat.append(self.sg_unet.enc_feat.view(1, -1).detach().cpu().numpy())
 
             import numpy as np
             import matplotlib.pyplot as plt
