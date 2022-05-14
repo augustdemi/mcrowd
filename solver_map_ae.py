@@ -16,8 +16,18 @@ import cv2
 import torch.nn.functional as F
 from torchvision import transforms
 from data.trajectories import seq_collate
+import numpy as np
 
 ###############################################################################
+
+def trajectory_curvature(t):
+    path_distance = np.linalg.norm(t[-1] - t[0])
+
+    lengths = np.sqrt(np.sum(np.diff(t, axis=0) ** 2, axis=1))  # Length between points
+    path_length = np.sum(lengths)
+    if np.isclose(path_distance, 0.):
+        return 0, 0, 0
+    return (path_length / path_distance) - 1
 
 class Solver(object):
 
@@ -382,26 +392,42 @@ class Solver(object):
         self.set_mode(train=False)
         with torch.no_grad():
             test_enc_feat = []
-
+            total_map_ratio = []
+            total_curv = []
+            b = 0
             for batch in test_loader:
+                b+=1
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
                  obs_frames, fut_frames, map_path, inv_h_t,
                  local_map, local_ic, local_homo) = batch
-
-                local_map1 = self.preprocess_map(local_map[:1], aug=False)
+                # if b ==4:
+                #     break
+                local_map1 = local_map[:3]
+                local_map1 = self.preprocess_map(local_map1, aug=False)
 
                 self.sg_unet.forward(local_map1)
-                test_enc_feat.append(self.sg_unet.enc_feat.view(1, -1).detach().cpu().numpy())
+                test_enc_feat.append(self.sg_unet.enc_feat.view(len(local_map1), -1).detach().cpu().numpy())
 
-            import numpy as np
+                seq_map_ratio = []
+                seq_curv = []
+                for i in range(len(local_map1)):
+                    seq_map_ratio.append(np.sum(local_map[i,0])/(192*192))
+                    gt_xy = torch.cat([obs_traj[:,i,:2], fut_traj[:,i,:2]]).detach().cpu().numpy()
+                    c = np.round(trajectory_curvature(gt_xy), 4)
+                    seq_curv.append(min(c, 10))
+                total_map_ratio.extend(seq_map_ratio)
+                total_curv.extend(seq_curv)
+
+
             import matplotlib.pyplot as plt
             test_enc_feat = np.concatenate(test_enc_feat)
             print(test_enc_feat.shape)
 
             tsne = TSNE(n_components=2, random_state=0)
-            X_r2 = tsne.fit_transform(test_enc_feat)
+            tsne_feat = tsne.fit_transform(test_enc_feat)
+            all_feat = np.concatenate([tsne_feat, np.expand_dims(np.array(total_map_ratio),1), np.expand_dims(np.array(total_curv),1)], 1)
 
-            np.save('large_tsne_ae.npy', X_r2)
+            np.save('large_tsne_ae.npy', all_feat)
             print('done')
 
             '''
@@ -416,9 +442,9 @@ class Solver(object):
             # target_names = ['Training', 'Test']
             # colors = np.array(['blue', 'red'])
             labels= np.array(df['0.5']) //10
-            labels= np.array(df['# agent']) //10
-            labels= np.array(df['curvature'])*100 //10
-            labels= np.array(df['map ratio'])*100 //10
+            # labels= np.array(df['# agent']) //10
+            # labels= np.array(df['curvature'])*100 //10
+            # labels= np.array(df['map ratio'])*100 //10
 
             target_names = np.unique(labels)
             colors = np.array(['gray','orange', 'green', 'magenta', 'black', 'cyan', 'red', 'pink', 'blue'])
@@ -528,7 +554,8 @@ class Solver(object):
             sg_unet_path = 'ckpts/large.map.ae_lr_0.0001_a_0.25_r_2.0_run_8/iter_100_sg_unet.pt'
             self.sg_unet = torch.load(sg_unet_path)
         else:
-            sg_unet_path = 'd:\crowd\mcrowd\ckpts\mapae.path_lr_0.001_a_0.25_r_2.0_run_2/iter_3360_sg_unet.pt'
+            sg_unet_path = 'ckpts/large.map.ae_lr_0.0001_a_0.25_r_2.0_run_8/iter_100_sg_unet.pt'
+            # sg_unet_path = 'd:\crowd\mcrowd\ckpts\mapae.path_lr_0.001_a_0.25_r_2.0_run_2/iter_3360_sg_unet.pt'
             self.sg_unet = torch.load(sg_unet_path, map_location='cpu')
          ####
 
