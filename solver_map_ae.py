@@ -403,7 +403,7 @@ class Solver(object):
                  local_map, local_ic, local_homo) = batch
                 # if b ==4:
                 #     break
-                local_map1 = local_map[:3]
+                local_map1 = local_map[:1]
                 local_map1 = self.preprocess_map(local_map1, aug=False)
 
                 self.sg_unet.forward(local_map1)
@@ -418,7 +418,7 @@ class Solver(object):
                     seq_curv.append(min(c, 10))
                 total_map_ratio.extend(seq_map_ratio)
                 total_curv.extend(seq_curv)
-                total_scenario.extend(int(map_path[0].split('/')[-1].split('.')[0]))
+                total_scenario.append(int(map_path[0].split('/')[-1].split('.')[0]))
 
 
             import matplotlib.pyplot as plt
@@ -429,7 +429,7 @@ class Solver(object):
             tsne_feat = tsne.fit_transform(test_enc_feat)
             all_feat = np.concatenate([tsne_feat, np.expand_dims(np.array(total_map_ratio),1), np.expand_dims(np.array(total_curv),1), np.expand_dims(np.array(total_scenario),1)], 1)
 
-            np.save('large_tsne_ae.npy', all_feat)
+            np.save('large_tsne_ae1.npy', all_feat)
             print('done')
 
             '''
