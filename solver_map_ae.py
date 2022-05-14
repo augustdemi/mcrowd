@@ -158,7 +158,7 @@ class Solver(object):
 
 
     def preprocess_map(self, local_map, aug=False):
-        local_map = torch.from_numpy(local_map).to(self.device)
+        local_map = torch.from_numpy(local_map).float().to(self.device)
 
         if aug:
             all_heatmaps = []
