@@ -36,8 +36,8 @@ class Solver(object):
 
         self.args = args
 
-        self.name = '%s_lr_%s_a_%s_r_%s' % \
-                    (args.dataset_name, args.lr_VAE, args.alpha, args.gamma)
+        self.name = '%s_lr_%s_a_%s_r_%s_k_%s' % \
+                    (args.dataset_name, args.lr_VAE, args.alpha, args.gamma, args.k_fold)
 
         self.device = args.device
         self.temp=0.66
