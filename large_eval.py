@@ -2583,7 +2583,7 @@ class Solver(object):
                 obs_heat_map = self.make_map_heatmap(local_ic[sampling_idx], local_map[sampling_idx])
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
-                test_enc_feat.append(self.lg_cvae.unet_enc_feat.view(1, -1).detach().cpu().numpy())
+                test_enc_feat.append(self.lg_cvae.unet_enc_feat.view(len(sampling_idx), -1).detach().cpu().numpy())
 
 
                 for m in map_path[sampling_idx]:
