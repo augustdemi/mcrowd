@@ -2580,7 +2580,7 @@ class Solver(object):
                 rng = list(range(len(local_map)))
                 random.shuffle(rng)
                 sampling_idx = rng[:32]
-                obs_heat_map = self.make_map_heatmap(local_ic[sampling_idx], local_map[sampling_idx], aug=False)
+                obs_heat_map = self.make_map_heatmap(local_ic[sampling_idx], local_map[sampling_idx])
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 test_enc_feat.append(self.lg_cvae.unet_enc_feat.view(1, -1).detach().cpu().numpy())
