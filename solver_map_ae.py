@@ -127,7 +127,7 @@ class Solver(object):
             #     fc_hidden_dim=args.hidden_dim,
             #     input_dim=args.latent_dim).to(self.device)
 
-            num_filters = [32, 32, 64, 64, 64]
+            num_filters = [32, 64, 64, 32, 32, 32, 32]
             # input = env + 8 past + lg / output = env + sg(including lg)
             self.sg_unet = Unet(input_channels=1, num_classes=1, num_filters=num_filters,
                              apply_last_layer=True, padding=True).to(self.device)
@@ -160,7 +160,7 @@ class Solver(object):
             _, self.train_loader = data_loader(self.args, args.dataset_dir, 'train', shuffle=True)
             print("Initializing val dataset")
             self.args.batch_size = 1
-            _, self.val_loader = data_loader(self.args, args.dataset_dir, 'val', shuffle=False)
+            _, self.val_loader = data_loader(self.args, args.dataset_dir, 'test', shuffle=False)
             self.args.batch_size = args.batch_size
 
             print(
@@ -440,7 +440,10 @@ class Solver(object):
             data = np.array(df)
 
 
-            all_feat = np.load('large_tsne_ae1_tr.npy')
+            # all_feat = np.load('large_tsne_ae1_tr.npy')
+            all_feat = np.load('large_tsne_ae_k0_tr.npy')
+            all_feat_te = np.load('large_tsne_ae_k0_te.npy')
+            tsne_faet = np.concatenate([all_feat[:,:2], all_feat_te[:,:2]])
             tsne_faet = all_feat[:,:2]
             obst_ratio = all_feat[:,2]
             curv = all_feat[:,3]
@@ -449,9 +452,8 @@ class Solver(object):
             labels = obst_ratio*100 //10
             # labels = curv*100 //10
 
-            # labels = np.concatenate([np.zeros(s), np.ones(s)])
-            # target_names = ['Training', 'Test']
-            # colors = np.array(['blue', 'red'])
+            target_names = ['Training', 'Test']
+            colors = np.array(['blue', 'red'])
             labels= np.array(df['0.5']) // 10
             labels= np.array(df['# agent']) //10
             labels= np.array(df['curvature'])*100 //10
@@ -477,6 +479,11 @@ class Solver(object):
             fig = plt.figure(figsize=(5,4))
             fig.tight_layout()
             target_names = np.unique(labels)
+
+            labels = np.concatenate([np.zeros(len(all_feat)), np.ones(len(all_feat_te))])
+
+            target_names = ['Training', 'Test']
+
             for color, i, target_name in zip(colors, np.unique(labels), target_names):
                 plt.scatter(tsne_faet[labels == i, 0], tsne_faet[labels == i, 1], alpha=.5, color=color,
                             label=str(target_name), s=10)
@@ -576,6 +583,7 @@ class Solver(object):
             self.sg_unet = torch.load(sg_unet_path)
         else:
             sg_unet_path = 'ckpts/large.map.ae_lr_0.0001_a_0.25_r_2.0_run_8/iter_100_sg_unet.pt'
+            sg_unet_path = 'ckpts/large.map.ae_lr_0.0001_a_0.25_r_2.0_k_1_run_10/iter_200_sg_unet.pt'
             # sg_unet_path = 'd:\crowd\mcrowd\ckpts\mapae.path_lr_0.001_a_0.25_r_2.0_run_2/iter_3360_sg_unet.pt'
             self.sg_unet = torch.load(sg_unet_path, map_location='cpu')
          ####
