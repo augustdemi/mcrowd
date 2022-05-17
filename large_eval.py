@@ -2560,6 +2560,7 @@ class Solver(object):
         #                              shuffle=True, num_workers=0)
 
         self.set_mode(train=False)
+        import random
         with torch.no_grad():
             test_enc_feat = []
             total_map_ratio = []
@@ -2573,22 +2574,18 @@ class Solver(object):
                  local_map, local_ic, local_homo) = batch
                 # if b ==4:
                 #     break
-                obs_heat_map = self.make_map_heatmap(local_ic[:1], local_map[:1])
+
+                rng = list(range(len(local_map)))
+                random.shuffle(rng)
+                sampling_idx = rng[:32]
+                obs_heat_map = self.make_map_heatmap(local_ic[sampling_idx], local_map[sampling_idx], aug=False)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 test_enc_feat.append(self.lg_cvae.unet_enc_feat.view(1, -1).detach().cpu().numpy())
 
 
-                seq_map_ratio = []
-                seq_curv = []
-                for i in range(len(local_map[:1])):
-                    seq_map_ratio.append(np.sum(local_map[i,0])/(192*192))
-                    gt_xy = torch.cat([obs_traj[:,i,:2], fut_traj[:,i,:2]]).detach().cpu().numpy()
-                    c = np.round(trajectory_curvature(gt_xy), 4)
-                    seq_curv.append(min(c, 10))
-                total_map_ratio.extend(seq_map_ratio)
-                total_curv.extend(seq_curv)
-                total_scenario.append(int(map_path[0].split('/')[-1].split('.')[0]))
+                for m in map_path[sampling_idx]:
+                    total_scenario.append(int(m.split('/')[-1].split('.')[0]))
 
 
 
@@ -2596,8 +2593,8 @@ class Solver(object):
             test_enc_feat = np.concatenate(test_enc_feat)
             print(test_enc_feat.shape)
 
-            all_feat = np.concatenate([test_enc_feat, np.expand_dims(np.array(total_map_ratio),1), np.expand_dims(np.array(total_curv),1), np.expand_dims(np.array(total_scenario),1)], 1)
-            np.save('large_tsne_lg_k0_tr.npy', all_feat)
+            all_feat = np.concatenate([test_enc_feat, np.expand_dims(np.array(total_scenario),1)], 1)
+            np.save('large_tsne_lg_r10_k0_tr.npy', all_feat)
             print('done')
 
             '''
