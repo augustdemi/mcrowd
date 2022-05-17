@@ -2569,6 +2569,8 @@ class Solver(object):
             b = 0
             for batch in test_loader:
                 b+=1
+                if len(test_enc_feat) > 0 and np.concatenate(test_enc_feat).shape[0] > 1000:
+                    break
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
                  obs_frames, fut_frames, map_path, inv_h_t,
                  local_map, local_ic, local_homo) = batch
@@ -2594,7 +2596,7 @@ class Solver(object):
             print(test_enc_feat.shape)
 
             all_feat = np.concatenate([test_enc_feat, np.expand_dims(np.array(total_scenario),1)], 1)
-            np.save('large_tsne_lg_r10_k0_tr.npy', all_feat)
+            np.save('large_tsne_lg_r10_k0_te.npy', all_feat)
             print('done')
 
             '''
