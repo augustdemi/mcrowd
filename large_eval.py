@@ -2549,6 +2549,7 @@ class Solver(object):
 
     def make_feat(self, test_loader):
         from sklearn.manifold import TSNE
+        import numpy as np
         # from data.trajectories import seq_collate
 
         # from data.macro_trajectories import TrajectoryDataset
@@ -2560,44 +2561,84 @@ class Solver(object):
 
         self.set_mode(train=False)
         with torch.no_grad():
-            n_sample = 10
             test_enc_feat = []
-
+            total_map_ratio = []
+            total_curv = []
+            total_scenario = []
+            b = 0
             for batch in test_loader:
+                b+=1
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
                  obs_frames, fut_frames, map_path, inv_h_t,
                  local_map, local_ic, local_homo) = batch
+                # if b ==4:
+                #     break
+                local_map1 = local_map[:1]
+                local_map1 = self.preprocess_map(local_map1, aug=False)
 
-                obs_heat_map = self.make_map_heatmap(local_ic[:1], local_map[:1])
+                self.sg_unet.forward(local_map1)
+                test_enc_feat.append(self.sg_unet.enc_feat.view(len(local_map1), -1).detach().cpu().numpy())
 
-                self.lg_cvae.forward(obs_heat_map, None, training=False)
-                test_enc_feat.append(self.lg_cvae.unet_enc_feat.view(len(local_map), -1).detach().cpu().numpy())
+                seq_map_ratio = []
+                seq_curv = []
+                for i in range(len(local_map1)):
+                    seq_map_ratio.append(np.sum(local_map[i,0])/(192*192))
+                    gt_xy = torch.cat([obs_traj[:,i,:2], fut_traj[:,i,:2]]).detach().cpu().numpy()
+                    c = np.round(trajectory_curvature(gt_xy), 4)
+                    seq_curv.append(min(c, 10))
+                total_map_ratio.extend(seq_map_ratio)
+                total_curv.extend(seq_curv)
+                total_scenario.append(int(map_path[0].split('/')[-1].split('.')[0]))
 
 
+
+            import matplotlib.pyplot as plt
             test_enc_feat = np.concatenate(test_enc_feat)
             print(test_enc_feat.shape)
 
+            all_feat = np.concatenate([test_enc_feat, np.expand_dims(np.array(total_map_ratio),1), np.expand_dims(np.array(total_curv),1), np.expand_dims(np.array(total_scenario),1)], 1)
+            np.save('large_tsne_lg_k0_tr.npy', all_feat)
+            print('done')
+
+            '''
             tsne = TSNE(n_components=2, random_state=0)
             X_r2 = tsne.fit_transform(test_enc_feat)
 
             np.save('large_tsne.npy', X_r2)
             print('done')
-            '''
-            X_r2 = np.load('../path_tsne.npy')
+            
+            import pandas as  pd
+            df = pd.read_csv('C:\dataset\large_real/large_5_bs1.csv')
+            data = np.array(df)
+
+
+            X_r2 = np.load('c:\dataset\large_real/large_tsne.npy')
             s=500
-            labels = np.concatenate([np.zeros(s), np.ones(s)])
-            target_names = ['Training', 'Test']
-            colors = np.array(['blue', 'red'])
+            # labels = np.concatenate([np.zeros(s), np.ones(s)])
+            # target_names = ['Training', 'Test']
+            # colors = np.array(['blue', 'red'])
+            labels= np.array(df['0.5']) //10
+            labels= np.array(df['# agent']) //10
+            labels= np.array(df['curvature'])*100 //10
+            labels= np.array(df['map ratio'])*100 //10
+
+            target_names = np.unique(labels)
+            colors = np.array(['gray','orange', 'green', 'magenta', 'black', 'cyan', 'red', 'pink', 'blue'])
+
+            # colors = ['red', 'magenta', 'lightgreen', 'slateblue', 'blue', 'darkgreen', 'darkorange',
+            #           'gray', 'purple', 'turquoise', 'midnightblue', 'olive', 'black', 'pink', 'burlywood',
+            #           'yellow']
 
             fig = plt.figure(figsize=(5,4))
             fig.tight_layout()
 
             for color, i, target_name in zip(colors, np.unique(labels), target_names):
                 plt.scatter(X_r2[labels == i, 0], X_r2[labels == i, 1], alpha=.5, color=color,
-                            label=target_name, s=5)
+                            label=str(target_name), s=5)
             fig.axes[0]._get_axis_list()[0].set_visible(False)
             fig.axes[0]._get_axis_list()[1].set_visible(False)
             plt.legend(loc=4, shadow=False, scatterpoints=1)
+
             '''
 
     def set_mode(self, train=True):
