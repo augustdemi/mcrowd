@@ -323,7 +323,7 @@ class Solver(object):
                 test_enc_feat.append(self.sg_unet.enc_feat.view(len(local_map1), -1).detach().cpu().numpy())
 
                 for m in map_path[sampling_idx]:
-                    total_scenario.append(int(m[0].split('/')[-1].split('.')[0]))
+                    total_scenario.append(int(m.split('/')[-1].split('.')[0]))
 
 
             import matplotlib.pyplot as plt
@@ -495,6 +495,9 @@ class Solver(object):
 
         if self.device == 'cuda':
             sg_unet_path = 'ckpts/large.map.ae_lr_0.0001_a_0.25_r_2.0_run_8/iter_100_sg_unet.pt'
+            sg_unet_path = 'ckpts/large.map.ae_lr_0.0001_a_0.25_r_2.0_k_0_run_9/iter_100_sg_unet.pt'
+            print('>>>>>>>>>>> load: ', sg_unet_path)
+
             self.sg_unet = torch.load(sg_unet_path)
         else:
             sg_unet_path = 'ckpts/large.map.ae_lr_0.0001_a_0.25_r_2.0_run_8/iter_100_sg_unet.pt'
