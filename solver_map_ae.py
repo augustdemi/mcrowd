@@ -1,4 +1,5 @@
 import os
+import random
 
 import torch.optim as optim
 # -----------------------------------------------------------------------------#
@@ -287,98 +288,6 @@ class Solver(object):
 
     ####
 
-    def recon(self, test_loader, train_loader):
-        from sklearn.manifold import TSNE
-
-        self.set_mode(train=False)
-        with torch.no_grad():
-
-            test_range= list(range(len(test_loader.dataset)))
-            np.random.shuffle(test_range)
-
-            # train_range= range(len(train_loader.dataset))
-            # np.random.shuffle(train_range)
-            n_sample = 50
-            test_enc_feat = []
-            train_enc_feat = []
-            for k in range(10):
-                test_sample = []
-                train_sample = []
-                for i in test_range[n_sample*k:n_sample*(k+1)]:
-                    test_sample.append(test_loader.dataset.__getitem__(i))
-                    train_sample.append(train_loader.dataset.__getitem__(i))
-
-                local_map = seq_collate(test_sample)[-4]
-
-                local_map = self.preprocess_map(local_map, aug=False)
-                self.sg_unet.forward(local_map)
-                # recon_local_map = F.sigmoid(recon_local_map)
-                # plt.imshow(recon_local_map[0, 0])
-                test_enc_feat.append(self.sg_unet.enc_feat.view(len(local_map), -1))
-
-                local_map = seq_collate(train_sample)[-4]
-
-                local_map = self.preprocess_map(local_map, aug=False)
-                self.sg_unet.forward(local_map)
-                # recon_local_map = F.sigmoid(recon_local_map)
-                # plt.imshow(recon_local_map[0, 0])
-                train_enc_feat.append(self.sg_unet.enc_feat.view(len(local_map), -1))
-
-            test_enc_feat = torch.cat(test_enc_feat)
-            train_enc_feat = torch.cat(train_enc_feat)
-
-            nearest_dist = []
-            for te in test_enc_feat:
-                dist = np.sum((train_enc_feat - te) ** 2, 1) / len(te)
-                nearest_dist.append(dist.min())
-            nearest_dist = np.array(nearest_dist)
-            print(nearest_dist.min(), nearest_dist.max(), nearest_dist.mean(), nearest_dist.std())
-
-            tsne = TSNE(n_components=2, random_state=0)
-            X_r2 = tsne.fit_transform(torch.cat([train_enc_feat, test_enc_feat]))
-
-            labels = np.concatenate([np.zeros(n_sample*10), np.ones(n_sample*10)])
-            # target_names = np.unique(labels)
-            target_names = ['Training', 'Test']
-            # colors = np.array(
-            #     ['burlywood', 'turquoise', 'darkorange', 'blue', 'green', 'yellow', 'red', 'black', 'purple',
-            #      'magenta'])
-            colors = np.array(['blue', 'red'])
-
-            fig = plt.figure(figsize=(5,4))
-            fig.tight_layout()
-            for color, i, target_name in zip(colors, np.unique(labels), target_names):
-                plt.scatter(X_r2[labels == i, 0], X_r2[labels == i, 1], alpha=.3, color=color,
-                            label=target_name, s=5)
-            fig.axes[0]._get_axis_list()[0].set_visible(False)
-            fig.axes[0]._get_axis_list()[1].set_visible(False)
-            plt.legend(loc=4, shadow=False, scatterpoints=1)
-
-
-            ############################
-            out_dir = os.path.join('./output',self.name, dset, str(self.max_iter))
-            mkdirs(out_dir)
-            for i in range(map.shape[0]):
-                save_image(recon_map[i], str(os.path.join(out_dir, 'recon_img'+str(i)+'.png')), nrow=self.pred_len, pad_value=1)
-                save_image(map[i], str(os.path.join(out_dir, 'gt_img'+str(i)+'.png')), nrow=self.pred_len, pad_value=1)
-
-        self.set_mode(train=True)
-
-    def local_map_navi_ratio(self, test_loader):
-        self.set_mode(train=False)
-        loss=0
-        b = 0
-        ratio = []
-        with torch.no_grad():
-            for abatch in test_loader:
-                b+=1
-                for m in abatch[-4]:
-                    m = m[0]
-                    ratio.append(1 - m.sum() / (m.shape[0] ** 2))
-        print(np.array(ratio).mean())
-
-
-
 
     def make_feat(self, test_loader):
         from sklearn.manifold import TSNE
@@ -400,12 +309,15 @@ class Solver(object):
             b = 0
             for batch in test_loader:
                 b+=1
+                if np.concatenate(test_enc_feat).shape[0] > 500:
+                    break
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
                  obs_frames, fut_frames, map_path, inv_h_t,
                  local_map, local_ic, local_homo) = batch
                 # if b ==4:
                 #     break
-                local_map1 = local_map[:1]
+
+                local_map1 = local_map[random.choices(range(len(local_map)), k=10)]
                 local_map1 = self.preprocess_map(local_map1, aug=False)
 
                 self.sg_unet.forward(local_map1)
@@ -431,7 +343,7 @@ class Solver(object):
             tsne_feat = tsne.fit_transform(test_enc_feat)
             all_feat = np.concatenate([tsne_feat, np.expand_dims(np.array(total_map_ratio),1), np.expand_dims(np.array(total_curv),1), np.expand_dims(np.array(total_scenario),1)], 1)
 
-            np.save('large_tsne_ae1.npy', all_feat)
+            np.save('large_tsne_r10_k0_train.npy', all_feat)
             print('done')
 
             '''
@@ -441,13 +353,24 @@ class Solver(object):
 
 
             # all_feat = np.load('large_tsne_ae1_tr.npy')
-            all_feat = np.load('large_tsne_ae_k0_tr.npy')
-            all_feat_te = np.load('large_tsne_ae_k0_te.npy')
-            tsne_faet = np.concatenate([all_feat[:,:2], all_feat_te[:,:2]])
-            tsne_faet = all_feat[:,:2]
-            obst_ratio = all_feat[:,2]
-            curv = all_feat[:,3]
-            scenario = all_feat[:,4]
+            all_feat_tr = np.load('large_tsne_lg_k0_tr.npy')
+            all_feat_te = np.load('large_tsne_lg_k0_te.npy')
+            # tsne_faet = np.concatenate([all_feat[:,:2], all_feat_te[:,:2]])
+            all_feat = np.concatenate([all_feat_tr[:,:-3], all_feat_te[:,:-3]])
+            tsne = TSNE(n_components=2, random_state=0, perplexity=30)
+            tsne_feat = tsne.fit_transform(all_feat)
+
+
+            # tsne_faet = all_feat_tr[:,:-3]
+            # obst_ratio = all_feat_tr[:,-3]
+            # curv = all_feat_tr[:,-2]
+            # scenario = all_feat_tr[:,-1]
+
+            tsne_faet = all_feat_tr[:,:-3]
+            obst_ratio = all_feat_tr[:,-3]
+            curv = all_feat_tr[:,-2]
+            scenario =  np.concatenate([all_feat_tr[:,-1], all_feat_te[:,-1]])
+            labels = scenario //10
 
             labels = obst_ratio*100 //10
             # labels = curv*100 //10
@@ -459,14 +382,8 @@ class Solver(object):
             labels= np.array(df['curvature'])*100 //10
             labels= np.array(df['map ratio'])*100 //10
 
-            colors = np.array(['gray','pink', 'orange', 'magenta', 'darkgreen', 'cyan', 'blue', 'red', 'lightgreen', 'olive', 'burlywood', 'purple'])
 
-            # colors = ['red', 'magenta', 'lightgreen', 'slateblue', 'blue', 'darkgreen', 'darkorange',
-            #           'gray', 'purple', 'turquoise', 'midnightblue', 'olive', 'black', 'pink', 'burlywood',
-            #           'yellow']
-
-
-
+            ## k fold labels
             k=0
             labels = scenario //10
             for i in range(len(labels)):
@@ -476,16 +393,23 @@ class Solver(object):
                     labels[i] = 1
 
 
-            fig = plt.figure(figsize=(5,4))
-            fig.tight_layout()
+
+            # colors = ['red', 'magenta', 'lightgreen', 'slateblue', 'blue', 'darkgreen', 'darkorange',
+            #           'gray', 'purple', 'turquoise', 'midnightblue', 'olive', 'black', 'pink', 'burlywood',
+            #           'yellow']
+
+            colors = np.array(['gray','pink', 'orange', 'magenta', 'darkgreen', 'cyan', 'blue', 'red', 'lightgreen', 'olive', 'burlywood', 'purple'])
             target_names = np.unique(labels)
 
-            labels = np.concatenate([np.zeros(len(all_feat)), np.ones(len(all_feat_te))])
+            fig = plt.figure(figsize=(5,4))
+            fig.tight_layout()
 
+            # labels = np.concatenate([np.zeros(len(all_feat_tr)), np.ones(len(all_feat_te))])
             target_names = ['Training', 'Test']
+            colors = np.array(['blue', 'red'])
 
             for color, i, target_name in zip(colors, np.unique(labels), target_names):
-                plt.scatter(tsne_faet[labels == i, 0], tsne_faet[labels == i, 1], alpha=.5, color=color,
+                plt.scatter(tsne_feat[labels == i, 0], tsne_feat[labels == i, 1], alpha=.5, color=color,
                             label=str(target_name), s=10)
             fig.axes[0]._get_axis_list()[0].set_visible(False)
             fig.axes[0]._get_axis_list()[1].set_visible(False)
@@ -584,6 +508,8 @@ class Solver(object):
         else:
             sg_unet_path = 'ckpts/large.map.ae_lr_0.0001_a_0.25_r_2.0_run_8/iter_100_sg_unet.pt'
             sg_unet_path = 'ckpts/large.map.ae_lr_0.0001_a_0.25_r_2.0_k_1_run_10/iter_200_sg_unet.pt'
+            # sg_unet_path = 'ckpts/large.map.ae_lr_0.0001_a_0.25_r_2.0_k_0_run_10/iter_200_sg_unet.pt'
+            sg_unet_path = 'ckpts/large.map.ae_lr_0.0001_a_0.25_r_2.0_k_0_run_9/iter_40_sg_unet.pt'
             # sg_unet_path = 'd:\crowd\mcrowd\ckpts\mapae.path_lr_0.001_a_0.25_r_2.0_run_2/iter_3360_sg_unet.pt'
             self.sg_unet = torch.load(sg_unet_path, map_location='cpu')
          ####
