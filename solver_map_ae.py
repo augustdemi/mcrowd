@@ -127,7 +127,7 @@ class Solver(object):
             #     fc_hidden_dim=args.hidden_dim,
             #     input_dim=args.latent_dim).to(self.device)
 
-            num_filters = [32, 64, 64, 32, 32, 32, 32]
+            num_filters = [32, 32, 32, 64, 64, 32, 32]
             # input = env + 8 past + lg / output = env + sg(including lg)
             self.sg_unet = Unet(input_channels=1, num_classes=1, num_filters=num_filters,
                              apply_last_layer=True, padding=True).to(self.device)
