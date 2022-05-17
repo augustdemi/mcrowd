@@ -2573,15 +2573,15 @@ class Solver(object):
                  local_map, local_ic, local_homo) = batch
                 # if b ==4:
                 #     break
-                local_map1 = local_map[:1]
-                local_map1 = self.preprocess_map(local_map1, aug=False)
+                obs_heat_map = self.make_map_heatmap(local_ic[:1], local_map[:1])
 
-                self.sg_unet.forward(local_map1)
-                test_enc_feat.append(self.sg_unet.enc_feat.view(len(local_map1), -1).detach().cpu().numpy())
+                self.lg_cvae.forward(obs_heat_map, None, training=False)
+                test_enc_feat.append(self.lg_cvae.unet_enc_feat.view(1, -1).detach().cpu().numpy())
+
 
                 seq_map_ratio = []
                 seq_curv = []
-                for i in range(len(local_map1)):
+                for i in range(len(local_map[:1])):
                     seq_map_ratio.append(np.sum(local_map[i,0])/(192*192))
                     gt_xy = torch.cat([obs_traj[:,i,:2], fut_traj[:,i,:2]]).detach().cpu().numpy()
                     c = np.round(trajectory_curvature(gt_xy), 4)
