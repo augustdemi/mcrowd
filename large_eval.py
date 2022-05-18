@@ -1074,10 +1074,7 @@ class Solver(object):
         self.set_mode(train=False)
         total_traj = 0
 
-        total_coll10 = []
-        total_coll15 = []
-        total_coll20 = []
-        total_coll25 = []
+        seq_map = []
         total_coll30 = []
         total_curv = []
 
@@ -1093,8 +1090,8 @@ class Solver(object):
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
                  obs_frames, pred_frames, map_path, inv_h_t,
                  local_map, local_ic, local_homo) = batch
-                if b<208:
-                    continue
+                # if b<208:
+                #     continue
                 '''
                 plt.imshow(local_map[i, 0])
                 plt.scatter(local_ic[i,:,1], local_ic[i,:,0])
@@ -1108,13 +1105,13 @@ class Solver(object):
                 fig.axes.get_xaxis().set_visible(False)
                 fig.axes.get_yaxis().set_visible(False)
                 '''
-                import cv2
-                colors = ['r', 'g', 'b', 'm', 'c', 'k', 'w', 'k']
-                plt.tight_layout()
-                fig = plt.imshow(cv2.imread('C:/dataset/large_real/Trajectories/' + map_path[0].split('/')[-1]))
-                for i in range(seq_start_end[0][1] - seq_start_end[0][0]):
-                    gt_xy = torch.cat([obs_traj[:, i, :2], fut_traj[:, i, :2]]).detach().cpu().numpy()*2
-                    plt.scatter(gt_xy[:,0], gt_xy[:,1], s=1, c=colors[i % len(colors)])
+                # import cv2
+                # colors = ['r', 'g', 'b', 'm', 'c', 'k', 'w', 'k']
+                # plt.tight_layout()
+                # fig = plt.imshow(cv2.imread('C:/dataset/large_real/Trajectories/' + map_path[0].split('/')[-1]))
+                # for i in range(seq_start_end[0][1] - seq_start_end[0][0]):
+                #     gt_xy = torch.cat([obs_traj[:, i, :2], fut_traj[:, i, :2]]).detach().cpu().numpy()*2
+                #     plt.scatter(gt_xy[:,0], gt_xy[:,1], s=1, c=colors[i % len(colors)])
 
 
                 batch_size = obs_traj.size(1)
@@ -1252,10 +1249,6 @@ class Solver(object):
 
 
                 ade, fde = [], []
-                multi_coll10 = []
-                multi_coll15 = []
-                multi_coll20 = []
-                multi_coll25 = []
                 multi_coll30 = []
 
                 pred=[]
@@ -1267,10 +1260,6 @@ class Solver(object):
                     fde.append(final_displacement_error(
                         pred_fut_traj[-1], fut_traj[-1,:,:2], mode='raw'
                     ).mean())
-                    coll10 = 0
-                    coll15 = 0
-                    coll20 = 0
-                    coll25 = 0
                     coll30 = 0
                     for s, e in seq_start_end:
                         num_ped = e - s
@@ -1284,28 +1273,20 @@ class Solver(object):
                             dist = dist.reshape(num_ped, num_ped)
                             diff_agent_idx = np.triu_indices(num_ped, k=1)
                             diff_agent_dist = dist[diff_agent_idx]
-                            coll10 += (diff_agent_dist < 0.1).sum()
-                            coll15 += (diff_agent_dist < 0.2).sum()
-                            coll20 += (diff_agent_dist < 0.3).sum()
-                            coll25 += (diff_agent_dist < 0.4).sum()
                             coll30 += (diff_agent_dist < 0.5).sum()
-                    multi_coll10.append(coll10)
-                    multi_coll15.append(coll15)
-                    multi_coll20.append(coll20)
-                    multi_coll25.append(coll25)
                     multi_coll30.append(coll30)
                     pred.append(pred_fut_traj.transpose(1, 0).detach().cpu().numpy())
 
                 # a2a collision
-                total_coll10.append(min(multi_coll10))
-                total_coll15.append(min(multi_coll15))
-                total_coll20.append(min(multi_coll20))
-                total_coll25.append(min(multi_coll25))
                 total_coll30.append(min(multi_coll30))
 
                 # a2e collision
                 pred = np.stack(pred, 1)
                 total_ecfl.append(compute_ECFL(pred, local_map, local_homo.cpu().numpy()))
+
+                # map info
+                # map info
+                seq_map.append(int(map_path[0].split('/')[-1].split('.')[0]))
 
                 # ade / fde
                 all_ade.append(min(ade).item())
@@ -1331,14 +1312,10 @@ class Solver(object):
             total_ecfl=np.array(total_ecfl)
             total_curv=np.array(total_curv)
 
-            total_coll10=np.array(total_coll10)
-            total_coll15=np.array(total_coll15)
-            total_coll20=np.array(total_coll20)
-            total_coll25=np.array(total_coll25)
             total_coll30=np.array(total_coll30)
 
 
-        all_data = np.stack([all_ade, all_fde, total_ecfl, total_coll10, total_coll15, total_coll20, total_coll25, total_coll30, total_map_ratio, total_curv]).T
+        all_data = np.stack([all_ade, all_fde, total_ecfl, total_coll30, total_map_ratio, total_curv, np.array(seq_map)]).T
         import pandas as pd
         pd.DataFrame(all_data).to_csv('large_' + str(traj_num * lg_num) + '.csv')
 
@@ -1570,8 +1547,9 @@ class Solver(object):
                 pred = np.stack(pred, 1)
                 total_ecfl.append(compute_ECFL(pred, local_map, local_homo.cpu().numpy()))
 
-                # ade / fde
 
+
+                # ade / fde
                 all_ade.append(torch.stack(ade))
                 all_fde.append(torch.stack(fde))
                 sg_ade.append(torch.sqrt(((torch.stack(pred_sg_wcs).permute(0, 2, 1, 3)
