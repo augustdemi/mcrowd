@@ -304,6 +304,8 @@ class Solver(object):
         with torch.no_grad():
             test_enc_feat = []
             total_scenario = []
+            obst_ratio = []
+
             b = 0
             for batch in test_loader:
                 b+=1
@@ -317,24 +319,32 @@ class Solver(object):
                 random.shuffle(rng)
                 sampling_idx = rng[:32]
                 local_map1 = local_map[sampling_idx]
-                local_map1 = self.preprocess_map(local_map1, aug=False)
 
-                self.sg_unet.forward(local_map1)
-                test_enc_feat.append(self.sg_unet.enc_feat.view(len(local_map1), -1).detach().cpu().numpy())
+                for m in local_map1:
+                    obst_ratio.append(np.sum(m)/(192**2))
+
+
+                # local_map1 = self.preprocess_map(local_map1, aug=False)
+
+                # self.sg_unet.forward(local_map1)
+                # test_enc_feat.append(self.sg_unet.enc_feat.view(len(local_map1), -1).detach().cpu().numpy())
 
                 for m in map_path[sampling_idx]:
-                    total_scenario.append(int(m.split('/')[-1].split('.')[0]))
+                    total_scenario.append(int(m.split('/')[-1].split('.')[0]) % 10)
 
 
             import matplotlib.pyplot as plt
-            test_enc_feat = np.concatenate(test_enc_feat)
-            print(test_enc_feat.shape)
+            # test_enc_feat = np.concatenate(test_enc_feat)
+            # print(test_enc_feat.shape)
 
-            # tsne = TSNE(n_components=2, random_state=0)
-            # tsne_feat = tsne.fit_transform(test_enc_feat)
-            all_feat = np.concatenate([test_enc_feat, np.expand_dims(np.array(total_scenario),1)], 1)
+            # all_feat = np.concatenate([test_enc_feat, np.expand_dims(np.array(total_scenario),1), np.expand_dims(np.array(obst_ratio),1)], 1)
+            # np.save('large_tsne_r10_k0_tr.npy', all_feat)
 
-            np.save('large_tsne_r10_k0_tr.npy', all_feat)
+            all_data = np.stack(
+                [total_scenario, obst_ratio]).T
+            import pandas as pd
+            pd.DataFrame(all_data).to_csv('large_obs_ratio_k0_tr.npy')
+
             print('done')
 
             '''
@@ -344,10 +354,10 @@ class Solver(object):
 
 
             # all_feat = np.load('large_tsne_ae1_tr.npy')
-            all_feat_tr = np.load('large_tsne_lg_k0_tr.npy')
-            all_feat_te = np.load('large_tsne_lg_k0_te.npy')
+            all_feat_tr = np.load('large_tsne_lg_r10_k3_tr.npy')
+            all_feat_te = np.load('large_tsne_lg_r10_k5_te.npy')
             # tsne_faet = np.concatenate([all_feat[:,:2], all_feat_te[:,:2]])
-            all_feat = np.concatenate([all_feat_tr[:,:-3], all_feat_te[:,:-3]])
+            all_feat = np.concatenate([all_feat_tr[:,:-1], all_feat_te[:,:-1]])
             tsne = TSNE(n_components=2, random_state=0, perplexity=30)
             tsne_feat = tsne.fit_transform(all_feat)
 
@@ -379,9 +389,9 @@ class Solver(object):
             labels = scenario //10
             for i in range(len(labels)):
                 if labels[i] in range(k*3,(k+1)*3):
-                    labels[i] = 0
-                else:
                     labels[i] = 1
+                else:
+                    labels[i] = 0
 
 
 
