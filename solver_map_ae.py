@@ -309,41 +309,19 @@ class Solver(object):
             b = 0
             for batch in test_loader:
                 b+=1
-                if len(test_enc_feat) > 0 and np.concatenate(test_enc_feat).shape[0] > 1000:
-                    break
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
                  obs_frames, fut_frames, map_path, inv_h_t,
                  local_map, local_ic, local_homo) = batch
+                for m in local_map:
+                    obst_ratio.append(np.sum(m))
 
-                rng = list(range(len(local_map)))
-                random.shuffle(rng)
-                sampling_idx = rng[:32]
-                local_map1 = local_map[sampling_idx]
-
-                for m in local_map1:
-                    obst_ratio.append(np.sum(m)/(192**2))
-
-
-                # local_map1 = self.preprocess_map(local_map1, aug=False)
-
-                # self.sg_unet.forward(local_map1)
-                # test_enc_feat.append(self.sg_unet.enc_feat.view(len(local_map1), -1).detach().cpu().numpy())
-
-                for m in map_path[sampling_idx]:
-                    total_scenario.append(int(m.split('/')[-1].split('.')[0]) % 10)
-
-
-            import matplotlib.pyplot as plt
-            # test_enc_feat = np.concatenate(test_enc_feat)
-            # print(test_enc_feat.shape)
-
-            # all_feat = np.concatenate([test_enc_feat, np.expand_dims(np.array(total_scenario),1), np.expand_dims(np.array(obst_ratio),1)], 1)
-            # np.save('large_tsne_r10_k0_tr.npy', all_feat)
+                for m in map_path:
+                    total_scenario.append(int(m.split('/')[-1].split('.')[0])// 10)
 
             all_data = np.stack(
                 [total_scenario, obst_ratio]).T
             import pandas as pd
-            pd.DataFrame(all_data).to_csv('large_obs_ratio_k0_tr.npy')
+            pd.DataFrame(all_data).to_csv('large_obs_ratio_k0_tr.csv')
 
             print('done')
 
