@@ -1343,6 +1343,7 @@ class Solver(object):
         sg_ade=[]
         lg_fde=[]
         total_ecfl = []
+        scene_name = []
 
         with torch.no_grad():
             b=0
@@ -1353,6 +1354,9 @@ class Solver(object):
                  local_map, local_ic, local_homo) = batch
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
+
+                for m in map_path:
+                    scene_name.append(int(m.split('/')[-1].split('.')[0])// 10)
 
                 obs_heat_map, _, _= self.make_heatmap(local_ic, local_map)
 
@@ -1564,6 +1568,10 @@ class Solver(object):
             all_fde=torch.cat(all_fde, dim=1).cpu().numpy()
             sg_ade=torch.cat(sg_ade, dim=1).cpu().numpy()
             lg_fde=torch.cat(lg_fde, dim=1).cpu().numpy() # all batches are concatenated
+
+
+            all_feat = np.stack([scene_name, np.min(all_ade, axis=0)/self.pred_len, np.min(all_fde, axis=0)]).T
+            np.save('large_k0_ade.npy', all_feat)
 
             ade_min = np.min(all_ade, axis=0).mean()/self.pred_len
             fde_min = np.min(all_fde, axis=0).mean()
