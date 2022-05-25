@@ -305,6 +305,8 @@ class Solver(object):
             test_enc_feat = []
             total_scenario = []
             obst_ratio = []
+            n_agent = []
+            non_linear = []
 
             b = 0
             for batch in test_loader:
@@ -312,18 +314,60 @@ class Solver(object):
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
                  obs_frames, fut_frames, map_path, inv_h_t,
                  local_map, local_ic, local_homo) = batch
+                n_agent.append([len(map_path)]*len(map_path))
+
+                for i in range(len(map_path)):
+                    gt_xy = torch.cat([obs_traj[:, i, :2], fut_traj[:, i, :2]]).detach().cpu().numpy()
+                    c = np.round(trajectory_curvature(gt_xy), 4)
+                    non_linear.append(min(c, 10))
+
                 for m in local_map:
-                    obst_ratio.append(np.sum(m))
+                    obst_ratio.append(np.sum(m) / (192**2))
 
                 for m in map_path:
                     total_scenario.append(int(m.split('/')[-1].split('.')[0])// 10)
 
             all_data = np.stack(
-                [total_scenario, obst_ratio]).T
+                [total_scenario, obst_ratio, non_linear, n_agent]).T
             import pandas as pd
             pd.DataFrame(all_data).to_csv('large_obs_ratio_k0_tr.csv')
 
             print('done')
+
+            data = pd.read_csv('C:\dataset\large_real/large_obs_ratio_k0_tr.csv')
+            tr_data = np.array(pd.read_csv('C:\dataset\large_real/large_obs_ratio_k0_tr.csv'))
+            te_data = np.array(pd.read_csv('C:\dataset\large_real/large_obs_ratio_k0_te.csv'))
+            te= te_data[:,-1] / (192**2)
+            tr= tr_data[:,-1] / (192**2)
+
+            x = np.linspace(0,0.5,10)
+            y_bot = np.linspace(30, 50, 10)
+            y_dif = np.linspace(10, 5, 10)
+
+            plt.scatter(te_data[:,1], te, s=1)
+            plt.scatter(tr_data[:,1], tr, s=1)
+
+
+            te_df = pd.read_csv('C:\dataset\large_real/large_obs_ratio_k5_te.csv')
+            te_df['1'] = te_df['1']/(192**2)
+
+            plt.scatter(te_df['0'], te_df['1'], s=1)
+
+            te_df['1'] = te_df['1']*100 //10
+            ax = te_df['1'].value_counts().plot(kind='bar',
+                                                figsize=(14, 8),
+                                                title="Number for each Owner Name")
+
+            labels= te*100 //10
+
+
+            tr_df = pd.read_csv('C:\dataset\large_real/large_obs_ratio_k0_tr.csv')
+            tr_df['1'] = tr_df['1']/(192**2)
+            tr_df['1'] = tr_df['1']*100 //10
+            ax = tr_df['1'].value_counts().plot(kind='bar',
+                                                figsize=(14, 8),
+                                                title="Number for each Owner Name")
+
 
             '''
             import pandas as  pd
