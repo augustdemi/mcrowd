@@ -402,7 +402,7 @@ class Solver(object):
                     total_scenario.append(int(m.split('/')[-1].split('.')[0])// 10)
 
             all_data = np.stack(
-                [total_scenario, obst_ratio, non_linear, n_agent]).T
+                [total_scenario, obst_ratio, non_linear]).T
             import pandas as pd
             pd.DataFrame(all_data).to_csv('large_contour_ratio_k0_te.csv')
 
