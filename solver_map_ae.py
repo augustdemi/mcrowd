@@ -7,6 +7,7 @@ from utils import DataGather, mkdirs, grid2gif2, apply_poe, sample_gaussian, sam
 from model_map_ae import *
 from data.ae_loader import data_loader
 from scipy.ndimage import binary_dilation
+from scipy import ndimage
 
 import matplotlib.pyplot as plt
 from torchvision.utils import save_image
@@ -190,6 +191,51 @@ class Solver(object):
 
 
 
+    def make_heatmap(self, local_ic, local_map, aug=False):
+        heatmaps = []
+        for i in range(len(local_ic)):
+            ohm = [local_map[i, 0]]
+
+            heat_map_traj = np.zeros((192, 192))
+            for t in range(self.obs_len):
+                heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
+                # as Y-net used variance 4 for the GT heatmap representation.
+            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+            ohm.append(heat_map_traj / heat_map_traj.sum())
+
+            heat_map_traj = np.zeros((192, 192))
+            heat_map_traj[local_ic[i, -1, 0], local_ic[i, -1, 1]] = 1
+            # as Y-net used variance 4 for the GT heatmap representation.
+            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+            # plt.imshow(heat_map_traj)
+            ohm.append(heat_map_traj)
+
+            heatmaps.append(np.stack(ohm))
+            '''
+            heat_map_traj = np.zeros((192, 192))
+            # for t in range(self.obs_len + self.pred_len):
+            for t in [0,1,2,3,4,5,6,7,11,14,17]:
+                heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
+                # as Y-net used variance 4 for the GT heatmap representation.
+            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+            plt.imshow(heat_map_traj)
+            '''
+        if aug:
+            all_heatmaps = []
+            for h in heatmaps:
+                h = torch.tensor(h).float().to(self.device)
+                degree = np.random.choice([0, 90, 180, -90])
+                all_heatmaps.append(
+                    transforms.Compose([
+                        transforms.RandomRotation(degrees=(degree, degree))
+                    ])(h)
+                )
+            all_heatmaps = torch.stack(all_heatmaps)
+        else:
+            all_heatmaps = torch.tensor(np.stack(heatmaps)).float().to(self.device)
+        return all_heatmaps[:, :2], all_heatmaps[:, 2:]
+
+
     ####
     def train(self):
         self.set_mode(train=True)
@@ -288,7 +334,6 @@ class Solver(object):
 
     ####
 
-
     def make_feat(self, test_loader):
         from sklearn.manifold import TSNE
         # from data.trajectories import seq_collate
@@ -316,13 +361,42 @@ class Solver(object):
                  local_map, local_ic, local_homo) = batch
                 n_agent.append([len(map_path)]*len(map_path))
 
+                obs_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map, aug=True)
+
+                # plt.imshow(local_map[0, 0])
+                # plt.scatter(local_ic[0,8:,1], local_ic[0,8:,0])
+
+                # import cv2
+                # image = cv2.imread('C:\dataset\large_real\Trajectories/2.png')
+                # binary = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+
+                '''
+                binary = local_map[0,0].copy().astype('uint8')
+                contours, hierarchy = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                # drawing = np.zeros((binary.shape[0], binary.shape[1], 3), dtype=np.uint8)
+                # CountersImg = cv2.drawContours(drawing, contours, -1, (255, 255, 0), 3)
+                CountersImg = cv2.drawContours(np.zeros((binary.shape[0], binary.shape[1]), dtype=np.uint8), contours, -1, (1,1), 2)
+                fig = plt.figure(figsize=(10, 10))
+                fig.tight_layout()
+                ax = fig.add_subplot(1,2,1)
+                ax.imshow(local_map[0,0])
+                ax = fig.add_subplot(1, 2, 2)
+                ax.imshow(CountersImg)
+                print(map_path)
+                '''
+
+
                 for i in range(len(map_path)):
                     gt_xy = torch.cat([obs_traj[:, i, :2], fut_traj[:, i, :2]]).detach().cpu().numpy()
                     c = np.round(trajectory_curvature(gt_xy), 4)
                     non_linear.append(min(c, 10))
 
                 for m in local_map:
-                    obst_ratio.append(np.sum(m) / (192**2))
+                    binary = m[0].astype('uint8')
+                    contours, hierarchy = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    CountersImg = cv2.drawContours(np.zeros((binary.shape[0], binary.shape[1]), dtype=np.uint8),
+                                                   contours, -1, (1, 1), 2)
+                    obst_ratio.append(np.sum(CountersImg) / (192**2))
 
                 for m in map_path:
                     total_scenario.append(int(m.split('/')[-1].split('.')[0])// 10)
@@ -330,10 +404,10 @@ class Solver(object):
             all_data = np.stack(
                 [total_scenario, obst_ratio, non_linear, n_agent]).T
             import pandas as pd
-            pd.DataFrame(all_data).to_csv('large_obs_ratio_k0_tr.csv')
+            pd.DataFrame(all_data).to_csv('large_contour_ratio_k0_te.csv')
 
             print('done')
-
+            '''
             data = pd.read_csv('C:\dataset\large_real/large_obs_ratio_k0_tr.csv')
             tr_data = np.array(pd.read_csv('C:\dataset\large_real/large_obs_ratio_k0_tr.csv'))
             te_data = np.array(pd.read_csv('C:\dataset\large_real/large_obs_ratio_k0_te.csv'))
@@ -348,7 +422,8 @@ class Solver(object):
             plt.scatter(tr_data[:,1], tr, s=1)
 
 
-            te_df = pd.read_csv('C:\dataset\large_real/large_obs_ratio_k5_te.csv')
+            te_df = pd.read_csv('C:\dataset\large_real/large_obs_ratio_k0_te.csv')
+            tr_df = pd.read_csv('C:\dataset\large_real/large_obs_ratio_k0_tr.csv')
             te_df['1'] = te_df['1']/(192**2)
 
             plt.scatter(te_df['0'], te_df['1'], s=1)
@@ -368,8 +443,6 @@ class Solver(object):
                                                 figsize=(14, 8),
                                                 title="Number for each Owner Name")
 
-
-            '''
             import pandas as  pd
             df = pd.read_csv('C:\dataset\large_real/large_5_bs1.csv')
             data = np.array(df)
