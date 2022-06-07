@@ -371,10 +371,10 @@ class Solver(object):
                 for i in range(len(map_path)):
                     gt_xy = torch.cat([obs_traj[:, i, :2], fut_traj[:, i, :2]]).detach().cpu().numpy()
                     c = np.round(trajectory_curvature(gt_xy), 4)
-                    non_linear.extend([min(c, 10)] * n_agent)
-
+                    non_linear.append(min(c, 10))
                 for m in map_path:
-                    total_scenario.extend([int(m.split('/')[-1].split('.')[0])// 10] * n_agent)
+                    total_scenario.append(int(m.split('/')[-1].split('.')[0])// 10)
+
                 seq.extend([b] * n_agent)
                 agent_idx.extend(list(range(n_agent)))
 
