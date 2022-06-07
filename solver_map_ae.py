@@ -347,64 +347,52 @@ class Solver(object):
 
         self.set_mode(train=False)
         with torch.no_grad():
-            test_enc_feat = []
             total_scenario = []
-            obst_ratio = []
-            n_agent = []
             non_linear = []
 
-            b = 0
+            b = -1
+            seq = []
+            agent_idx = []
+            k=2
             for batch in test_loader:
                 b+=1
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
                  obs_frames, fut_frames, map_path, inv_h_t,
                  local_map, local_ic, local_homo) = batch
-                n_agent.append([len(map_path)]*len(map_path))
-
-                obs_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map, aug=True)
+                n_agent = len(local_map)
+                # if int(map_path[0].split('/')[-1].split('.')[0]) // 10 != k:
+                #     continue
+                # obs_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map, aug=True)
 
                 # plt.imshow(local_map[0, 0])
                 # plt.scatter(local_ic[0,8:,1], local_ic[0,8:,0])
-
-                # import cv2
-                # image = cv2.imread('C:\dataset\large_real\Trajectories/2.png')
-                # binary = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-
-                '''
-                binary = local_map[0,0].copy().astype('uint8')
-                contours, hierarchy = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                # drawing = np.zeros((binary.shape[0], binary.shape[1], 3), dtype=np.uint8)
-                # CountersImg = cv2.drawContours(drawing, contours, -1, (255, 255, 0), 3)
-                CountersImg = cv2.drawContours(np.zeros((binary.shape[0], binary.shape[1]), dtype=np.uint8), contours, -1, (1,1), 2)
-                fig = plt.figure(figsize=(10, 10))
-                fig.tight_layout()
-                ax = fig.add_subplot(1,2,1)
-                ax.imshow(local_map[0,0])
-                ax = fig.add_subplot(1, 2, 2)
-                ax.imshow(CountersImg)
-                print(map_path)
-                '''
 
 
                 for i in range(len(map_path)):
                     gt_xy = torch.cat([obs_traj[:, i, :2], fut_traj[:, i, :2]]).detach().cpu().numpy()
                     c = np.round(trajectory_curvature(gt_xy), 4)
-                    non_linear.append(min(c, 10))
-
-                for m in local_map:
-                    binary = m[0].astype('uint8')
-                    contours, hierarchy = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                    CountersImg = cv2.drawContours(np.zeros((binary.shape[0], binary.shape[1]), dtype=np.uint8),
-                                                   contours, -1, (1, 1), 2)
-                    obst_ratio.append(np.sum(CountersImg) / (192**2))
+                    non_linear.extend([min(c, 10)] * n_agent)
 
                 for m in map_path:
-                    total_scenario.append(int(m.split('/')[-1].split('.')[0])// 10)
+                    total_scenario.extend([int(m.split('/')[-1].split('.')[0])// 10] * n_agent)
+                seq.extend([b] * n_agent)
+                agent_idx.extend(list(range(n_agent)))
+
+            '''
+            image = cv2.imread('C:\dataset\large_real\Trajectories/' +str(k)+ '2.png')
+            # image = cv2.imread('C:\dataset\large_real\Trajectories/2.png')
+            plt.imshow(image)
+            aa = np.concatenate(all_traj)
+
+            plt.scatter(aa[:,:8,0]*2, aa[:,:8,1]*2, s=1, c='b')
+            plt.scatter(aa[:,8:,0]*2, aa[:,8:,1]*2, s=1, c='r')
+            plt.scatter(aa[:,0,0]*2, aa[:,0,1]*2, s=10, marker='x', c='orange')
+            '''
 
             all_data = np.stack(
-                [total_scenario, obst_ratio, non_linear]).T
+                [seq, agent_idx, non_linear, total_scenario]).T
             import pandas as pd
-            pd.DataFrame(all_data).to_csv('large_contour_ratio_k0_te.csv')
+            pd.DataFrame(all_data).to_csv('large_seq_info_k0.csv')
 
             print('done')
             '''
