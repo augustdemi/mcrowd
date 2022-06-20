@@ -149,7 +149,8 @@ class TrajectoryDataset(Dataset):
         # global_map = imageio.imread(self.map_file_name[index])
         # map_file_name = self.map_file_name[index].replace('../../datasets', 'C:/dataset')
         # map_file_name = map_file_name.replace('Trajectories', 'Y')
-        map_file_name = self.map_file_name[index].replace('Trajectories', 'Y')
+        map_file_name = self.map_file_name[index].replace('../../datasets', '../datasets')
+        map_file_name = map_file_name.replace('Trajectories', 'Y')
         global_map = imageio.imread(map_file_name)
 
         congest_maps = []
