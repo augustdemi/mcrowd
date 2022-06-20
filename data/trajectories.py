@@ -155,7 +155,7 @@ class TrajectoryDataset(Dataset):
 
         congest_maps = []
         for idx in range(start, end):
-            all_traj = np.concatenate([self.obs_traj[idx, :2], self.fut_traj[idx, :2]], axis=1).transpose(1, 0)
+            all_traj = np.concatenate([self.obs_traj[idx, :2].detach().cpu().numpy(), self.fut_traj[idx, :2].detach().cpu().numpy()], axis=1).transpose(1, 0)
             '''
             plt.imshow(global_map)
             plt.scatter(all_traj[:8,0], all_traj[:8,1], s=1, c='b')
