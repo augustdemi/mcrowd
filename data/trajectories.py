@@ -135,9 +135,11 @@ class TrajectoryDataset(Dataset):
         self.local_map = np.expand_dims(all_data['local_map'],1)
         self.local_homo = all_data['local_homo']
         self.local_ic = all_data['local_ic']
+        self.cong_map = [[]] * self.seq_start_end[-1][1]
 
         self.num_seq = len(self.seq_start_end) # = slide (seq. of 16 frames) 수 = 2692
         print(self.seq_start_end[-1])
+
 
 
 
@@ -146,28 +148,35 @@ class TrajectoryDataset(Dataset):
 
     def __getitem__(self, index):
         start, end = self.seq_start_end[index]
-        # global_map = imageio.imread(self.map_file_name[index])
-        # map_file_name = self.map_file_name[index].replace('../../datasets', 'C:/dataset')
-        # map_file_name = map_file_name.replace('Trajectories', 'Y')
-        map_file_name = self.map_file_name[index].replace('../../datasets', '../datasets')
-        map_file_name = map_file_name.replace('Trajectories', 'Y')
-        global_map = imageio.imread(map_file_name)
-
         congest_maps = []
-        for idx in range(start, end):
-            all_traj = np.concatenate([self.obs_traj[idx, :2].detach().cpu().numpy(), self.fut_traj[idx, :2].detach().cpu().numpy()], axis=1).transpose(1, 0)
-            '''
-            plt.imshow(global_map)
-            plt.scatter(all_traj[:8,0], all_traj[:8,1], s=1, c='b')
-            plt.scatter(all_traj[8:,0], all_traj[8:,1], s=1, c='r')
-            plt.show()
-            '''
-            congest_maps.append(get_congestion_local_map(global_map, all_traj, zoom=10, radius=9.6))
-            '''
-            env = 1 - self.local_map[idx][0]
-            c  = get_congestion_local_map(global_map, all_traj, zoom=10, radius=9.6)
-            plt.imshow(np.stack([env, env * c, env], axis=2))
-            '''
+        if len(self.cong_map[start]) != 0:
+            for idx in range(start, end):
+                cong_map = self.cong_map[idx]
+                congest_maps.append(cong_map)
+        else:
+            # global_map = imageio.imread(self.map_file_name[index])
+            # map_file_name = self.map_file_name[index].replace('../../datasets', 'C:/dataset')
+            # map_file_name = map_file_name.replace('Trajectories', 'Y')
+            map_file_name = self.map_file_name[index].replace('../../datasets', '../datasets')
+            map_file_name = map_file_name.replace('Trajectories', 'Y')
+            global_map = imageio.imread(map_file_name)
+
+            for idx in range(start, end):
+                all_traj = np.concatenate([self.obs_traj[idx, :2].detach().cpu().numpy(), self.fut_traj[idx, :2].detach().cpu().numpy()], axis=1).transpose(1, 0)
+                '''
+                plt.imshow(global_map)
+                plt.scatter(all_traj[:8,0], all_traj[:8,1], s=1, c='b')
+                plt.scatter(all_traj[8:,0], all_traj[8:,1], s=1, c='r')
+                plt.show()
+                '''
+
+                cong_map = get_congestion_local_map(global_map, all_traj, zoom=10, radius=9.6)
+                congest_maps.append(cong_map)
+                '''
+                env = 1 - self.local_map[idx][0]
+                c  = get_congestion_local_map(global_map, all_traj, zoom=10, radius=9.6)
+                plt.imshow(np.stack([env, env * c, env], axis=2))
+                '''
         congest_maps = np.stack(congest_maps)
 
 
