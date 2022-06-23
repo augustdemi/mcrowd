@@ -151,8 +151,7 @@ class TrajectoryDataset(Dataset):
         congest_maps = []
         if len(self.cong_map[start]) != 0:
             for idx in range(start, end):
-                cong_map = self.cong_map[idx]
-                congest_maps.append(cong_map)
+                congest_maps.append(self.cong_map[idx])
         else:
             # global_map = imageio.imread(self.map_file_name[index])
             # map_file_name = self.map_file_name[index].replace('../../datasets', 'C:/dataset')
@@ -171,6 +170,7 @@ class TrajectoryDataset(Dataset):
                 '''
 
                 cong_map = get_congestion_local_map(global_map, all_traj, zoom=10, radius=9.6)
+                self.cong_map[idx] = cong_map
                 congest_maps.append(cong_map)
                 '''
                 env = 1 - self.local_map[idx][0]
