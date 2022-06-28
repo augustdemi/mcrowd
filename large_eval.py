@@ -224,27 +224,25 @@ class Solver(object):
 
         return heat_map_traj
 
-
-
-    def make_heatmap(self, local_ic, local_map):
+    def make_heatmap(self, local_ic, local_map, congest_map, aug=False):
         heatmaps = []
         for i in range(len(local_ic)):
-            ohm = [local_map[i, 0]]
+            ohm = [local_map[i, 0], congest_map[i]]
 
             heat_map_traj = np.zeros((192, 192))
             for t in range(self.obs_len):
                 heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
                 # as Y-net used variance 4 for the GT heatmap representation.
             heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-            ohm.append( heat_map_traj/heat_map_traj.sum())
+            ohm.append(heat_map_traj / heat_map_traj.sum())
 
-            for t in (self.sg_idx + 8):
-                heat_map_traj = np.zeros((192,192))
-                heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
-                # as Y-net used variance 4 for the GT heatmap representation.
-                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-                # plt.imshow(heat_map_traj)
-                ohm.append(heat_map_traj)
+            heat_map_traj = np.zeros((192, 192))
+            heat_map_traj[local_ic[i, -1, 0], local_ic[i, -1, 1]] = 1
+            # as Y-net used variance 4 for the GT heatmap representation.
+            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+            # plt.imshow(heat_map_traj)
+            ohm.append(heat_map_traj)
+
             heatmaps.append(np.stack(ohm))
             '''
             heat_map_traj = np.zeros((192, 192))
@@ -255,8 +253,21 @@ class Solver(object):
             heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
             plt.imshow(heat_map_traj)
             '''
-        heatmaps = torch.tensor(np.stack(heatmaps)).float().to(self.device)
-        return heatmaps[:,:2], heatmaps[:,2:], heatmaps[:,-1].unsqueeze(1)
+        if aug:
+            all_heatmaps = []
+            for h in heatmaps:
+                h = torch.tensor(h).float().to(self.device)
+                degree = np.random.choice([0, 90, 180, -90])
+                all_heatmaps.append(
+                    transforms.Compose([
+                        transforms.RandomRotation(degrees=(degree, degree))
+                    ])(h)
+                )
+            all_heatmaps = torch.stack(all_heatmaps)
+        else:
+            all_heatmaps = torch.tensor(np.stack(heatmaps)).float().to(self.device)
+        return all_heatmaps[:, :3], all_heatmaps[:, 3:]
+
 
 
     def repeat(self, tensor, num_reps):
@@ -282,7 +293,8 @@ class Solver(object):
             for batch in data_loader:
                 b += 1
 
-                batch = data_loader.dataset.__getitem__(7)
+                idx=202
+                batch = data_loader.dataset.__getitem__(idx)
                 (obs_traj, fut_traj,
                  obs_frames, pred_frames, map_path, inv_h_t,
                  local_map, local_ic, local_homo, scale) = batch
@@ -294,10 +306,26 @@ class Solver(object):
                 # pos is stdized by mean = last obs step
                 obs_traj_st[:, :, :2] = obs_traj_st[:, :, :2] - obs_traj_st[-1, :, :2]
 
-                i=tmp_idx =9
+                i=tmp_idx =51
+                i=tmp_idx =25
 
-                # plt.imshow(local_map[i, 0])
-                # plt.scatter(local_ic[i,:,1], local_ic[i,:,0])
+                '''
+
+                plt.imshow(local_map[i, 0])
+                plt.scatter(local_ic[i,:8,1], local_ic[i,:8,0], c='b')
+                plt.scatter(local_ic[i,8:,1], local_ic[i,8:,0], c='r')
+                import cv2
+
+                image = cv2.imread('C:\dataset\large_real\Trajectories/' + map_path[0].split('/')[-1])
+                # image = cv2.imread('C:\dataset\large_real\Trajectories/2.png')
+                plt.imshow(image)
+                aa = torch.cat([obs_traj[:,:,:2].transpose(1,0), fut_traj[:,:,:2].transpose(1,0)], 1).detach().cpu().numpy()
+
+                plt.scatter(aa[:,:8,0]*2, aa[:,:8,1]*2, s=1, c='b')
+                plt.scatter(aa[:,8:,0]*2, aa[:,8:,1]*2, s=1, c='r')
+                # plt.scatter(aa[:,0,0]*2, aa[:,0,1]*2, s=10, marker='x', c='orange')
+                
+                '''
 
                 obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
@@ -381,13 +409,14 @@ class Solver(object):
                 heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=1)
 
 
-                fig = plt.figure(figsize=(12, 10))
+                fig = plt.figure(figsize=(15, 15))
                 fig.tight_layout()
                 for k in range(10):
                     ax = fig.add_subplot(4, 5, k + 1)
                     ax.set_title('prior' + str(k % 5 + 1))
                     if k < 5:
                         a = mm[k][i, 0].detach().cpu().numpy().copy()
+                        a = a / (10*a.max())
                         ax.imshow(np.stack([env*(1-heat_map_traj), env * (1-a *5),  env],axis=2))
                     else:
                         ax.imshow(mm[k % 5][i, 0])
@@ -397,6 +426,7 @@ class Solver(object):
                     ax.set_title('prior' + str(k % 5 + 6))
                     if k < 5:
                         a = mmm[k][i, 0].detach().cpu().numpy().copy()
+                        a = a /(10* a.max())
                         ax.imshow(np.stack([env*(1-heat_map_traj), env * (1-a * 5),  env],axis=2))
                         # ax.imshow(np.stack([1-env, 1-heat_map_traj, 1 - mmm[k][i, 0] / (0.1*mmm[k][i, 0].max())],axis=2))
                     else:
@@ -1351,14 +1381,14 @@ class Solver(object):
                 b+=1
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
                  obs_frames, pred_frames, map_path, inv_h_t,
-                 local_map, local_ic, local_homo) = batch
+                 local_map, local_ic, local_homo, cong_map) = batch
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
                 for m in map_path:
                     scene_name.append(int(m.split('/')[-1].split('.')[0])// 10)
 
-                obs_heat_map, _, _= self.make_heatmap(local_ic, local_map)
+                obs_heat_map, _= self.make_heatmap(local_ic, local_map, cong_map)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 predictions = []
@@ -1570,8 +1600,8 @@ class Solver(object):
             lg_fde=torch.cat(lg_fde, dim=1).cpu().numpy() # all batches are concatenated
 
 
-            all_feat = np.stack([scene_name, np.min(all_ade, axis=0)/self.pred_len, np.min(all_fde, axis=0)]).T
-            np.save('large_k0_ade.npy', all_feat)
+            # all_feat = np.stack([scene_name, np.min(all_ade, axis=0)/self.pred_len, np.min(all_fde, axis=0)]).T
+            # np.save('large_k0_ade.npy', all_feat)
 
             ade_min = np.min(all_ade, axis=0).mean()/self.pred_len
             fde_min = np.min(all_fde, axis=0).mean()
