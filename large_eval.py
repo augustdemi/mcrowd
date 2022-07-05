@@ -1434,7 +1434,7 @@ class Solver(object):
                     pred_lg_heat_from_ic = torch.tensor(np.stack(pred_lg_heat_from_ic)).unsqueeze(1).float().to(
                         self.device)
                     pred_sg_heat = F.sigmoid(
-                        self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1)))
+                        self.sg_unet.forward(torch.cat([obs_heat_map[:, [0,2]], pred_lg_heat_from_ic], dim=1)))
 
                     pred_sg_wc = []
                     for t in range(len(self.sg_idx)):
@@ -1504,20 +1504,16 @@ class Solver(object):
                     z_priors.append(p_dist.sample())
 
                 for pred_sg_wc in pred_sg_wcs:
-                    for z_prior in z_priors:
-                        # -------- trajectories --------
-                        # NO TF, pred_goals, z~prior
-                        micro_pred = self.decoderMy.make_prediction(
-                            seq_start_end,
-                            obs_traj_st[-1],
-                            obs_traj[-1, :, :2],
-                            hx,
-                            z_prior,
-                            pred_sg_wc,  # goal
-                            self.sg_idx
-                        )
-                        predictions.append(micro_pred)
-
+                    # -------- trajectories --------
+                    # NO TF, pred_goals, z~prior
+                    micro_pred = self.decoderMy.make_prediction(
+                        seq_start_end,
+                        obs_traj_st[-1],
+                        obs_traj[-1, :, :2],
+                        pred_sg_wc,  # goal
+                        self.sg_idx
+                    )
+                    predictions.append(micro_pred)
 
                 ade, fde = [], []
                 multi_coll5 = []
