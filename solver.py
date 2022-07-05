@@ -219,9 +219,9 @@ class Solver(object):
 
         if self.ckpt_load_iter != self.max_iter:
             print("Initializing train dataset")
-            _, self.train_loader = data_loader(self.args, args.dataset_dir, 'test', shuffle=True)
+            _, self.train_loader = data_loader(self.args, args.dataset_dir, 'train', shuffle=True)
             print("Initializing val dataset")
-            _, self.val_loader = data_loader(self.args, args.dataset_dir, 'test', shuffle=True)
+            _, self.val_loader = data_loader(self.args, args.dataset_dir, 'val', shuffle=True)
 
             print(
                 'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
@@ -332,11 +332,11 @@ class Solver(object):
 
 
             # save model parameters
-            if epoch > 200 and (iteration % (iter_per_epoch*20) == 0):
+            if epoch > 50 and (iteration % (iter_per_epoch*20) == 0) and (epoch < 500):
                 self.save_checkpoint(epoch)
 
             # (visdom) insert current line stats
-            if epoch > 50:
+            if epoch > 0:
                 if iteration == iter_per_epoch or (self.viz_on and (iteration % (iter_per_epoch*20) == 0)):
                     ade_min, fde_min, \
                     ade_avg, fde_avg, \
