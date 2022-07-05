@@ -1434,7 +1434,7 @@ class Solver(object):
                     pred_lg_heat_from_ic = torch.tensor(np.stack(pred_lg_heat_from_ic)).unsqueeze(1).float().to(
                         self.device)
                     pred_sg_heat = F.sigmoid(
-                        self.sg_unet.forward(torch.cat([obs_heat_map[:, [0,2]], pred_lg_heat_from_ic], dim=1)))
+                        self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat_from_ic], dim=1)))
 
                     pred_sg_wc = []
                     for t in range(len(self.sg_idx)):
