@@ -201,10 +201,7 @@ class Solver(object):
 
 
         # get VAE parameters
-        vae_params = \
-            list(self.encoderMx.parameters()) + \
-            list(self.encoderMy.parameters()) + \
-            list(self.decoderMy.parameters())
+        vae_params = list(self.decoderMy.parameters())
         # create optimizers
         self.optim_vae = optim.Adam(
             vae_params,
