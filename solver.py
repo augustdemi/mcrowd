@@ -355,7 +355,7 @@ class Solver(object):
                                             loss_coll=prev_e_coll_loss,
                                             total_coll=prev_e_total_coll,
                                             test_loss_recon=test_loss_recon.item(),
-                                            test_loss_kl=test_loss_kl.item(),
+                                            test_loss_kl=0,
                                             test_loss_coll=test_loss_coll.item(),
                                             test_total_coll=test_total_coll
                                             )
@@ -446,6 +446,7 @@ class Solver(object):
                 ))
                 all_ade.append(torch.stack(ade))
                 all_fde.append(torch.stack(fde))
+                loss_recon -= fut_rel_pos_dist.log_prob(fut_vel_st).sum().div(batch_size)
 
             all_ade=torch.cat(all_ade, dim=1).cpu().numpy()
             all_fde=torch.cat(all_fde, dim=1).cpu().numpy()
