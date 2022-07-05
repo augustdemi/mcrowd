@@ -288,7 +288,7 @@ class Solver(object):
             )
 
 
-            ll_tf = torch.abs(fut_rel_pos_dist_tf - fut_vel_st).sum().div(batch_size)
+            ll_tf = ((fut_rel_pos_dist_tf - fut_vel_st)**2).sum().div(batch_size)
             traj_elbo = ll_tf
 
 
@@ -346,7 +346,7 @@ class Solver(object):
                                             fde_avg=fde_avg,
                                             ade_std=ade_std,
                                             fde_std=fde_std,
-                                            loss_recon=ll_tf.itme(),
+                                            loss_recon=ll_tf.item(),
                                             loss_recon_prior=0,
                                             loss_kl=0,
                                             loss_coll=prev_e_coll_loss,
@@ -442,7 +442,7 @@ class Solver(object):
                 ))
                 all_ade.append(torch.stack(ade))
                 all_fde.append(torch.stack(fde))
-                loss_recon += torch.abs(fut_rel_pos_dist-fut_vel_st).sum().div(batch_size)
+                loss_recon += ((fut_rel_pos_dist-fut_vel_st)**2).sum().div(batch_size)
 
             all_ade=torch.cat(all_ade, dim=1).cpu().numpy()
             all_fde=torch.cat(all_fde, dim=1).cpu().numpy()
