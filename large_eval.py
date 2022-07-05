@@ -1504,20 +1504,16 @@ class Solver(object):
                     z_priors.append(p_dist.sample())
 
                 for pred_sg_wc in pred_sg_wcs:
-                    for z_prior in z_priors:
-                        # -------- trajectories --------
-                        # NO TF, pred_goals, z~prior
-                        micro_pred = self.decoderMy.make_prediction(
-                            seq_start_end,
-                            obs_traj_st[-1],
-                            obs_traj[-1, :, :2],
-                            hx,
-                            z_prior,
-                            pred_sg_wc,  # goal
-                            self.sg_idx
-                        )
-                        predictions.append(micro_pred)
-
+                    # -------- trajectories --------
+                    # NO TF, pred_goals, z~prior
+                    micro_pred = self.decoderMy.make_prediction(
+                        seq_start_end,
+                        obs_traj_st[-1],
+                        obs_traj[-1, :, :2],
+                        pred_sg_wc,  # goal
+                        self.sg_idx
+                    )
+                    predictions.append(micro_pred)
 
                 ade, fde = [], []
                 multi_coll5 = []
