@@ -45,18 +45,16 @@ class Solver(object):
 
         self.args = args
         args.num_sg = args.load_e
-        self.name = '%s_bs%s_zD_%s_dr_mlp_%s_dr_rnn_%s_enc_hD_%s_dec_hD_%s_mlpD_%s_lr_%s_klw_%s_ll_prior_w_%s_zfb_%s_scale_%s_num_sg_%s' \
-                    'ctxtD_%s_coll_th_%s_w_coll_%s_beta_%s_lr_e_%s_k_%s' % \
-                    (args.dataset_name, args.batch_size, args.zS_dim, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
-                     args.decoder_h_dim, args.mlp_dim, args.lr_VAE, args.kl_weight,
-                     args.ll_prior_w, args.fb, args.scale, args.num_sg, args.context_dim, args.coll_th, args.w_coll, args.beta, args.lr_e, args.k_fold)
+        self.name = '%s_bs%s_dr_mlp_%s_dr_rnn_%s_enc_hD_%s_dec_hD_%s_lr_%s_scale_%s_num_sg_%s' \
+                    'ctxtD_%s_coll_th_%s_w_coll_%s_beta_%s_lr_e_%s' % \
+                    (args.dataset_name, args.batch_size, args.dropout_mlp, args.dropout_rnn, args.encoder_h_dim,
+                     args.decoder_h_dim, args.lr_VAE, args.scale, args.num_sg, args.context_dim, args.coll_th, args.w_coll, args.beta, args.lr_e)
 
         # to be appended by run_id
 
         # self.use_cuda = args.cuda and torch.cuda.is_available()
         self.device = args.device
-        self.temp=1.99
-        self.dt=0.4
+        self.dt=0.5
         self.eps=1e-9
         self.ll_prior_w =args.ll_prior_w
         self.sg_idx = np.array(range(12))
@@ -83,8 +81,6 @@ class Solver(object):
         self.output_save_iter = args.output_save_iter
 
         # data info
-        args.dataset_dir = os.path.join(args.dataset_dir, str(args.k_fold))
-
         self.dataset_dir = args.dataset_dir
         self.dataset_name = args.dataset_name
 
@@ -108,15 +104,8 @@ class Solver(object):
         mkdirs("outputs")
 
         # set run id
-        if args.run_id < 0:  # create a new id
-            k = 0
-            rfname = os.path.join("records", self.name + '_run_0.txt')
-            while os.path.exists(rfname):
-                k += 1
-                rfname = os.path.join("records", self.name + '_run_%d.txt' % k)
-            self.run_id = k
-        else:  # user-provided id
-            self.run_id = args.run_id
+        self.run_id = args.run_id
+
 
         # finalize name
         self.name = self.name + '_run_' + str(self.run_id)
@@ -152,40 +141,22 @@ class Solver(object):
 
         self.ckpt_load_iter = args.ckpt_load_iter
 
-        self.obs_len = 8
+        self.obs_len = 4
         self.pred_len = 12
         self.num_layers = args.num_layers
         self.decoder_h_dim = args.decoder_h_dim
 
         if self.ckpt_load_iter == 0 or args.dataset_name =='all':  # create a new model
-            lg_cvae_path = 'large.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_5.0_anneal_e_10_load_e_3_run_4'
-            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_150_lg_cvae.pt')
+            lg_cvae_path = 'nu.lgcvae_enc_block_1_fcomb_block_2_wD_10_lr_0.0001_lg_klw_1.0_a_0.25_r_2.0_fb_3.0_anneal_e_10_aug_1_llprior_0.0_run_4'
+            lg_cvae_path = os.path.join('ckpts', lg_cvae_path, 'iter_39000_lg_cvae.pt')
+
             if self.device == 'cuda':
                 self.lg_cvae = torch.load(lg_cvae_path)
 
-            self.encoderMx = EncoderX(
-                args.zS_dim,
-                enc_h_dim=args.encoder_h_dim,
-                mlp_dim=args.mlp_dim,
-                map_mlp_dim=args.map_mlp_dim,
-                map_feat_dim=args.map_feat_dim,
-                num_layers=args.num_layers,
-                dropout_mlp=args.dropout_mlp,
-                dropout_rnn=args.dropout_rnn,
-                device=self.device).to(self.device)
-            self.encoderMy = EncoderY(
-                args.zS_dim,
-                enc_h_dim=args.encoder_h_dim,
-                mlp_dim=args.mlp_dim,
-                num_layers=args.num_layers,
-                dropout_mlp=args.dropout_mlp,
-                dropout_rnn=args.dropout_rnn,
-                device=self.device).to(self.device)
             self.decoderMy = Decoder(
                 args.pred_len,
                 dec_h_dim=self.decoder_h_dim,
                 enc_h_dim=args.encoder_h_dim,
-                mlp_dim=args.mlp_dim,
                 z_dim=args.zS_dim,
                 num_layers=args.num_layers,
                 device=args.device,
@@ -215,13 +186,20 @@ class Solver(object):
         print('Start loading data...')
 
         if self.ckpt_load_iter != self.max_iter:
-            print("Initializing train dataset")
-            _, self.train_loader = data_loader(self.args, args.dataset_dir, 'train', shuffle=True)
-            print("Initializing val dataset")
-            _, self.val_loader = data_loader(self.args, args.dataset_dir, 'val', shuffle=True)
+            cfg = Config('nuscenes_train', False, create_dirs=True)
+            torch.set_default_dtype(torch.float32)
+            log = open('log.txt', 'a+')
+            self.train_loader = data_generator(cfg, log, split='train', phase='training',
+                                               batch_size=args.batch_size, device=self.device, scale=args.scale, shuffle=True)
+
+            cfg = Config('nuscenes', False, create_dirs=True)
+            torch.set_default_dtype(torch.float32)
+            log = open('log.txt', 'a+')
+            self.val_loader = data_generator(cfg, log, split='test', phase='testing',
+                                             batch_size=args.batch_size, device=self.device, scale=args.scale, shuffle=True)
 
             print(
-                'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
+                'There are {} iterations per epoch'.format(len(self.train_loader.idx_list))
             )
         print('...done')
 
@@ -235,10 +213,7 @@ class Solver(object):
         self.set_mode(train=True)
         data_loader = self.train_loader
 
-        self.N = len(data_loader.dataset)
-        iterator = iter(data_loader)
-
-        iter_per_epoch = len(iterator)
+        iter_per_epoch = len(data_loader.idx_list)
         start_iter = self.ckpt_load_iter + 1
         epoch = int(start_iter / iter_per_epoch) + 1
 
@@ -247,9 +222,16 @@ class Solver(object):
 
         for iteration in range(start_iter, self.max_iter + 1):
 
+            data = data_loader.next_sample()
+            if data is None:
+                print(0)
+                continue
             # reset data iterators for each epoch
             if iteration % iter_per_epoch == 0:
-                # print(iteration)
+                if self.ckpt_load_iter > 0:
+                    data_loader.is_epoch_end(force=True)
+                else:
+                    data_loader.is_epoch_end()
                 print('==== epoch %d done ====' % epoch)
                 if epoch % 10 == 0:
                     if self.optim_vae.param_groups[0]['lr'] > 1e-4:
@@ -260,7 +242,6 @@ class Solver(object):
                 print('e_coll_loss: ', e_coll_loss, ' // e_total_coll: ', e_total_coll)
 
                 epoch +=1
-                iterator = iter(data_loader)
                 prev_e_coll_loss = e_coll_loss
                 prev_e_total_coll = e_total_coll
                 e_coll_loss = 0
@@ -271,10 +252,8 @@ class Solver(object):
             # ============================================
 
             (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-             obs_frames, fut_frames, map_path, inv_h_t,
-             local_map, local_ic, local_homo) = next(iterator)
-            batch_size = obs_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
-
+             maps, local_map, local_ic, local_homo) = data
+            batch_size = fut_traj.size(1) #=sum(seq_start_end[:,1] - seq_start_end[:,0])
 
             # TF, goals, z~posterior
             fut_rel_pos_dist_tf = self.decoderMy(
@@ -397,11 +376,14 @@ class Solver(object):
 
         with torch.no_grad():
             b=0
-            for batch in data_loader:
+            while not data_loader.is_epoch_end():
+                data = data_loader.next_sample()
+                if data is None:
+                    continue
                 b+=1
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
-                 obs_frames, fut_frames, map_path, inv_h_t,
-                 local_map, local_ic, local_homo) = batch
+                 maps, local_map, local_ic, local_homo) = data
+
                 batch_size = fut_traj.size(1)
                 total_traj += fut_traj.size(1)
 
@@ -675,73 +657,29 @@ class Solver(object):
     def set_mode(self, train=True):
 
         if train:
-            self.encoderMx.train()
-            self.encoderMy.train()
             self.decoderMy.train()
         else:
-            self.encoderMx.eval()
-            self.encoderMy.eval()
             self.decoderMy.eval()
 
     ####
     def save_checkpoint(self, iteration):
 
-        encoderMx_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_encoderMx.pt' % iteration
-        )
-        encoderMy_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_encoderMy.pt' % iteration
-        )
         decoderMy_path = os.path.join(
             self.ckpt_dir,
             'iter_%s_decoderMy.pt' % iteration
         )
-        lg_cvae_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_lg_cvae.pt' % iteration
-        )
-        sg_unet_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_sg_unet.pt' % iteration
-        )
         mkdirs(self.ckpt_dir)
 
-        torch.save(self.encoderMx, encoderMx_path)
-        torch.save(self.encoderMy, encoderMy_path)
         torch.save(self.decoderMy, decoderMy_path)
     ####
     def load_checkpoint(self):
 
-        encoderMx_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_encoderMx.pt' % self.ckpt_load_iter
-        )
-        encoderMy_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_encoderMy.pt' % self.ckpt_load_iter
-        )
         decoderMy_path = os.path.join(
             self.ckpt_dir,
             'iter_%s_decoderMy.pt' % self.ckpt_load_iter
         )
-        lg_cvae_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_lg_cvae.pt' % self.ckpt_load_iter
-        )
-        sg_unet_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_sg_unet.pt' % self.ckpt_load_iter
-        )
-
-
 
         if self.device == 'cuda':
-            self.encoderMx = torch.load(encoderMx_path)
-            self.encoderMy = torch.load(encoderMy_path)
             self.decoderMy = torch.load(decoderMy_path)
         else:
-            self.encoderMx = torch.load(encoderMx_path, map_location='cpu')
-            self.encoderMy = torch.load(encoderMy_path, map_location='cpu')
             self.decoderMy = torch.load(decoderMy_path, map_location='cpu')
