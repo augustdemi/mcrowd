@@ -125,12 +125,12 @@ class data_generator(object):
                     radius.append(np.round(r).astype(int))
                     # print(r)
                 local_map, local_ic, local_homo = scene_map.get_cropped_maps(scene_points, radius, compute_local_homo=comput_local_homo)
-                self.local_ic[sample_index] = np.stack(local_ic)
-                self.local_homo[sample_index] = np.stack(local_homo)
+                self.local_ic[sample_index] = local_ic
+                self.local_homo[sample_index] = local_homo
                 self.local_map[sample_index] = local_map
             local_maps.extend(self.local_map[sample_index])
-            local_ics.append(self.local_ic[sample_index])
-            local_homos.append(self.local_homo[sample_index])
+            local_ics.append(np.stack(self.local_ic[sample_index]))
+            local_homos.append(np.stack(self.local_homo[sample_index]))
             scene_maps.append(scene_map)
 
         if len(obs_traj) == 0:
