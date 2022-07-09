@@ -63,7 +63,6 @@ class data_generator(object):
         self.index = 0
         self.local_ic = [[]] * len(self.sample_list)
         self.local_homo = [[]] * len(self.sample_list)
-        self.local_map = [[]] * len(self.sample_list)
         print(f'total num samples: {self.num_total_samples}')
         print("------------------------------ done --------------------------------\n")
 
@@ -104,7 +103,14 @@ class data_generator(object):
             if data is None:
                 # print(0)
                 continue
-
+                # return data
+            # print(len(data['pre_motion_3D']))
+            # if self.split == 'train' and len(data['pre_motion_3D']) > self.max_train_agent:
+            #     in_data = {}
+            #     ind = np.random.choice(len(data['pre_motion_3D']), self.max_train_agent).tolist()
+            #     for key in ['pre_motion_3D', 'fut_motion_3D', 'fut_motion_mask', 'pre_motion_mask', 'heading']:
+            #         in_data[key] = [data[key][i] for i in ind if data[key] is not None]
+            # else:
             in_data = data
             obs_traj.append(torch.stack(in_data['pre_motion_3D']))
             fut_traj.append(torch.stack(in_data['fut_motion_3D']))
@@ -113,22 +119,20 @@ class data_generator(object):
             # get local map
             scene_map = data['scene_map']
             # scene_points = obs_traj[:, -1] * data['traj_scale']
-
+            scene_points = all_traj * data['traj_scale']
+            radius = []
+            for i in range(len(all_traj)):
+                map_traj = scene_map.to_map_points(scene_points[i])
+                r = np.clip(np.sqrt(((map_traj[1:] - map_traj[:-1]) ** 2).sum(1)).mean() * 20, a_min=128, a_max=None)
+                radius.append(np.round(r).astype(int))
+                # print(r)
             comput_local_homo = (len(self.local_ic[sample_index]) == 0)
+            local_map, local_ic, local_homo = scene_map.get_cropped_maps(scene_points, radius, compute_local_homo=comput_local_homo)
+            # local_map, local_ic, local_homo = [],[],[]
             if comput_local_homo:
-                scene_points = all_traj * data['traj_scale']
-                radius = []
-                for i in range(len(all_traj)):
-                    map_traj = scene_map.to_map_points(scene_points[i])
-                    r = np.clip(np.sqrt(((map_traj[1:] - map_traj[:-1]) ** 2).sum(1)).mean() * 20, a_min=128,
-                                a_max=None)
-                    radius.append(np.round(r).astype(int))
-                    # print(r)
-                local_map, local_ic, local_homo = scene_map.get_cropped_maps(scene_points, radius, compute_local_homo=comput_local_homo)
                 self.local_ic[sample_index] = local_ic
                 self.local_homo[sample_index] = local_homo
-                self.local_map[sample_index] = local_map
-            local_maps.extend(self.local_map[sample_index])
+            local_maps.extend(local_map)
             local_ics.append(np.stack(self.local_ic[sample_index]))
             local_homos.append(np.stack(self.local_homo[sample_index]))
             scene_maps.append(scene_map)
