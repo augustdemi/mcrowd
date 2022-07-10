@@ -224,10 +224,10 @@ class Solver(object):
 
         return heat_map_traj
 
-    def make_heatmap(self, local_ic, local_map, congest_map, aug=False):
+    def make_heatmap(self, local_ic, local_map, aug=False):
         heatmaps = []
         for i in range(len(local_ic)):
-            ohm = [local_map[i, 0], congest_map[i]]
+            ohm = [local_map[i, 0]]
 
             heat_map_traj = np.zeros((192, 192))
             for t in range(self.obs_len):
@@ -266,7 +266,7 @@ class Solver(object):
             all_heatmaps = torch.stack(all_heatmaps)
         else:
             all_heatmaps = torch.tensor(np.stack(heatmaps)).float().to(self.device)
-        return all_heatmaps[:, :3], all_heatmaps[:, 3:]
+        return all_heatmaps[:, :2], all_heatmaps[:, 2:]
 
 
 
@@ -1381,14 +1381,14 @@ class Solver(object):
                 b+=1
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
                  obs_frames, pred_frames, map_path, inv_h_t,
-                 local_map, local_ic, local_homo, cong_map) = batch
+                 local_map, local_ic, local_homo) = batch
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
                 for m in map_path:
                     scene_name.append(int(m.split('/')[-1].split('.')[0])// 10)
 
-                obs_heat_map, _= self.make_heatmap(local_ic, local_map, cong_map)
+                obs_heat_map, _= self.make_heatmap(local_ic, local_map)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 predictions = []
