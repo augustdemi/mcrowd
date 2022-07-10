@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 def seq_collate(data):
     (obs_seq_list, pred_seq_list,
      obs_frames, fut_frames, map_path, inv_h_t,
-     local_map, local_ic, local_homo, scale, congest_map) = zip(*data)
+     local_map, local_ic, local_homo, scale) = zip(*data)
     scale = scale[0]
 
     _len = [len(seq) for seq in obs_seq_list]
@@ -37,7 +37,6 @@ def seq_collate(data):
     inv_h_t = np.concatenate(inv_h_t, 0)
     # local_map = np.array(np.concatenate(local_map, 0))
     local_map = np.concatenate(local_map, 0)
-    congest_map = np.concatenate(congest_map, 0)
     local_ic = np.concatenate(local_ic, 0)
     local_homo = torch.cat(local_homo, 0)
 
@@ -52,7 +51,7 @@ def seq_collate(data):
     out = [
         obs_traj, fut_traj, obs_traj_st, fut_traj[:,:,2:4] / scale, seq_start_end,
         obs_frames, fut_frames, map_path, inv_h_t,
-        local_map, local_ic, local_homo, congest_map
+        local_map, local_ic, local_homo
     ]
 
 
@@ -72,24 +71,6 @@ def read_file(_path, delim='\t'):
             data.append(line)
     return np.asarray(data)
 
-
-
-def get_congestion_local_map(map, all_traj, zoom=10, radius=19.2):
-    radius = int(radius * zoom)
-    context_size = radius * 2
-
-    global_map = np.kron(map, np.ones((zoom, zoom)))
-    expanded_obs_img = np.full((global_map.shape[0] + context_size, global_map.shape[1] + context_size),
-        False, dtype=np.float32)
-    expanded_obs_img[radius:-radius, radius:-radius] = global_map.astype(np.float32)  # 99~-99
-
-
-    all_pixel = all_traj[:, [1, 0]] * zoom
-    all_pixel = context_size // 2 + np.round(all_pixel).astype(int)
-
-    local_map = expanded_obs_img[all_pixel[7,0] - radius: all_pixel[7,0] + radius,
-                all_pixel[7,1] - radius: all_pixel[7,1] + radius]
-    return 1-local_map/255
 
 
 class TrajectoryDataset(Dataset):
@@ -135,11 +116,9 @@ class TrajectoryDataset(Dataset):
         self.local_map = np.expand_dims(all_data['local_map'],1)
         self.local_homo = all_data['local_homo']
         self.local_ic = all_data['local_ic']
-        self.cong_map = [[]] * self.seq_start_end[-1][1]
 
         self.num_seq = len(self.seq_start_end) # = slide (seq. of 16 frames) 수 = 2692
         print(self.seq_start_end[-1])
-
 
 
 
@@ -148,38 +127,6 @@ class TrajectoryDataset(Dataset):
 
     def __getitem__(self, index):
         start, end = self.seq_start_end[index]
-        congest_maps = []
-        if len(self.cong_map[start]) != 0:
-            for idx in range(start, end):
-                congest_maps.append(self.cong_map[idx])
-        else:
-            # global_map = imageio.imread(self.map_file_name[index])
-            # map_file_name = self.map_file_name[index].replace('../../datasets', 'C:/dataset')
-            # map_file_name = map_file_name.replace('Trajectories', 'Y')
-            map_file_name = self.map_file_name[index].replace('../../datasets', '../datasets')
-            map_file_name = map_file_name.replace('Trajectories', 'Y')
-            global_map = imageio.imread(map_file_name)
-
-            for idx in range(start, end):
-                all_traj = np.concatenate([self.obs_traj[idx, :2].detach().cpu().numpy(), self.fut_traj[idx, :2].detach().cpu().numpy()], axis=1).transpose(1, 0)
-                '''
-                plt.imshow(global_map)
-                plt.scatter(all_traj[:8,0], all_traj[:8,1], s=1, c='b')
-                plt.scatter(all_traj[8:,0], all_traj[8:,1], s=1, c='r')
-                plt.show()
-                '''
-
-                cong_map = get_congestion_local_map(global_map, all_traj, zoom=10, radius=9.6)
-                self.cong_map[idx] = cong_map
-                congest_maps.append(cong_map)
-                '''
-                env = 1 - self.local_map[idx][0]
-                c  = get_congestion_local_map(global_map, all_traj, zoom=10, radius=9.6)
-                plt.imshow(np.stack([env, env * c, env], axis=2))
-                '''
-        congest_maps = np.stack(congest_maps)
-
-
 
         #########
         out = [
@@ -188,6 +135,6 @@ class TrajectoryDataset(Dataset):
             np.array([self.map_file_name[index]] * (end - start)), np.array([self.inv_h_t[index]] * (end - start)),
             self.local_map[start:end],
             self.local_ic[start:end],
-            torch.from_numpy(self.local_homo[start:end]).float().to(self.device), self.scale, congest_maps
+            torch.from_numpy(self.local_homo[start:end]).float().to(self.device), self.scale
         ]
         return out
