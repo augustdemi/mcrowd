@@ -1495,14 +1495,6 @@ class Solver(object):
                 ##### trajectories per long&short goal ####
 
                 # -------- trajectories --------
-                (hx, mux, log_varx) \
-                    = self.encoderMx(obs_traj_st, seq_start_end)
-
-                p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
-                z_priors = []
-                for _ in range(traj_num):
-                    z_priors.append(p_dist.sample())
-
                 for pred_sg_wc in pred_sg_wcs:
                     # -------- trajectories --------
                     # NO TF, pred_goals, z~prior
