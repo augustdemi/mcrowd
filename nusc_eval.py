@@ -915,13 +915,6 @@ class Solver(object):
         total_coll25 = [0] * (lg_num * traj_num)
         total_coll30 = [0] * (lg_num * traj_num)
 
-        sg_total_coll5 = [0] * lg_num
-        sg_total_coll10 = [0] * lg_num
-        sg_total_coll15 = [0] * lg_num
-        sg_total_coll20 = [0] * lg_num
-        sg_total_coll25 = [0] * lg_num
-        sg_total_coll30 = [0] * lg_num
-
         n_scene = 0
 
 
@@ -1074,49 +1067,6 @@ class Solver(object):
                     pred_sg_wc = torch.stack(pred_sg_wc).transpose(1,0) # bs, #sg, 2
                     pred_sg_wcs.append(pred_sg_wc) # for differe w_prior
 
-                    sg_coll5 = 0
-                    sg_coll10 = 0
-                    sg_coll15 = 0
-                    sg_coll20 = 0
-                    sg_coll25 = 0
-                    sg_coll30 = 0
-                    for s, e in seq_start_end:
-                        num_ped = e - s
-                        if num_ped == 1:
-                            continue
-                        seq_traj = pred_sg_wc[s:e].transpose(1,0)
-                        for i in range(len(seq_traj)):
-                            curr1 = seq_traj[i].repeat(num_ped, 1)
-                            curr2 = self.repeat(seq_traj[i], num_ped)
-                            dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
-                            dist = dist.reshape(num_ped, num_ped)
-                            diff_agent_idx = np.triu_indices(num_ped, k=1)
-                            diff_agent_dist = dist[diff_agent_idx]
-                            sg_coll5 += (diff_agent_dist < 0.5).sum()
-                            sg_coll10 += (diff_agent_dist < 1.0).sum()
-                            sg_coll15 += (diff_agent_dist < 1.5).sum()
-                            sg_coll20 += (diff_agent_dist < 2.0).sum()
-                            sg_coll25 += (diff_agent_dist < 2.5).sum()
-                            sg_coll30 += (diff_agent_dist < 2.8).sum()
-                    sg_multi_coll5.append(sg_coll5)
-                    sg_multi_coll10.append(sg_coll10)
-                    sg_multi_coll15.append(sg_coll15)
-                    sg_multi_coll20.append(sg_coll20)
-                    sg_multi_coll25.append(sg_coll25)
-                    sg_multi_coll30.append(sg_coll30)
-
-                    ################
-
-
-                # a2a collision
-                for i in range(lg_num):
-                    sg_total_coll5[i] += sg_multi_coll5[i]
-                    sg_total_coll10[i] += sg_multi_coll10[i]
-                    sg_total_coll15[i] += sg_multi_coll15[i]
-                    sg_total_coll20[i] += sg_multi_coll20[i]
-                    sg_total_coll25[i] += sg_multi_coll25[i]
-                    sg_total_coll30[i] += sg_multi_coll30[i]
-
                 ##### trajectories per long&short goal ####
 
                 # -------- trajectories --------
@@ -1260,19 +1210,6 @@ class Solver(object):
             print('total 20: ', np.min(total_coll20, axis=0).mean(), np.mean(total_coll20, axis=0).mean(), np.std(total_coll20, axis=0).mean())
             print('total 25: ', np.min(total_coll25, axis=0).mean(), np.mean(total_coll25, axis=0).mean(), np.std(total_coll25, axis=0).mean())
             print('total 30: ', np.min(total_coll30, axis=0).mean(), np.mean(total_coll30, axis=0).mean(), np.std(total_coll30, axis=0).mean())
-            print('=========================================== sg collision')
-            print('total 5: ', np.min(sg_total_coll5, axis=0).mean(), np.mean(sg_total_coll5, axis=0).mean(),
-                  np.std(sg_total_coll5, axis=0).mean())
-            print('total 10: ', np.min(sg_total_coll10, axis=0).mean(), np.mean(sg_total_coll10, axis=0).mean(),
-                  np.std(sg_total_coll10, axis=0).mean())
-            print('total 15: ', np.min(sg_total_coll15, axis=0).mean(), np.mean(sg_total_coll15, axis=0).mean(),
-                  np.std(sg_total_coll15, axis=0).mean())
-            print('total 20: ', np.min(sg_total_coll20, axis=0).mean(), np.mean(sg_total_coll20, axis=0).mean(),
-                  np.std(sg_total_coll20, axis=0).mean())
-            print('total 25: ', np.min(sg_total_coll25, axis=0).mean(), np.mean(sg_total_coll25, axis=0).mean(),
-                  np.std(sg_total_coll25, axis=0).mean())
-            print('total 30: ', np.min(sg_total_coll30, axis=0).mean(), np.mean(sg_total_coll30, axis=0).mean(),
-                  np.std(sg_total_coll30, axis=0).mean())
 
             print(n_scene)
 
