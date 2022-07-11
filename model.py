@@ -180,14 +180,15 @@ class Decoder(nn.Module):
         self.dt = dt
         self.context_dim = context_dim
 
-        self.dec_hidden = nn.Linear(n_state, dec_h_dim)
+        self.dec_hidden = nn.Linear(mlp_dim + z_dim, dec_h_dim)
         self.to_vel = nn.Linear(n_state, n_pred_state)
 
         self.rnn_decoder = nn.GRUCell(
-            input_size=2*n_pred_state, hidden_size=dec_h_dim
+            input_size=mlp_dim + z_dim + 2*n_pred_state, hidden_size=dec_h_dim
         )
 
         self.fc_mu = nn.Linear(dec_h_dim, n_pred_state)
+        self.fc_std = nn.Linear(dec_h_dim, n_pred_state)
 
         self.sg_rnn_enc = nn.LSTM(
             input_size=n_state, hidden_size=enc_h_dim, num_layers=1, bidirectional=True)
@@ -201,7 +202,7 @@ class Decoder(nn.Module):
         # self.mlp_context_enc = nn.Linear(enc_h_dim + dec_h_dim, dec_h_dim)
         self.mlp_context= nn.Linear(dec_h_dim + context_dim, dec_h_dim)
 
-    def forward(self, seq_start_end, last_obs_st, last_pos, sg, sg_update_idx, fut_vel_st=None, train=False):
+    def forward(self, seq_start_end, last_obs_st, last_pos, enc_h_feat, z, sg, sg_update_idx, fut_vel_st=None, train=False):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
@@ -216,7 +217,8 @@ class Decoder(nn.Module):
         # Infer initial action state for node from current state
         pred_vel = self.to_vel(last_obs_st)
         # pred_vel = last_obs_st[:,2:4] # bs, 2
-        decoder_h=self.dec_hidden(last_obs_st) # 493, 128
+        zx = torch.cat([enc_h_feat, z], dim=1) # bs, (32+20)
+        decoder_h=self.dec_hidden(zx) # 493, 128
 
         # create context hidden feature
         # context = self.pool_net(enc_h_feat, seq_start_end, last_pos)  # batchsize, 1024
@@ -235,7 +237,7 @@ class Decoder(nn.Module):
             ax = np.gradient(vx, dt)
             ay = np.gradient(vy, dt)
             sg_state.append(np.array([pos[:,0], pos[:,1], vx, vy, ax, ay]))
-        sg_state = torch.tensor(np.stack(sg_state)).permute((2,0,1)).float().to(last_pos.device) # bs, 6, 4(last_obs + #sg) --> 4, bs, 6
+        sg_state = torch.tensor(np.stack(sg_state)).permute((2,0,1)).float().to(z.device) # bs, 6, 4(last_obs + #sg) --> 4, bs, 6
 
         ### sg encoding
         _, sg_h = self.sg_rnn_enc(sg_state) # [8, 656, 16], 두개의 [1, 656, 32]
@@ -248,11 +250,19 @@ class Decoder(nn.Module):
 
         ### traj decoding
         mus = []
+        stds = []
         j=0
         for i in range(self.seq_len):
             # predict next position
-            decoder_h= self.rnn_decoder(torch.cat([pred_vel, sg_feat], dim=1), decoder_h) #493, 128
+            decoder_h= self.rnn_decoder(torch.cat([zx, pred_vel, sg_feat], dim=1), decoder_h) #493, 128
             mu = self.fc_mu(decoder_h)
+            logVar = self.fc_std(decoder_h)
+            # std = torch.sqrt(torch.exp(logVar))
+
+            mu = torch.clamp(mu, min=-1e8, max=1e8)
+            logVar = torch.clamp(logVar, max=8e1)
+            std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
+
 
             if fut_vel_st is not None:
                 pred_vel = fut_vel_st[i]
@@ -261,30 +271,37 @@ class Decoder(nn.Module):
                     pred_vel = sg_state[j + 1, :, 2:4]
                     j += 1
                 else:
-                    pred_vel = mu
+                    pred_vel = Normal(mu, std).rsample()
 
             if self.context_dim > 0:
-                pred_vel = mu
+                pred_vel = Normal(mu, std).rsample()
                 # create context for the next prediction
                 curr_pos = pred_vel * self.scale * self.dt + last_pos
                 context = self.pool_net(decoder_h, seq_start_end, curr_pos)  # batchsize, 1024
                 decoder_h = self.mlp_context(torch.cat([decoder_h, context], dim=1))  # mlp : 1152 -> 1024 -> 128
                 # refine the prediction
                 mu = self.fc_mu(F.relu(decoder_h))
-                pred_vel = mu
+                logVar = self.fc_std(F.relu(decoder_h))
+                mu = torch.clamp(mu, min=-1e8, max=1e8)
+                logVar = torch.clamp(logVar, max=8e1)
+                std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
+                pred_vel = Normal(mu, std).rsample()
                 curr_pos = pred_vel * self.scale * self.dt + last_pos
                 last_pos = curr_pos
             mus.append(mu)
+            stds.append(std)
 
         mus = torch.stack(mus, dim=0)
-        return mus
+        stds = torch.stack(stds, dim=0)
+        return Normal(mus, stds)
 
-    def make_prediction(self, seq_start_end, last_obs_st, last_pos, sg, sg_update_idx):
+    def make_prediction(self, seq_start_end, last_obs_st, last_pos, enc_h_feat, z, sg, sg_update_idx):
 
         # Infer initial action state for node from current state
         pred_vel = self.to_vel(last_obs_st)
         # pred_vel = last_obs_st[:,2:4] # bs, 2
-        decoder_h=self.dec_hidden(last_obs_st) # 493, 128
+        zx = torch.cat([enc_h_feat, z], dim=1) # bs, (32+20)
+        decoder_h=self.dec_hidden(zx) # 493, 128
 
         # create context hidden feature
         # context = self.pool_net(enc_h_feat, seq_start_end, last_pos)  # batchsize, 1024
@@ -303,7 +320,7 @@ class Decoder(nn.Module):
             ax = np.gradient(vx, dt)
             ay = np.gradient(vy, dt)
             sg_state.append(np.array([pos[:,0], pos[:,1], vx, vy, ax, ay]))
-        sg_state = torch.tensor(np.stack(sg_state)).permute((2,0,1)).float().to(last_pos.device) # bs, 6, 4(last_obs + #sg) --> 4, bs, 6
+        sg_state = torch.tensor(np.stack(sg_state)).permute((2,0,1)).float().to(z.device) # bs, 6, 4(last_obs + #sg) --> 4, bs, 6
 
         ### sg encoding
         _, sg_h = self.sg_rnn_enc(sg_state) # [8, 656, 16], 두개의 [1, 656, 32]
@@ -318,20 +335,44 @@ class Decoder(nn.Module):
         all_pred = []
         j=0
         for i in range(self.seq_len):
-            if i in sg_update_idx:
-                pred_vel = sg_state[j + 1, :, 2:4]
-                j += 1
-            else:
-                # predict next position
-                decoder_h= self.rnn_decoder(torch.cat([pred_vel, sg_feat], dim=1), decoder_h) #493, 128
-                pred_vel = self.fc_mu(decoder_h)
-                if self.context_dim > 0:
-                    # create context for the next prediction
-                    curr_pos = pred_vel * self.scale * self.dt + last_pos
-                    context = self.pool_net(decoder_h, seq_start_end, curr_pos)  # batchsize, 1024
-                    decoder_h = self.mlp_context(torch.cat([decoder_h, context], dim=1))  # mlp : 1152 -> 1024 -> 128
-                    # refine the prediction
-                    pred_vel = self.fc_mu(F.relu(decoder_h))
+            # predict next position
+            decoder_h= self.rnn_decoder(torch.cat([zx, pred_vel, sg_feat], dim=1), decoder_h) #493, 128
+            mu = self.fc_mu(decoder_h)
+            logVar = self.fc_std(decoder_h)
+            # std = torch.sqrt(torch.exp(logVar))
+
+            mu = torch.clamp(mu, min=-1e8, max=1e8)
+            logVar = torch.clamp(logVar, max=8e1)
+            std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
+
+            pred_vel = Normal(mu, std).rsample()
+
+            if self.context_dim > 0:
+                # create context for the next prediction
+                curr_pos = pred_vel * self.scale * self.dt + last_pos
+                context = self.pool_net(decoder_h, seq_start_end, curr_pos)  # batchsize, 1024
+                decoder_h = self.mlp_context(torch.cat([decoder_h, context], dim=1))  # mlp : 1152 -> 1024 -> 128
+                # refine the prediction
+                mu = self.fc_mu(F.relu(decoder_h))
+                logVar = self.fc_std(F.relu(decoder_h))
+                mu = torch.clamp(mu, min=-1e8, max=1e8)
+                logVar = torch.clamp(logVar, max=8e1)
+                std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
+
+                if i in sg_update_idx:
+                    tf_pred_vel = sg_state[j + 1, :, 2:4]
+                    tf_pos = tf_pred_vel * self.scale * self.dt + last_pos
+                    j += 1
+                    pred_vel_cand = Normal(mu, std).rsample((20,))
+                    refined_pred_vel = []
+                    for agent_idx in range(len(pred_vel)):
+                        cand_pos = pred_vel_cand[:, agent_idx] * self.scale * self.dt + last_pos[agent_idx]
+                        dist_diff = ((cand_pos - tf_pos[agent_idx]) ** 2).sum(1)
+                        pred_vel_idx = torch.argmin(dist_diff)
+                        refined_pred_vel.append(pred_vel_cand[pred_vel_idx, agent_idx])
+                    pred_vel = torch.stack(refined_pred_vel)
+                else:
+                    pred_vel = Normal(mu, std).rsample()
 
             curr_pos = pred_vel * self.scale * self.dt + last_pos
             last_pos = curr_pos
