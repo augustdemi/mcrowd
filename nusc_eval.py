@@ -1120,26 +1120,16 @@ class Solver(object):
                 ##### trajectories per long&short goal ####
 
                 # -------- trajectories --------
-                (hx, mux, log_varx) \
-                    = self.encoderMx(obs_traj_st, seq_start_end)
-
-                p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
-                z_priors = []
-                for _ in range(traj_num):
-                    z_priors.append(p_dist.sample())
 
                 for pred_sg_wc in pred_sg_wcs:
-                    for z_prior in z_priors:
-                        # -------- trajectories --------
-                        # NO TF, pred_goals, z~prior
-                        micro_pred = self.decoderMy.make_prediction(
-                            seq_start_end,
-                            obs_traj_st[-1],
-                            obs_traj[-1, :, :2],
-                            pred_sg_wc,  # goal
-                            self.sg_idx
-                        )
-                        predictions.append(micro_pred)
+                    micro_pred = self.decoderMy.make_prediction(
+                        seq_start_end,
+                        obs_traj_st[-1],
+                        obs_traj[-1, :, :2],
+                        pred_sg_wc,  # goal
+                        self.sg_idx
+                    )
+                    predictions.append(micro_pred)
 
                 multi_coll5 = []
                 multi_coll10 = []
@@ -1873,12 +1863,8 @@ class Solver(object):
         if train:
             self.sg_unet.train()
             self.lg_cvae.train()
-            self.encoderMx.train()
-            self.encoderMy.train()
             self.decoderMy.train()
         else:
             self.sg_unet.eval()
             self.lg_cvae.eval()
-            self.encoderMx.eval()
-            self.encoderMy.eval()
             self.decoderMy.eval()
