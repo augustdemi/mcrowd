@@ -1848,14 +1848,6 @@ class Solver(object):
             sg['ckpt_dir'],
             'iter_%s_sg_unet.pt' % sg['iter']
         )
-        encoderMx_path = os.path.join(
-            traj['ckpt_dir'],
-            'iter_%s_encoderMx.pt' % traj['iter']
-        )
-        encoderMy_path = os.path.join(
-            traj['ckpt_dir'],
-            'iter_%s_encoderMy.pt' % traj['iter']
-        )
         decoderMy_path = os.path.join(
             traj['ckpt_dir'],
             'iter_%s_decoderMy.pt' %  traj['iter']
@@ -1867,14 +1859,10 @@ class Solver(object):
 
 
         if self.device == 'cuda':
-            self.encoderMx = torch.load(encoderMx_path)
-            self.encoderMy = torch.load(encoderMy_path)
             self.decoderMy = torch.load(decoderMy_path)
             self.lg_cvae = torch.load(lg_cvae_path)
             self.sg_unet = torch.load(sg_unet_path)
         else:
-            self.encoderMx = torch.load(encoderMx_path, map_location='cpu')
-            self.encoderMy = torch.load(encoderMy_path, map_location='cpu')
             self.decoderMy = torch.load(decoderMy_path, map_location='cpu')
             self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
             self.sg_unet = torch.load(sg_unet_path, map_location='cpu')
