@@ -172,15 +172,14 @@ class Solver(object):
 
 
         # get VAE parameters
-        vae_params = list(self.decoderMy.parameters())
+        params = list(self.decoderMy.parameters())
         # create optimizers
-        self.optim_vae = optim.Adam(
-            vae_params,
-            lr=self.lr_VAE,
-            betas=[self.beta1_VAE, self.beta2_VAE]
+        self.optimizer = optim.Adam(
+            params,
+            lr=self.lr
         )
 
-        self.scheduler = optim.lr_scheduler.LambdaLR(optimizer=self.optim_vae,
+        self.scheduler = optim.lr_scheduler.LambdaLR(optimizer=self.optimizer,
                                         lr_lambda=lambda epoch: args.lr_e ** epoch)
 
         print('Start loading data...')
@@ -234,11 +233,11 @@ class Solver(object):
                     data_loader.is_epoch_end()
                 print('==== epoch %d done ====' % epoch)
                 if epoch % 10 == 0:
-                    if self.optim_vae.param_groups[0]['lr'] > 1e-4:
+                    if self.optimizer.param_groups[0]['lr'] > 1e-4:
                         self.scheduler.step()
                     else:
-                        self.optim_vae.param_groups[0]['lr'] = 1e-4
-                print("lr: ", self.optim_vae.param_groups[0]['lr'], ' // w_coll: ', self.w_coll)
+                        self.optimizer.param_groups[0]['lr'] = 1e-4
+                print("lr: ", self.optimizer.param_groups[0]['lr'], ' // w_coll: ', self.w_coll)
                 print('e_coll_loss: ', e_coll_loss, ' // e_total_coll: ', e_total_coll)
 
                 epoch +=1
@@ -302,9 +301,9 @@ class Solver(object):
             e_coll_loss +=coll_loss.item()
             e_total_coll +=total_coll
 
-            self.optim_vae.zero_grad()
+            self.optimizer.zero_grad()
             loss.backward()
-            self.optim_vae.step()
+            self.optimizer.step()
 
 
             # save model parameters
@@ -313,7 +312,7 @@ class Solver(object):
 
             # (visdom) insert current line stats
             if epoch > 0:
-                if (self.viz_on and (iteration % (iter_per_epoch*50) == 0)):
+                if (self.viz_on and (iteration % (iter_per_epoch*500) == 0)):
                     ade_min, fde_min, \
                     ade_avg, fde_avg, \
                     ade_std, fde_std, \
