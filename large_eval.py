@@ -2649,14 +2649,10 @@ class Solver(object):
         if train:
             self.lg_cvae.train()
             self.sg_unet.train()
-            self.encoderMx.train()
-            self.encoderMy.train()
             self.decoderMy.train()
         else:
             self.lg_cvae.eval()
             self.sg_unet.eval()
-            self.encoderMx.eval()
-            self.encoderMy.eval()
             self.decoderMy.eval()
 
 
