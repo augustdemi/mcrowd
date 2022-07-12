@@ -91,7 +91,7 @@ class Solver(object):
         self.batch_size = args.batch_size
         self.zS_dim = args.zS_dim
         self.w_dim = args.w_dim
-        self.lr_VAE = args.lr_VAE
+        self.lr = args.lr_VAE
         self.beta1_VAE = args.beta1_VAE
         self.beta2_VAE = args.beta2_VAE
         print(args.desc)
