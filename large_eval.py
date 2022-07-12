@@ -224,10 +224,10 @@ class Solver(object):
 
         return heat_map_traj
 
-    def make_heatmap(self, local_ic, local_map, aug=False):
+    def make_heatmap(self, local_ic, local_map, congest_map, aug=False):
         heatmaps = []
         for i in range(len(local_ic)):
-            ohm = [local_map[i, 0]]
+            ohm = [local_map[i, 0], congest_map[i]]
 
             heat_map_traj = np.zeros((192, 192))
             for t in range(self.obs_len):
@@ -266,7 +266,7 @@ class Solver(object):
             all_heatmaps = torch.stack(all_heatmaps)
         else:
             all_heatmaps = torch.tensor(np.stack(heatmaps)).float().to(self.device)
-        return all_heatmaps[:, :2], all_heatmaps[:, 2:]
+        return all_heatmaps[:, :3], all_heatmaps[:, 3:]
 
 
 
@@ -1381,14 +1381,14 @@ class Solver(object):
                 b+=1
                 (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
                  obs_frames, pred_frames, map_path, inv_h_t,
-                 local_map, local_ic, local_homo) = batch
+                 local_map, local_ic, local_homo, cong_map) = batch
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
                 for m in map_path:
                     scene_name.append(int(m.split('/')[-1].split('.')[0])// 10)
 
-                obs_heat_map, _= self.make_heatmap(local_ic, local_map)
+                obs_heat_map, _= self.make_heatmap(local_ic, local_map, cong_map)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 predictions = []
@@ -1495,17 +1495,29 @@ class Solver(object):
                 ##### trajectories per long&short goal ####
 
                 # -------- trajectories --------
+                (hx, mux, log_varx) \
+                    = self.encoderMx(obs_traj_st, seq_start_end)
+
+                p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
+                z_priors = []
+                for _ in range(traj_num):
+                    z_priors.append(p_dist.sample())
+
                 for pred_sg_wc in pred_sg_wcs:
-                    # -------- trajectories --------
-                    # NO TF, pred_goals, z~prior
-                    micro_pred = self.decoderMy.make_prediction(
-                        seq_start_end,
-                        obs_traj_st[-1],
-                        obs_traj[-1, :, :2],
-                        pred_sg_wc,  # goal
-                        self.sg_idx
-                    )
-                    predictions.append(micro_pred)
+                    for z_prior in z_priors:
+                        # -------- trajectories --------
+                        # NO TF, pred_goals, z~prior
+                        micro_pred = self.decoderMy.make_prediction(
+                            seq_start_end,
+                            obs_traj_st[-1],
+                            obs_traj[-1, :, :2],
+                            hx,
+                            z_prior,
+                            pred_sg_wc,  # goal
+                            self.sg_idx
+                        )
+                        predictions.append(micro_pred)
+
 
                 ade, fde = [], []
                 multi_coll5 = []
@@ -2649,10 +2661,14 @@ class Solver(object):
         if train:
             self.lg_cvae.train()
             self.sg_unet.train()
+            self.encoderMx.train()
+            self.encoderMy.train()
             self.decoderMy.train()
         else:
             self.lg_cvae.eval()
             self.sg_unet.eval()
+            self.encoderMx.eval()
+            self.encoderMy.eval()
             self.decoderMy.eval()
 
 
@@ -2666,7 +2682,14 @@ class Solver(object):
             sg['ckpt_dir'],
             'iter_%s_sg_unet.pt' % sg['iter']
         )
-
+        encoderMx_path = os.path.join(
+            traj['ckpt_dir'],
+            'iter_%s_encoderMx.pt' % traj['iter']
+        )
+        encoderMy_path = os.path.join(
+            traj['ckpt_dir'],
+            'iter_%s_encoderMy.pt' % traj['iter']
+        )
         decoderMy_path = os.path.join(
             traj['ckpt_dir'],
             'iter_%s_decoderMy.pt' %  traj['iter']
@@ -2677,10 +2700,14 @@ class Solver(object):
         if self.device == 'cuda':
             self.lg_cvae = torch.load(lg_cvae_path)
             self.sg_unet = torch.load(sg_unet_path)
+            self.encoderMx = torch.load(encoderMx_path)
+            self.encoderMy = torch.load(encoderMy_path)
             self.decoderMy = torch.load(decoderMy_path)
 
 
         else:
             self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
             self.sg_unet = torch.load(sg_unet_path, map_location='cpu')
+            self.encoderMx = torch.load(encoderMx_path, map_location='cpu')
+            self.encoderMy = torch.load(encoderMy_path, map_location='cpu')
             self.decoderMy = torch.load(decoderMy_path, map_location='cpu')
