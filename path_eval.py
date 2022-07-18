@@ -2836,25 +2836,12 @@ class Solver(object):
         if train:
             self.lg_cvae.train()
             self.sg_unet.train()
-            self.encoderMx.train()
-            self.encoderMy.train()
             self.decoderMy.train()
         else:
             self.lg_cvae.eval()
             self.sg_unet.eval()
-            self.encoderMx.eval()
-            self.encoderMy.eval()
             self.decoderMy.eval()
 
-    ####
-    def save_checkpoint(self, iteration):
-
-        sg_unet_path = os.path.join(
-            self.ckpt_dir,
-            'iter_%s_sg_unet.pt' % iteration
-        )
-        mkdirs(self.ckpt_dir)
-        torch.save(self.sg_unet, sg_unet_path)
 
 
 
@@ -2867,14 +2854,6 @@ class Solver(object):
             sg['ckpt_dir'],
             'iter_%s_sg_unet.pt' % sg['iter']
         )
-        encoderMx_path = os.path.join(
-            traj['ckpt_dir'],
-            'iter_%s_encoderMx.pt' % traj['iter']
-        )
-        encoderMy_path = os.path.join(
-            traj['ckpt_dir'],
-            'iter_%s_encoderMy.pt' % traj['iter']
-        )
         decoderMy_path = os.path.join(
             traj['ckpt_dir'],
             'iter_%s_decoderMy.pt' %  traj['iter']
@@ -2885,14 +2864,10 @@ class Solver(object):
         if self.device == 'cuda':
             self.lg_cvae = torch.load(lg_cvae_path)
             self.sg_unet = torch.load(sg_unet_path)
-            self.encoderMx = torch.load(encoderMx_path)
-            self.encoderMy = torch.load(encoderMy_path)
             self.decoderMy = torch.load(decoderMy_path)
 
 
         else:
             self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
             self.sg_unet = torch.load(sg_unet_path, map_location='cpu')
-            self.encoderMx = torch.load(encoderMx_path, map_location='cpu')
-            self.encoderMy = torch.load(encoderMy_path, map_location='cpu')
             self.decoderMy = torch.load(decoderMy_path, map_location='cpu')
