@@ -1756,11 +1756,6 @@ class Solver(object):
                     pred_sg_wcs.append(pred_sg_wc) # for differe w_prior
 
                 ##### trajectories per long&short goal ####
-
-                z_priors = []
-                for _ in range(traj_num):
-                    z_priors.append(p_dist.sample())
-
                 for pred_sg_wc in pred_sg_wcs:
                     # -------- trajectories --------
                     # NO TF, pred_goals, z~prior
