@@ -176,7 +176,7 @@ class Solver(object):
         # create optimizers
         self.optimizer = optim.Adam(
             params,
-            lr=self.lr
+            lr=self.lr_VAE
         )
 
         self.scheduler = optim.lr_scheduler.LambdaLR(optimizer=self.optimizer,
