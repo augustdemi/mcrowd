@@ -1028,7 +1028,7 @@ class Solver(object):
                             seq_pred_sg_wcs = torch.stack(seq_pred_sg_wcs)
                             final_seq_pred_sg = seq_pred_sg_wcs[:,-1]
 
-                            coll_th = 2.8
+                            coll_th = 2.5
                             curr1 = final_seq_pred_sg.repeat(num_ped, 1)
                             curr2 = self.repeat(final_seq_pred_sg, num_ped)
                             dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
@@ -1213,11 +1213,11 @@ class Solver(object):
 
             print(n_scene)
 
-            import pickle5
-            all_data = {'seq_s_e': seq, 'gt': all_gt, 'pred': all_pred}
-            save_path = os.path.join('./nu_pred' + str(lg_num) + '.pkl')
-            with open(save_path, 'wb') as handle:
-                pickle5.dump(all_data, handle, protocol=pickle5.HIGHEST_PROTOCOL)
+            # import pickle5
+            # all_data = {'seq_s_e': seq, 'gt': all_gt, 'pred': all_pred}
+            # save_path = os.path.join('./'+ self.dec_path + str(lg_num) + '.pkl')
+            # with open(save_path, 'wb') as handle:
+            #     pickle5.dump(all_data, handle, protocol=pickle5.HIGHEST_PROTOCOL)
 
         return ade_min, fde_min, \
                ade_avg, fde_avg, \
@@ -1835,7 +1835,7 @@ class Solver(object):
             lg['ckpt_dir'],
             'iter_%s_lg_cvae.pt' %  lg['iter']
         )
-
+        self.dec_path = decoderMy_path
 
         if self.device == 'cuda':
             self.decoderMy = torch.load(decoderMy_path)
