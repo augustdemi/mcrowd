@@ -1213,6 +1213,11 @@ class Solver(object):
 
             print(n_scene)
 
+            import pickle5
+            all_data = {'seq_s_e': seq_start_end, 'gt': all_gt, 'pred': all_pred}
+            save_path = os.path.join('./nu_pred' + str(lg_num) + '.pkl')
+            with open(save_path, 'wb') as handle:
+                pickle5.dump(all_data, handle, protocol=pickle5.HIGHEST_PROTOCOL)
 
         return ade_min, fde_min, \
                ade_avg, fde_avg, \
@@ -1221,6 +1226,48 @@ class Solver(object):
                lg_fde_min, lg_fde_avg, lg_fde_std
 
 
+    # def coll_corr(self):
+    #     multi_coll = []
+    #     for pred_fut_traj in pred: # 5, 12, 9041, 2
+    #         coll5 = 0
+    #         for s, e in seq_start_end:
+    #             num_ped = e - s
+    #             if num_ped == 1:
+    #                 continue
+    #             seq_traj = pred_fut_traj[:, s:e]
+    #             for i in range(len(seq_traj)):
+    #                 curr1 = seq_traj[i].repeat(num_ped, 1)
+    #                 curr2 = repeatt(seq_traj[i], num_ped)
+    #                 dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
+    #                 dist = dist.reshape(num_ped, num_ped)
+    #                 diff_agent_idx = np.triu_indices(num_ped, k=1)
+    #                 diff_agent_dist = dist[diff_agent_idx]
+    #                 coll5 += (diff_agent_dist < 2.5).sum()
+    #         multi_coll.append(coll5)
+
+
+    # def coll_corr2(self):
+    #
+    #     total_col = 0
+    #     for s, e in seq_start_end:
+    #         num_ped = e - s
+    #         if num_ped == 1:
+    #             continue
+    #         seq_coll = []
+    #         for pred_fut_traj in pred1: # 5, 12, 9041, 2
+    #             seq_traj = pred_fut_traj[:, s:e]
+    #             coll = 0
+    #             for i in range(len(seq_traj)):  #12
+    #                 curr1 = seq_traj[i].repeat(num_ped, 1)
+    #                 curr2 = repeatt(seq_traj[i], num_ped)
+    #                 dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
+    #                 dist = dist.reshape(num_ped, num_ped)
+    #                 diff_agent_idx = np.triu_indices(num_ped, k=1)
+    #                 diff_agent_dist = dist[diff_agent_idx]
+    #                 coll += (diff_agent_dist < 2.5).sum()
+    #             seq_coll.append(coll)
+    #         print(np.array(seq_coll))
+    #         total_col += np.array(seq_coll).min()
 
 
     def make_ecfl(self, data_loader, lg_num=5, traj_num=4, generate_heat=True):
