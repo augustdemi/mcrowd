@@ -952,14 +952,6 @@ class Solver(object):
                 for _ in range(lg_num):
                     w_priors.append(self.lg_cvae.prior_latent_space.sample())
 
-
-                sg_multi_coll5 = []
-                sg_multi_coll10 = []
-                sg_multi_coll15 = []
-                sg_multi_coll20 = []
-                sg_multi_coll25 = []
-                sg_multi_coll30 = []
-
                 for w_prior in w_priors:
                     # -------- long term goal --------
                     pred_lg_heat = F.sigmoid(self.lg_cvae.sample(self.lg_cvae.unet_enc_feat, w_prior))
@@ -1055,12 +1047,6 @@ class Solver(object):
                                             break
                                     else:
                                         final_seq_pred_sg[coll_agents[1][c]] = a2_positions[dist.argmax()]
-                                        # curr1 = final_seq_pred_sg.repeat(num_ped, 1)
-                                        # curr2 = self.repeat(final_seq_pred_sg, num_ped)
-                                        # dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
-                                        # dist = dist.reshape(num_ped, num_ped) + np.eye(num_ped) * 100
-                                        # dist[np.triu_indices(num_ped, k=1)] += 100
-                                        # print('after correction: ', len(np.where(dist < coll_th)[0]))
 
                             sg_at_this_step.append(final_seq_pred_sg)
                         pred_sg_wc.append(torch.cat(sg_at_this_step)) # bs, 2
@@ -1109,6 +1095,7 @@ class Solver(object):
                     coll30 = 0
                     for s, e in seq_start_end:
                         num_ped = e - s
+                        n_scene += num_ped
                         if num_ped == 1:
                             continue
                         seq_traj = pred_fut_traj[:, s:e]
@@ -1141,10 +1128,10 @@ class Solver(object):
                     pix_pred.append(np.expand_dims(np.stack(batch_seq_pix), 1))
 
 
-
+                # add  12 steps' results of one batch
                 all_pred.append(torch.stack(pred).detach().cpu().numpy())
                 all_gt.append(fut_traj[:,:,:2].unsqueeze(0).detach().cpu().numpy())
-                seq.append(seq_start_end)
+                seq.append([seq_start_end[0][0]+n_scene, seq_start_end[0][1]+n_scene])
 
                 # a2a collision
                 for i in range(lg_num * traj_num):
@@ -1250,6 +1237,21 @@ class Solver(object):
                     coll5 += (diff_agent_dist < 2.5).sum()
             multi_coll.append(coll5)
 
+
+
+    ####
+    def repeatt(tensor, num_reps):
+        """
+        Inputs:
+        -tensor: 2D tensor of any shape
+        -num_reps: Number of times to repeat each row
+        Outpus:
+        -repeat_tensor: Repeat each row such that: R1, R1, R2, R2
+        """
+        col_len = tensor.size(1)
+        tensor = tensor.unsqueeze(dim=1).repeat(1, num_reps, 1)
+        tensor = tensor.view(-1, col_len)
+        return tensor
 
     # def coll_corr2(self):
     #
