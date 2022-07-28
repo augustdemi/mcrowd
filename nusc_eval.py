@@ -917,6 +917,7 @@ class Solver(object):
 
         n_scene = 0
 
+        self.dec_path =self.dec_path.split('/')[1]
 
 
         all_ade =[]
@@ -1200,11 +1201,16 @@ class Solver(object):
 
             print(n_scene)
 
-            # import pickle5
-            # all_data = {'seq_s_e': seq, 'gt': all_gt, 'pred': all_pred}
-            # save_path = os.path.join('./'+ self.dec_path + str(lg_num) + '.pkl')
-            # with open(save_path, 'wb') as handle:
-            #     pickle5.dump(all_data, handle, protocol=pickle5.HIGHEST_PROTOCOL)
+
+            import pickle5
+            # if not os.path.exists(self.dec_path):
+            #     os.makedirs(self.dec_path)
+
+            all_data = {'seq_s_e': seq, 'gt': all_gt, 'pred': all_pred}
+            save_path = os.path.join('./'+ self.dec_path + '_' + str(lg_num) + '.pkl')
+            with open(save_path, 'wb') as handle:
+                pickle5.dump(all_data, handle, protocol=pickle5.HIGHEST_PROTOCOL)
+
 
         return ade_min, fde_min, \
                ade_avg, fde_avg, \
