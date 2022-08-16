@@ -1,6 +1,6 @@
 import os
 from matplotlib.animation import FuncAnimation
-
+import pickle5
 import torch.optim as optim
 # -----------------------------------------------------------------------------#
 from sympy import im
@@ -1367,6 +1367,9 @@ class Solver(object):
         total_coll30 = [0] * (lg_num * traj_num)
         n_scene = 0
 
+        all_pred = []
+        all_gt = []
+        seq = []
 
         all_ade =[]
         all_fde =[]
@@ -1514,7 +1517,6 @@ class Solver(object):
                 multi_coll20 = []
                 multi_coll25 = []
                 multi_coll30 = []
-                n_scene += sum([e-s for s, e in seq_start_end])
                 pred=[]
                 for vel_pred in predictions:
                     pred_fut_traj=integrate_samples(vel_pred, obs_traj[-1, :, :2], dt=self.dt)
@@ -1555,6 +1557,13 @@ class Solver(object):
                     multi_coll25.append(coll25)
                     multi_coll30.append(coll30)
                     pred.append(pred_fut_traj.transpose(1, 0).detach().cpu().numpy())
+
+
+                all_pred.append(torch.stack(pred).detach().cpu().numpy())
+                seq.append([seq_start_end[0][0]+n_scene, seq_start_end[0][1]+n_scene])
+                n_scene += sum([e-s for s, e in seq_start_end])
+
+
 
                 # a2a collision
                 for i in range(lg_num * traj_num):
@@ -1622,6 +1631,12 @@ class Solver(object):
 
             print(n_scene)
 
+            dec_path = self.dec_path.split('/')[1]
+
+            all_data = {'seq_s_e': seq, 'pred': all_pred}
+            save_path = os.path.join('./'+ dec_path + '_' + str(lg_num) + '.pkl')
+            with open(save_path, 'wb') as handle:
+                pickle5.dump(all_data, handle, protocol=pickle5.HIGHEST_PROTOCOL)
         self.set_mode(train=True)
         return ade_min, fde_min, \
                ade_avg, fde_avg, \
@@ -1663,7 +1678,7 @@ class Solver(object):
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
-                obs_heat_map, _, _= self.make_heatmap(local_ic, local_map)
+                obs_heat_map, _= self.make_heatmap(local_ic, local_map)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 fut_rel_pos_dists = []
@@ -1731,15 +1746,18 @@ class Solver(object):
                     pred_sg_wcs.append(pred_sg_wc)
 
                 ##### trajectories per long&short goal ####
-
                 # -------- trajectories --------
-                (hx, mux, log_varx) \
-                    = self.encoderMx(obs_traj_st, seq_start_end)
-
-                p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
-                z_priors = []
-                for _ in range(traj_num):
-                    z_priors.append(p_dist.sample())
+                for pred_sg_wc in pred_sg_wcs:
+                    # -------- trajectories --------
+                    # NO TF, pred_goals, z~prior
+                    micro_pred = self.decoderMy.make_prediction(
+                        seq_start_end,
+                        obs_traj_st[-1],
+                        obs_traj[-1, :, :2],
+                        pred_sg_wc,  # goal
+                        self.sg_idx
+                    )
+                    predictions.append(micro_pred)
 
                 for pred_sg_wc in pred_sg_wcs:
                     for z_prior in z_priors:
@@ -2671,7 +2689,7 @@ class Solver(object):
             traj['ckpt_dir'],
             'iter_%s_decoderMy.pt' %  traj['iter']
         )
-
+        self.dec_path = decoderMy_path
 
 
         if self.device == 'cuda':
