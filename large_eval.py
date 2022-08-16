@@ -1558,13 +1558,6 @@ class Solver(object):
                     multi_coll30.append(coll30)
                     pred.append(pred_fut_traj.transpose(1, 0).detach().cpu().numpy())
 
-
-                all_pred.append(torch.stack(pred).detach().cpu().numpy())
-                seq.append([seq_start_end[0][0]+n_scene, seq_start_end[0][1]+n_scene])
-                n_scene += sum([e-s for s, e in seq_start_end])
-
-
-
                 # a2a collision
                 for i in range(lg_num * traj_num):
                     total_coll5[i] += multi_coll5[i]
@@ -1578,8 +1571,6 @@ class Solver(object):
                 pred = np.stack(pred, 1)
                 total_ecfl.append(compute_ECFL(pred, local_map, local_homo.cpu().numpy()))
 
-
-
                 # ade / fde
                 all_ade.append(torch.stack(ade))
                 all_fde.append(torch.stack(fde))
@@ -1588,7 +1579,14 @@ class Solver(object):
                 lg_fde.append(torch.sqrt(((torch.stack(pred_lg_wcs)
                                            - fut_traj[-1,:,:2].unsqueeze(0).repeat((lg_num,1,1)))**2).sum(-1))) # 20, 3, 4, 2
 
+                all_pred.append(pred)
+                seq.append([seq_start_end[0][0]+n_scene, seq_start_end[0][1]+n_scene])
+                n_scene += sum([e-s for s, e in seq_start_end])
+
+
             print("PRED ECFLS: ", np.array(total_ecfl).mean())
+
+
 
 
             all_ade=torch.cat(all_ade, dim=1).cpu().numpy()
