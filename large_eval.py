@@ -1580,6 +1580,7 @@ class Solver(object):
                                            - fut_traj[-1,:,:2].unsqueeze(0).repeat((lg_num,1,1)))**2).sum(-1))) # 20, 3, 4, 2
 
                 all_pred.append(pred)
+                all_gt.append(fut_traj[:,:,:2].unsqueeze(0).detach().cpu().numpy())
                 seq.append([seq_start_end[0][0]+n_scene, seq_start_end[0][1]+n_scene])
                 n_scene += sum([e-s for s, e in seq_start_end])
 
@@ -1631,7 +1632,9 @@ class Solver(object):
 
             dec_path = self.dec_path.split('/')[1]
 
-            all_data = {'seq_s_e': seq, 'pred': all_pred}
+            # all_data = {'seq_s_e': seq, 'pred': all_pred}
+            all_data = {'seq_s_e': seq, 'gt': all_gt, 'pred': all_pred}
+
             save_path = os.path.join('./'+ dec_path + '_' + str(lg_num) + '.pkl')
             with open(save_path, 'wb') as handle:
                 pickle5.dump(all_data, handle, protocol=pickle5.HIGHEST_PROTOCOL)
