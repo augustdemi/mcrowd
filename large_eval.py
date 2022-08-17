@@ -1633,7 +1633,7 @@ class Solver(object):
             dec_path = self.dec_path.split('/')[1]
 
             # all_data = {'seq_s_e': seq, 'pred': all_pred}
-            all_data = {'seq_s_e': seq, 'gt': all_gt, 'pred': all_pred}
+            all_data = {'seq_s_e': seq, 'gt': all_gt, 'pred': all_pred, 'scene_name' :scene_name}
 
             save_path = os.path.join('./'+ dec_path + '_' + str(lg_num) + '.pkl')
             with open(save_path, 'wb') as handle:
