@@ -82,8 +82,6 @@ class Solver(object):
         self.ckpt_save_iter = args.ckpt_save_iter
         self.output_save_iter = args.output_save_iter
 
-        # data info
-        args.dataset_dir = os.path.join(args.dataset_dir, str(args.k_fold))
 
         self.dataset_dir = args.dataset_dir
         self.dataset_name = args.dataset_name
@@ -200,17 +198,12 @@ class Solver(object):
             print("Initializing train dataset")
             _, self.train_loader = data_loader(self.args, args.dataset_dir, 'train', shuffle=True)
             print("Initializing val dataset")
-            _, self.val_loader = data_loader(self.args, args.dataset_dir, 'val', shuffle=True)
+            _, self.val_loader = data_loader(self.args, args.dataset_dir, 'test', shuffle=True)
 
             print(
                 'There are {} iterations per epoch'.format(len(self.train_loader.dataset) / args.batch_size)
             )
         print('...done')
-
-    def temmp(self):
-        aa = torch.zeros((120, 2, 256, 256)).to(self.device)
-        self.lg_cvae.unet.down_forward(aa)
-
 
     ####
     def train(self):
