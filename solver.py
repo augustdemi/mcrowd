@@ -363,7 +363,7 @@ class Solver(object):
         total_traj = 0
 
         loss_recon = loss_kl = 0
-        coll_loss = 0
+        coll_loss = torch.tensor(0)
         total_coll = 0
         n_scene = 0
 
