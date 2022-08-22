@@ -928,6 +928,7 @@ class Solver(object):
         all_pred = []
         all_gt = []
         seq = []
+        map_info = []
 
         with torch.no_grad():
             b=0
@@ -940,6 +941,9 @@ class Solver(object):
                  maps, local_map, local_ic, local_homo) = data
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
+
+                map_info.extend(maps)
+
 
                 obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
 
@@ -1096,7 +1100,6 @@ class Solver(object):
                     coll30 = 0
                     for s, e in seq_start_end:
                         num_ped = e - s
-                        n_scene += num_ped
                         if num_ped == 1:
                             continue
                         seq_traj = pred_fut_traj[:, s:e]
@@ -1131,8 +1134,10 @@ class Solver(object):
 
                 # add  12 steps' results of one batch
                 all_pred.append(torch.stack(pred).detach().cpu().numpy())
-                all_gt.append(fut_traj[:,:,:2].unsqueeze(0).detach().cpu().numpy())
+                all_gt.append(torch.cat([obs_traj[:,:,:2], fut_traj[:,:,:2]],0).unsqueeze(0).detach().cpu().numpy())
                 seq.append([seq_start_end[0][0]+n_scene, seq_start_end[0][1]+n_scene])
+                n_scene += sum([e-s for s, e in seq_start_end])
+
 
                 # a2a collision
                 for i in range(lg_num * traj_num):
@@ -1206,7 +1211,7 @@ class Solver(object):
             # if not os.path.exists(self.dec_path):
             #     os.makedirs(self.dec_path)
 
-            all_data = {'seq_s_e': seq, 'gt': all_gt, 'pred': all_pred}
+            all_data = {'seq_s_e': seq, 'gt': all_gt, 'pred': all_pred, 'map_info' :map_info}
             save_path = os.path.join('./'+ dec_path + '_' + str(lg_num) + '.pkl')
             with open(save_path, 'wb') as handle:
                 pickle5.dump(all_data, handle, protocol=pickle5.HIGHEST_PROTOCOL)
