@@ -1633,13 +1633,16 @@ class Solver(object):
         total_coll25 = [0] * (lg_num * traj_num)
         total_coll30 = [0] * (lg_num * traj_num)
         n_scene = 0
-
+        all_pred = []
+        all_gt = []
+        seq = []
 
         all_ade =[]
         all_fde =[]
         sg_ade=[]
         lg_fde=[]
         pred_c = []
+        scene_name = []
 
         with torch.no_grad():
             b=0
@@ -1650,6 +1653,9 @@ class Solver(object):
                  local_map, local_ic, local_homo) = batch
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
+
+                for m in map_path:
+                    scene_name.append(int(m.split('/')[-1].split('.')[0])// 10)
 
                 obs_heat_map, _, _= self.make_heatmap(local_ic, local_map)
 
@@ -1840,6 +1846,11 @@ class Solver(object):
                 lg_fde.append(torch.sqrt(((torch.stack(pred_lg_wcs)
                                            - fut_traj[-1,:,:2].unsqueeze(0).repeat((lg_num,1,1)))**2).sum(-1))) # 20, 3, 4, 2
 
+                all_pred.append(pred)
+                all_gt.append(fut_traj[:,:,:2].unsqueeze(0).detach().cpu().numpy())
+                seq.append([seq_start_end[0][0]+n_scene, seq_start_end[0][1]+n_scene])
+                n_scene += sum([e-s for s, e in seq_start_end])
+
             print("PRED ECFLS: ", np.array(pred_c).mean())
 
 
@@ -1878,6 +1889,15 @@ class Solver(object):
             print('total 30: ', np.min(total_coll30, axis=0).mean(), np.mean(total_coll30, axis=0).mean(), np.std(total_coll30, axis=0).mean())
 
             print(n_scene)
+            dec_path = self.dec_path.split('/')[1]
+
+            # all_data = {'seq_s_e': seq, 'pred': all_pred}
+            all_data = {'seq_s_e': seq, 'gt': all_gt, 'pred': all_pred, 'scene_name' :scene_name}
+
+            save_path = os.path.join('./'+ dec_path + '_' + str(lg_num) + '.pkl')
+            import pickle5
+            with open(save_path, 'wb') as handle:
+                pickle5.dump(all_data, handle, protocol=pickle5.HIGHEST_PROTOCOL)
 
         self.set_mode(train=True)
         return ade_min, fde_min, \
@@ -2848,6 +2868,7 @@ class Solver(object):
             traj['ckpt_dir'],
             'iter_%s_decoderMy.pt' %  traj['iter']
         )
+        self.dec_path = decoderMy_path
 
 
 
