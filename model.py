@@ -318,6 +318,7 @@ class Decoder(nn.Module):
         all_pred = []
         j=0
         decoder_h = self.rnn_decoder(torch.cat([pred_vel, sg_feat], dim=1), decoder_h)  # 493, 128
+        pred_vel = self.fc_mu(decoder_h)
 
         for i in range(self.seq_len):
             if i in sg_update_idx:
@@ -325,7 +326,6 @@ class Decoder(nn.Module):
                 j += 1
             else:
                 # predict next position
-                pred_vel = self.fc_mu(decoder_h)
                 if self.context_dim > 0:
                     # create context for the next prediction
                     curr_pos = pred_vel * self.scale * self.dt + last_pos
