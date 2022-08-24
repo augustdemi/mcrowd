@@ -915,15 +915,9 @@ class Solver(object):
         total_coll25 = [0] * (lg_num * traj_num)
         total_coll30 = [0] * (lg_num * traj_num)
 
-        sg_total_coll5 = [0] * lg_num
-        sg_total_coll10 = [0] * lg_num
-        sg_total_coll15 = [0] * lg_num
-        sg_total_coll20 = [0] * lg_num
-        sg_total_coll25 = [0] * lg_num
-        sg_total_coll30 = [0] * lg_num
-
         n_scene = 0
 
+        dec_path =self.dec_path.split('/')[1]
 
 
         all_ade =[]
@@ -934,6 +928,7 @@ class Solver(object):
         all_pred = []
         all_gt = []
         seq = []
+        map_info = []
 
         with torch.no_grad():
             b=0
@@ -947,6 +942,9 @@ class Solver(object):
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
+                # map_info.extend(maps)
+
+
                 obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
@@ -958,14 +956,6 @@ class Solver(object):
                 w_priors = []
                 for _ in range(lg_num):
                     w_priors.append(self.lg_cvae.prior_latent_space.sample())
-
-
-                sg_multi_coll5 = []
-                sg_multi_coll10 = []
-                sg_multi_coll15 = []
-                sg_multi_coll20 = []
-                sg_multi_coll25 = []
-                sg_multi_coll30 = []
 
                 for w_prior in w_priors:
                     # -------- long term goal --------
@@ -1009,30 +999,6 @@ class Solver(object):
                     else:
                         pred_sg_heat = F.sigmoid(self.sg_unet.forward(torch.cat([obs_heat_map, pred_lg_heat], dim=1)))
 
-                    # pred_sg_wc = []
-                    # for i in range(batch_size):
-                    #     map_size = local_map[i].shape
-                    #     pred_sg_ic = []
-                    #     for heat_map in pred_sg_heat[i]:
-                    #         heat_map = nnf.interpolate(heat_map.unsqueeze(0).unsqueeze(0),
-                    #                                    size=map_size, mode='bicubic',
-                    #                                    align_corners=False).squeeze(0).squeeze(0)
-                    #         argmax_idx = heat_map.flatten().sort().indices[-50:]
-                    #
-                    #         gara = np.zeros_like(heat_map)
-                    #         for r in argmax_idx:
-                    #             gara[r // map_size[0], r % map_size[0]] = 1
-                    #         plt.imshow(gara)
-                    #
-                    #         argmax_idx = [argmax_idx // map_size[0], argmax_idx % map_size[0]]
-                    #         pred_sg_ic.append(argmax_idx)
-                    #     pred_sg_ic = torch.tensor(pred_sg_ic).float().to(self.device)
-                    #     # ((local_ic[0,[11,15,19]] - pred_sg_ic) ** 2).sum(1).mean()
-                    #     back_wc = torch.matmul(
-                    #         torch.cat([pred_sg_ic, torch.ones((len(pred_sg_ic), 1)).to(self.device)], dim=1),
-                    #         torch.transpose(local_homo[i], 1, 0))
-                    #     back_wc /= back_wc[:, 2].unsqueeze(1)
-                    #     pred_sg_wc.append(back_wc[:, :2])
 
                     pred_sg_wc = []
                     for t in range(len(self.sg_idx)):
@@ -1059,7 +1025,7 @@ class Solver(object):
                             seq_pred_sg_wcs = torch.stack(seq_pred_sg_wcs)
                             final_seq_pred_sg = seq_pred_sg_wcs[:,-1]
 
-                            coll_th = 2.8
+                            coll_th = 2.5
                             curr1 = final_seq_pred_sg.repeat(num_ped, 1)
                             curr2 = self.repeat(final_seq_pred_sg, num_ped)
                             dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
@@ -1086,86 +1052,25 @@ class Solver(object):
                                             break
                                     else:
                                         final_seq_pred_sg[coll_agents[1][c]] = a2_positions[dist.argmax()]
-                                        # curr1 = final_seq_pred_sg.repeat(num_ped, 1)
-                                        # curr2 = self.repeat(final_seq_pred_sg, num_ped)
-                                        # dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
-                                        # dist = dist.reshape(num_ped, num_ped) + np.eye(num_ped) * 100
-                                        # dist[np.triu_indices(num_ped, k=1)] += 100
-                                        # print('after correction: ', len(np.where(dist < coll_th)[0]))
 
                             sg_at_this_step.append(final_seq_pred_sg)
                         pred_sg_wc.append(torch.cat(sg_at_this_step)) # bs, 2
                     pred_sg_wc = torch.stack(pred_sg_wc).transpose(1,0) # bs, #sg, 2
                     pred_sg_wcs.append(pred_sg_wc) # for differe w_prior
 
-                    sg_coll5 = 0
-                    sg_coll10 = 0
-                    sg_coll15 = 0
-                    sg_coll20 = 0
-                    sg_coll25 = 0
-                    sg_coll30 = 0
-                    for s, e in seq_start_end:
-                        num_ped = e - s
-                        if num_ped == 1:
-                            continue
-                        seq_traj = pred_sg_wc[s:e].transpose(1,0)
-                        for i in range(len(seq_traj)):
-                            curr1 = seq_traj[i].repeat(num_ped, 1)
-                            curr2 = self.repeat(seq_traj[i], num_ped)
-                            dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
-                            dist = dist.reshape(num_ped, num_ped)
-                            diff_agent_idx = np.triu_indices(num_ped, k=1)
-                            diff_agent_dist = dist[diff_agent_idx]
-                            sg_coll5 += (diff_agent_dist < 0.5).sum()
-                            sg_coll10 += (diff_agent_dist < 1.0).sum()
-                            sg_coll15 += (diff_agent_dist < 1.5).sum()
-                            sg_coll20 += (diff_agent_dist < 2.0).sum()
-                            sg_coll25 += (diff_agent_dist < 2.5).sum()
-                            sg_coll30 += (diff_agent_dist < 2.8).sum()
-                    sg_multi_coll5.append(sg_coll5)
-                    sg_multi_coll10.append(sg_coll10)
-                    sg_multi_coll15.append(sg_coll15)
-                    sg_multi_coll20.append(sg_coll20)
-                    sg_multi_coll25.append(sg_coll25)
-                    sg_multi_coll30.append(sg_coll30)
-
-                    ################
-
-
-                # a2a collision
-                for i in range(lg_num):
-                    sg_total_coll5[i] += sg_multi_coll5[i]
-                    sg_total_coll10[i] += sg_multi_coll10[i]
-                    sg_total_coll15[i] += sg_multi_coll15[i]
-                    sg_total_coll20[i] += sg_multi_coll20[i]
-                    sg_total_coll25[i] += sg_multi_coll25[i]
-                    sg_total_coll30[i] += sg_multi_coll30[i]
-
                 ##### trajectories per long&short goal ####
 
                 # -------- trajectories --------
-                (hx, mux, log_varx) \
-                    = self.encoderMx(obs_traj_st, seq_start_end)
-
-                p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
-                z_priors = []
-                for _ in range(traj_num):
-                    z_priors.append(p_dist.sample())
 
                 for pred_sg_wc in pred_sg_wcs:
-                    for z_prior in z_priors:
-                        # -------- trajectories --------
-                        # NO TF, pred_goals, z~prior
-                        micro_pred = self.decoderMy.make_prediction(
-                            seq_start_end,
-                            obs_traj_st[-1],
-                            obs_traj[-1, :, :2],
-                            hx,
-                            z_prior,
-                            pred_sg_wc,  # goal: (bs, # sg , 2)
-                            self.sg_idx
-                        )
-                        predictions.append(micro_pred)
+                    micro_pred = self.decoderMy.make_prediction(
+                        seq_start_end,
+                        obs_traj_st[-1],
+                        obs_traj[-1, :, :2],
+                        pred_sg_wc,  # goal
+                        self.sg_idx
+                    )
+                    predictions.append(micro_pred)
 
                 multi_coll5 = []
                 multi_coll10 = []
@@ -1227,10 +1132,12 @@ class Solver(object):
                     pix_pred.append(np.expand_dims(np.stack(batch_seq_pix), 1))
 
 
-
+                # add  12 steps' results of one batch
                 all_pred.append(torch.stack(pred).detach().cpu().numpy())
-                all_gt.append(fut_traj[:,:,:2].unsqueeze(0).detach().cpu().numpy())
-                seq.append(seq_start_end)
+                all_gt.append(torch.cat([obs_traj[:,:,:2], fut_traj[:,:,:2]],0).unsqueeze(0).detach().cpu().numpy())
+                seq.append([seq_start_end[0][0]+n_scene, seq_start_end[0][1]+n_scene])
+                n_scene += sum([e-s for s, e in seq_start_end])
+
 
                 # a2a collision
                 for i in range(lg_num * traj_num):
@@ -1296,21 +1203,18 @@ class Solver(object):
             print('total 20: ', np.min(total_coll20, axis=0).mean(), np.mean(total_coll20, axis=0).mean(), np.std(total_coll20, axis=0).mean())
             print('total 25: ', np.min(total_coll25, axis=0).mean(), np.mean(total_coll25, axis=0).mean(), np.std(total_coll25, axis=0).mean())
             print('total 30: ', np.min(total_coll30, axis=0).mean(), np.mean(total_coll30, axis=0).mean(), np.std(total_coll30, axis=0).mean())
-            print('=========================================== sg collision')
-            print('total 5: ', np.min(sg_total_coll5, axis=0).mean(), np.mean(sg_total_coll5, axis=0).mean(),
-                  np.std(sg_total_coll5, axis=0).mean())
-            print('total 10: ', np.min(sg_total_coll10, axis=0).mean(), np.mean(sg_total_coll10, axis=0).mean(),
-                  np.std(sg_total_coll10, axis=0).mean())
-            print('total 15: ', np.min(sg_total_coll15, axis=0).mean(), np.mean(sg_total_coll15, axis=0).mean(),
-                  np.std(sg_total_coll15, axis=0).mean())
-            print('total 20: ', np.min(sg_total_coll20, axis=0).mean(), np.mean(sg_total_coll20, axis=0).mean(),
-                  np.std(sg_total_coll20, axis=0).mean())
-            print('total 25: ', np.min(sg_total_coll25, axis=0).mean(), np.mean(sg_total_coll25, axis=0).mean(),
-                  np.std(sg_total_coll25, axis=0).mean())
-            print('total 30: ', np.min(sg_total_coll30, axis=0).mean(), np.mean(sg_total_coll30, axis=0).mean(),
-                  np.std(sg_total_coll30, axis=0).mean())
 
             print(n_scene)
+
+
+            import pickle5
+            # if not os.path.exists(self.dec_path):
+            #     os.makedirs(self.dec_path)
+
+            all_data = {'seq_s_e': seq, 'gt': all_gt, 'pred': all_pred}
+            save_path = os.path.join('./'+ dec_path + '_' + str(lg_num) + '.pkl')
+            with open(save_path, 'wb') as handle:
+                pickle5.dump(all_data, handle, protocol=pickle5.HIGHEST_PROTOCOL)
 
 
         return ade_min, fde_min, \
@@ -1320,6 +1224,68 @@ class Solver(object):
                lg_fde_min, lg_fde_avg, lg_fde_std
 
 
+    def coll_corr(self):
+
+        # with open('D:\crowd/from tony/nuscenes10.pkl', 'rb') as f:
+        import pickle5 as pkl
+        with open('d:\crowd/nu_pred10.pkl', 'rb') as f:
+            b = pkl.load(f)
+        multi_coll = []
+        for pred_fut_traj in pred: # 5, 12, 9041, 2
+            coll5 = 0
+            for s, e in seq_start_end:
+                num_ped = e - s
+                if num_ped == 1:
+                    continue
+                seq_traj = pred_fut_traj[:, s:e]
+                for i in range(len(seq_traj)):
+                    curr1 = seq_traj[i].repeat(num_ped, 1)
+                    curr2 = repeatt(seq_traj[i], num_ped)
+                    dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
+                    dist = dist.reshape(num_ped, num_ped)
+                    diff_agent_idx = np.triu_indices(num_ped, k=1)
+                    diff_agent_dist = dist[diff_agent_idx]
+                    coll5 += (diff_agent_dist < 2.5).sum()
+            multi_coll.append(coll5)
+
+
+
+    ####
+    def repeatt(tensor, num_reps):
+        """
+        Inputs:
+        -tensor: 2D tensor of any shape
+        -num_reps: Number of times to repeat each row
+        Outpus:
+        -repeat_tensor: Repeat each row such that: R1, R1, R2, R2
+        """
+        col_len = tensor.size(1)
+        tensor = tensor.unsqueeze(dim=1).repeat(1, num_reps, 1)
+        tensor = tensor.view(-1, col_len)
+        return tensor
+
+    # def coll_corr2(self):
+    #
+    #     total_col = 0
+    #     for s, e in seq_start_end:
+    #         num_ped = e - s
+    #         if num_ped == 1:
+    #             continue
+    #         seq_coll = []
+    #         for pred_fut_traj in pred1: # 5, 12, 9041, 2
+    #             seq_traj = pred_fut_traj[:, s:e]
+    #             coll = 0
+    #             for i in range(len(seq_traj)):  #12
+    #                 curr1 = seq_traj[i].repeat(num_ped, 1)
+    #                 curr2 = repeatt(seq_traj[i], num_ped)
+    #                 dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
+    #                 dist = dist.reshape(num_ped, num_ped)
+    #                 diff_agent_idx = np.triu_indices(num_ped, k=1)
+    #                 diff_agent_dist = dist[diff_agent_idx]
+    #                 coll += (diff_agent_dist < 2.5).sum()
+    #             seq_coll.append(coll)
+    #         print(np.array(seq_coll))
+    #         total_col += np.array(seq_coll).min()
 
 
     def make_ecfl(self, data_loader, lg_num=5, traj_num=4, generate_heat=True):
@@ -1820,18 +1786,59 @@ class Solver(object):
 
 
 
+    def collision_stat(self, data_loader):
+        self.set_mode(train=False)
+
+        n_scene= 0
+        total_ped = []
+        avg_dist = []
+        min_dist = 10000
+        max_dist = 0
+        with torch.no_grad():
+            b=0
+            while not data_loader.is_epoch_end():
+                data = data_loader.next_sample()
+                if data is None:
+                    continue
+                b+=1
+
+                (obs_traj, fut_traj, obs_traj_st, fut_vel_st, seq_start_end,
+                 maps, local_map, local_ic, local_homo) = data
+                for s, e in seq_start_end:
+                    n_scene +=1
+                    num_ped = e - s
+                    total_ped.append(num_ped)
+                    if num_ped == 1:
+                        continue
+
+                    # seq_traj = fut_traj[:,s:e,:2]
+                    seq_traj = torch.cat([obs_traj[:,s:e,:2], fut_traj[:,s:e,:2]])
+                    for i in range(len(seq_traj)):
+                        curr1 = seq_traj[i].repeat(num_ped, 1)
+                        curr2 = self.repeat(seq_traj[i], num_ped)
+                        dist = torch.sqrt(torch.pow(curr1 - curr2, 2).sum(1)).cpu().numpy()
+                        dist = dist.reshape(num_ped, num_ped)
+                        diff_agent_idx = np.triu_indices(num_ped, k=1)
+                        diff_agent_dist = dist[diff_agent_idx]
+                        avg_dist.append(diff_agent_dist.mean())
+                        min_dist = min(min_dist, diff_agent_dist.min())
+                        max_dist = max(max_dist, diff_agent_dist.max())
+
+
+        print('n_scene: ', n_scene)
+        total_ped = np.array(total_ped)
+        print('seq ped min/mean/max:', total_ped.min(), total_ped.mean(),  total_ped.max())
+        print('avg_dist:', np.array(avg_dist).mean())
+        print('min_dist:', min_dist)
+        print('max_dist:', max_dist)
+
+
+
+
     def pretrain_load_checkpoint(self, traj, lg, sg):
         sg_unet_path = os.path.join(
             sg['ckpt_dir'],
             'iter_%s_sg_unet.pt' % sg['iter']
-        )
-        encoderMx_path = os.path.join(
-            traj['ckpt_dir'],
-            'iter_%s_encoderMx.pt' % traj['iter']
-        )
-        encoderMy_path = os.path.join(
-            traj['ckpt_dir'],
-            'iter_%s_encoderMy.pt' % traj['iter']
         )
         decoderMy_path = os.path.join(
             traj['ckpt_dir'],
@@ -1841,17 +1848,13 @@ class Solver(object):
             lg['ckpt_dir'],
             'iter_%s_lg_cvae.pt' %  lg['iter']
         )
-
+        self.dec_path = decoderMy_path
 
         if self.device == 'cuda':
-            self.encoderMx = torch.load(encoderMx_path)
-            self.encoderMy = torch.load(encoderMy_path)
             self.decoderMy = torch.load(decoderMy_path)
             self.lg_cvae = torch.load(lg_cvae_path)
             self.sg_unet = torch.load(sg_unet_path)
         else:
-            self.encoderMx = torch.load(encoderMx_path, map_location='cpu')
-            self.encoderMy = torch.load(encoderMy_path, map_location='cpu')
             self.decoderMy = torch.load(decoderMy_path, map_location='cpu')
             self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
             self.sg_unet = torch.load(sg_unet_path, map_location='cpu')
@@ -1862,12 +1865,8 @@ class Solver(object):
         if train:
             self.sg_unet.train()
             self.lg_cvae.train()
-            self.encoderMx.train()
-            self.encoderMy.train()
             self.decoderMy.train()
         else:
             self.sg_unet.eval()
             self.lg_cvae.eval()
-            self.encoderMx.eval()
-            self.encoderMy.eval()
             self.decoderMy.eval()
