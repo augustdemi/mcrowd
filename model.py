@@ -359,17 +359,8 @@ class Decoder(nn.Module):
                 std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
 
                 if i in sg_update_idx:
-                    tf_pred_vel = sg_state[j + 1, :, 2:4]
-                    tf_pos = tf_pred_vel * self.scale * self.dt + last_pos
+                    pred_vel = sg_state[j + 1, :, 2:4]
                     j += 1
-                    pred_vel_cand = Normal(mu, std).rsample((20,))
-                    refined_pred_vel = []
-                    for agent_idx in range(len(pred_vel)):
-                        cand_pos = pred_vel_cand[:, agent_idx] * self.scale * self.dt + last_pos[agent_idx]
-                        dist_diff = ((cand_pos - tf_pos[agent_idx]) ** 2).sum(1)
-                        pred_vel_idx = torch.argmin(dist_diff)
-                        refined_pred_vel.append(pred_vel_cand[pred_vel_idx, agent_idx])
-                    pred_vel = torch.stack(refined_pred_vel)
                 else:
                     pred_vel = Normal(mu, std).rsample()
 
