@@ -317,14 +317,14 @@ class Decoder(nn.Module):
         ### traj decoding
         all_pred = []
         j=0
-        decoder_h = self.rnn_decoder(torch.cat([pred_vel, sg_feat], dim=1), decoder_h)  # 493, 128
-        pred_vel = self.fc_mu(decoder_h)
-
         for i in range(self.seq_len):
+            decoder_h = self.rnn_decoder(torch.cat([pred_vel, sg_feat], dim=1), decoder_h)  # 493, 128
+
             if i in sg_update_idx:
                 pred_vel = sg_state[j + 1, :, 2:4]
                 j += 1
             else:
+                pred_vel = self.fc_mu(decoder_h)
                 # predict next position
                 if self.context_dim > 0:
                     # create context for the next prediction
