@@ -89,7 +89,7 @@ class EncoderX(nn.Module):
         mu = stats[:, :self.zS_dim]
         log_var = stats[:, self.zS_dim:]
         mu = torch.clamp(mu, min=-1e8, max=1e8)
-        log_var = torch.clamp(log_var, max=2e1)
+        log_var = torch.clamp(log_var, max=8e1)
         return hx, mu, log_var
 
 
@@ -154,7 +154,7 @@ class EncoderY(nn.Module):
         mu = stats[:, :self.zS_dim]
         log_var = stats[:, self.zS_dim:]
         mu = torch.clamp(mu, min=-1e8, max=1e8)
-        log_var = torch.clamp(log_var, max=2e1)
+        log_var = torch.clamp(log_var, max=8e1)
 
         return mu, log_var
 
@@ -260,7 +260,7 @@ class Decoder(nn.Module):
             # std = torch.sqrt(torch.exp(logVar))
 
             mu = torch.clamp(mu, min=-1e8, max=1e8)
-            logVar = torch.clamp(logVar, max=2e1)
+            logVar = torch.clamp(logVar, max=8e1)
             std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
 
 
@@ -283,7 +283,7 @@ class Decoder(nn.Module):
                 mu = self.fc_mu(F.relu(decoder_h))
                 logVar = self.fc_std(F.relu(decoder_h))
                 mu = torch.clamp(mu, min=-1e8, max=1e8)
-                logVar = torch.clamp(logVar, max=2e1)
+                logVar = torch.clamp(logVar, max=8e1)
                 std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
                 pred_vel = Normal(mu, std).rsample()
                 curr_pos = pred_vel * self.scale * self.dt + last_pos
@@ -341,7 +341,7 @@ class Decoder(nn.Module):
             # std = torch.sqrt(torch.exp(logVar))
 
             mu = torch.clamp(mu, min=-1e8, max=1e8)
-            logVar = torch.clamp(logVar, max=2e1)
+            logVar = torch.clamp(logVar, max=8e1)
             std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
 
             pred_vel = Normal(mu, std).rsample()
@@ -355,7 +355,7 @@ class Decoder(nn.Module):
                 mu = self.fc_mu(F.relu(decoder_h))
                 logVar = self.fc_std(F.relu(decoder_h))
                 mu = torch.clamp(mu, min=-1e8, max=1e8)
-                logVar = torch.clamp(logVar, max=2e1)
+                logVar = torch.clamp(logVar, max=8e1)
                 std = torch.clamp(torch.sqrt(torch.exp(logVar)), min=1e-8)
                 pred_vel = Normal(mu, std).rsample()
                 curr_pos = pred_vel * self.scale * self.dt + last_pos
