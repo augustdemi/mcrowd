@@ -1655,7 +1655,8 @@ class Solver(object):
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
                 for m in map_path:
-                    scene_name.append(int(m.split('/')[-1].split('.')[0])// 10)
+                    scene_name.append(int(m.split('/')[-1].split('.')[0]))
+
 
                 obs_heat_map, _, _= self.make_heatmap(local_ic, local_map)
 
