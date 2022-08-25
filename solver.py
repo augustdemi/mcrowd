@@ -269,10 +269,10 @@ class Solver(object):
                     data_loader.is_epoch_end()
                 print('==== epoch %d done ====' % epoch)
                 epoch +=1
-                if self.optim_vae.param_groups[0]['lr'] > 5e-5:
+                if self.optim_vae.param_groups[0]['lr'] > 1e-4:
                     self.scheduler.step()
                 else:
-                    self.optim_vae.param_groups[0]['lr'] = 5e-5
+                    self.optim_vae.param_groups[0]['lr'] = 1e-4
                 print("lr: ", self.optim_vae.param_groups[0]['lr'], ' // w_coll: ', self.w_coll)
                 print('e_coll_loss: ', e_coll_loss, ' // e_total_coll: ', e_total_coll)
                 prev_e_coll_loss = e_coll_loss
@@ -372,6 +372,9 @@ class Solver(object):
                         coll_loss += (torch.sigmoid(-(diff_agent_dist_post - self.coll_th) * self.beta)).sum()
                         total_coll += (len(torch.where(diff_agent_dist_post < 1.5)[0]) / 2)
 
+            coll_loss = coll_loss.div(batch_size)
+            total_coll = total_coll/batch_size
+
             loss = - traj_elbo + self.w_coll * coll_loss
             e_coll_loss +=coll_loss.item()
             e_total_coll +=total_coll
@@ -387,7 +390,7 @@ class Solver(object):
                 self.save_checkpoint(epoch)
 
             # (visdom) insert current line stats
-            if epoch > 50:
+            if epoch > 500:
                 if iteration == iter_per_epoch or (self.viz_on and (iteration % (iter_per_epoch * 20) == 0)):
                     ade_min, fde_min, \
                     ade_avg, fde_avg, \
