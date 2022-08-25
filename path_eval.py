@@ -1632,17 +1632,18 @@ class Solver(object):
         total_coll20 = [0] * (lg_num * traj_num)
         total_coll25 = [0] * (lg_num * traj_num)
         total_coll30 = [0] * (lg_num * traj_num)
-        n_scene = 0
         all_pred = []
         all_gt = []
         seq = []
 
+        n_scene =0
         all_ade =[]
         all_fde =[]
         sg_ade=[]
         lg_fde=[]
         pred_c = []
         scene_name = []
+
 
         with torch.no_grad():
             b=0
@@ -1653,7 +1654,6 @@ class Solver(object):
                  local_map, local_ic, local_homo) = batch
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
-
                 for m in map_path:
                     scene_name.append(int(m.split('/')[-1].split('.')[0])// 10)
 
@@ -1762,17 +1762,30 @@ class Solver(object):
                     pred_sg_wcs.append(pred_sg_wc) # for differe w_prior
 
                 ##### trajectories per long&short goal ####
+
+                # -------- trajectories --------
+                (hx, mux, log_varx) \
+                    = self.encoderMx(obs_traj_st, seq_start_end)
+
+                p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
+                z_priors = []
+                for _ in range(traj_num):
+                    z_priors.append(p_dist.sample())
+
                 for pred_sg_wc in pred_sg_wcs:
-                    # -------- trajectories --------
-                    # NO TF, pred_goals, z~prior
-                    micro_pred = self.decoderMy.make_prediction(
-                        seq_start_end,
-                        obs_traj_st[-1],
-                        obs_traj[-1, :, :2],
-                        pred_sg_wc,  # goal
-                        self.sg_idx
-                    )
-                    predictions.append(micro_pred)
+                    for z_prior in z_priors:
+                        # -------- trajectories --------
+                        # NO TF, pred_goals, z~prior
+                        micro_pred = self.decoderMy.make_prediction(
+                            seq_start_end,
+                            obs_traj_st[-1],
+                            obs_traj[-1, :, :2],
+                            hx,
+                            z_prior,
+                            pred_sg_wc,  # goal
+                            self.sg_idx
+                        )
+                        predictions.append(micro_pred)
 
 
                 ade, fde = [], []
@@ -1847,9 +1860,9 @@ class Solver(object):
                                            - fut_traj[-1,:,:2].unsqueeze(0).repeat((lg_num,1,1)))**2).sum(-1))) # 20, 3, 4, 2
 
                 all_pred.append(pred)
-                all_gt.append(fut_traj[:,:,:2].unsqueeze(0).detach().cpu().numpy())
-                seq.append([seq_start_end[0][0]+n_scene, seq_start_end[0][1]+n_scene])
-                n_scene += sum([e-s for s, e in seq_start_end])
+                all_gt.append(fut_traj[:, :, :2].unsqueeze(0).detach().cpu().numpy())
+                seq.append([seq_start_end[0][0] + n_scene, seq_start_end[0][1] + n_scene])
+                n_scene += sum([e - s for s, e in seq_start_end])
 
             print("PRED ECFLS: ", np.array(pred_c).mean())
 
@@ -1898,6 +1911,7 @@ class Solver(object):
             import pickle5
             with open(save_path, 'wb') as handle:
                 pickle5.dump(all_data, handle, protocol=pickle5.HIGHEST_PROTOCOL)
+
 
         self.set_mode(train=True)
         return ade_min, fde_min, \
@@ -2846,12 +2860,25 @@ class Solver(object):
         if train:
             self.lg_cvae.train()
             self.sg_unet.train()
+            self.encoderMx.train()
+            self.encoderMy.train()
             self.decoderMy.train()
         else:
             self.lg_cvae.eval()
             self.sg_unet.eval()
+            self.encoderMx.eval()
+            self.encoderMy.eval()
             self.decoderMy.eval()
 
+    ####
+    def save_checkpoint(self, iteration):
+
+        sg_unet_path = os.path.join(
+            self.ckpt_dir,
+            'iter_%s_sg_unet.pt' % iteration
+        )
+        mkdirs(self.ckpt_dir)
+        torch.save(self.sg_unet, sg_unet_path)
 
 
 
@@ -2864,21 +2891,33 @@ class Solver(object):
             sg['ckpt_dir'],
             'iter_%s_sg_unet.pt' % sg['iter']
         )
+        encoderMx_path = os.path.join(
+            traj['ckpt_dir'],
+            'iter_%s_encoderMx.pt' % traj['iter']
+        )
+        encoderMy_path = os.path.join(
+            traj['ckpt_dir'],
+            'iter_%s_encoderMy.pt' % traj['iter']
+        )
         decoderMy_path = os.path.join(
             traj['ckpt_dir'],
             'iter_%s_decoderMy.pt' %  traj['iter']
         )
+
+
         self.dec_path = decoderMy_path
-
-
 
         if self.device == 'cuda':
             self.lg_cvae = torch.load(lg_cvae_path)
             self.sg_unet = torch.load(sg_unet_path)
+            self.encoderMx = torch.load(encoderMx_path)
+            self.encoderMy = torch.load(encoderMy_path)
             self.decoderMy = torch.load(decoderMy_path)
 
 
         else:
             self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
             self.sg_unet = torch.load(sg_unet_path, map_location='cpu')
+            self.encoderMx = torch.load(encoderMx_path, map_location='cpu')
+            self.encoderMy = torch.load(encoderMy_path, map_location='cpu')
             self.decoderMy = torch.load(decoderMy_path, map_location='cpu')
