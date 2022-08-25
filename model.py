@@ -395,13 +395,11 @@ class PoolHiddenNet(nn.Module):
         self.context_dim = context_dim
         # self.embedding_dim = embedding_dim
 
-        mlp_pre_dim = 2 + 2*h_dim # 2+128*2
-        mlp_pre_pool_dims = [mlp_pre_dim, 512, context_dim]
 
         self.spatial_embedding = nn.Linear(2, embedding_dim)
 
-
-        # self.spatial_embedding = nn.Linear(2, embedding_dim)
+        mlp_pre_dim = embedding_dim+ + 2*h_dim # 16+128*2
+        mlp_pre_pool_dims = [mlp_pre_dim, 512, context_dim]
         self.mlp_pre_pool = make_mlp(
             mlp_pre_pool_dims,
             activation=activation,
