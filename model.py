@@ -436,8 +436,8 @@ class PoolHiddenNet(nn.Module):
             curr_end_pos_2 = self.repeat(curr_end_pos, num_ped) # Repeat position -> P1, P1, P2, P2
             curr_rel_pos = curr_end_pos_1 - curr_end_pos_2 # 다른 agent와의 relative거리 (a1-a1, a2-a1, a2-a1, a1-a2, a2-a2, a3-a2, a1-a3, a2-a3, a3-a3))이런식으로 상대거리
             curr_rel_embedding = self.spatial_embedding(curr_rel_pos) # 다른 agent와의 relative거리의 embedding: (repeated data, 64)
-            #mlp_h_input = torch.cat([torch.clamp(curr_rel_embedding, min=-1e8, max=1e8), curr_hidden_1, curr_hidden_2], dim=1) #(repeated data, 64+128)
-            mlp_h_input = torch.cat([curr_rel_embedding, curr_hidden_1, curr_hidden_2], dim=1) #(repeated data, 64+128)
+            mlp_h_input = torch.cat([torch.clamp(curr_rel_embedding, min=-1e3, max=1e3), curr_hidden_1, curr_hidden_2], dim=1) #(repeated data, 64+128)
+            # mlp_h_input = torch.cat([curr_rel_embedding, curr_hidden_1, curr_hidden_2], dim=1) #(repeated data, 64+128)
             curr_pool_h = self.mlp_pre_pool(mlp_h_input) # 64+128 -> 512 -> (repeated data, bottleneck_dim)
             curr_pool_h = curr_pool_h.view(num_ped, num_ped, -1).max(1)[0] # (sqrt(repeated data), sqrt(repeated data), 1024) 로 바꾼후, 각 agent별로 상대와의 거리가 가장 큰걸 골라냄. (argmax말로 value를)
             pool_h.append(curr_pool_h)
