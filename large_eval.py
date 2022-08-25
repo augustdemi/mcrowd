@@ -1,6 +1,6 @@
 import os
 from matplotlib.animation import FuncAnimation
-import pickle5
+
 import torch.optim as optim
 # -----------------------------------------------------------------------------#
 from sympy import im
@@ -224,7 +224,9 @@ class Solver(object):
 
         return heat_map_traj
 
-    def make_heatmap(self, local_ic, local_map, aug=False):
+
+
+    def make_heatmap(self, local_ic, local_map):
         heatmaps = []
         for i in range(len(local_ic)):
             ohm = [local_map[i, 0]]
@@ -234,15 +236,15 @@ class Solver(object):
                 heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
                 # as Y-net used variance 4 for the GT heatmap representation.
             heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-            ohm.append(heat_map_traj / heat_map_traj.sum())
+            ohm.append( heat_map_traj/heat_map_traj.sum())
 
-            heat_map_traj = np.zeros((192, 192))
-            heat_map_traj[local_ic[i, -1, 0], local_ic[i, -1, 1]] = 1
-            # as Y-net used variance 4 for the GT heatmap representation.
-            heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
-            # plt.imshow(heat_map_traj)
-            ohm.append(heat_map_traj)
-
+            for t in (self.sg_idx + 8):
+                heat_map_traj = np.zeros((192,192))
+                heat_map_traj[local_ic[i, t, 0], local_ic[i, t, 1]] = 1
+                # as Y-net used variance 4 for the GT heatmap representation.
+                heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
+                # plt.imshow(heat_map_traj)
+                ohm.append(heat_map_traj)
             heatmaps.append(np.stack(ohm))
             '''
             heat_map_traj = np.zeros((192, 192))
@@ -253,21 +255,8 @@ class Solver(object):
             heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=2)
             plt.imshow(heat_map_traj)
             '''
-        if aug:
-            all_heatmaps = []
-            for h in heatmaps:
-                h = torch.tensor(h).float().to(self.device)
-                degree = np.random.choice([0, 90, 180, -90])
-                all_heatmaps.append(
-                    transforms.Compose([
-                        transforms.RandomRotation(degrees=(degree, degree))
-                    ])(h)
-                )
-            all_heatmaps = torch.stack(all_heatmaps)
-        else:
-            all_heatmaps = torch.tensor(np.stack(heatmaps)).float().to(self.device)
-        return all_heatmaps[:, :2], all_heatmaps[:, 2:]
-
+        heatmaps = torch.tensor(np.stack(heatmaps)).float().to(self.device)
+        return heatmaps[:,:2], heatmaps[:,2:], heatmaps[:,-1].unsqueeze(1)
 
 
     def repeat(self, tensor, num_reps):
@@ -293,8 +282,7 @@ class Solver(object):
             for batch in data_loader:
                 b += 1
 
-                idx=202
-                batch = data_loader.dataset.__getitem__(idx)
+                batch = data_loader.dataset.__getitem__(7)
                 (obs_traj, fut_traj,
                  obs_frames, pred_frames, map_path, inv_h_t,
                  local_map, local_ic, local_homo, scale) = batch
@@ -306,26 +294,10 @@ class Solver(object):
                 # pos is stdized by mean = last obs step
                 obs_traj_st[:, :, :2] = obs_traj_st[:, :, :2] - obs_traj_st[-1, :, :2]
 
-                i=tmp_idx =51
-                i=tmp_idx =25
+                i=tmp_idx =9
 
-                '''
-
-                plt.imshow(local_map[i, 0])
-                plt.scatter(local_ic[i,:8,1], local_ic[i,:8,0], c='b')
-                plt.scatter(local_ic[i,8:,1], local_ic[i,8:,0], c='r')
-                import cv2
-
-                image = cv2.imread('C:\dataset\large_real\Trajectories/' + map_path[0].split('/')[-1])
-                # image = cv2.imread('C:\dataset\large_real\Trajectories/2.png')
-                plt.imshow(image)
-                aa = torch.cat([obs_traj[:,:,:2].transpose(1,0), fut_traj[:,:,:2].transpose(1,0)], 1).detach().cpu().numpy()
-
-                plt.scatter(aa[:,:8,0]*2, aa[:,:8,1]*2, s=1, c='b')
-                plt.scatter(aa[:,8:,0]*2, aa[:,8:,1]*2, s=1, c='r')
-                # plt.scatter(aa[:,0,0]*2, aa[:,0,1]*2, s=10, marker='x', c='orange')
-                
-                '''
+                # plt.imshow(local_map[i, 0])
+                # plt.scatter(local_ic[i,:,1], local_ic[i,:,0])
 
                 obs_heat_map, sg_heat_map, lg_heat_map = self.make_heatmap(local_ic, local_map)
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
@@ -409,14 +381,13 @@ class Solver(object):
                 heat_map_traj = ndimage.filters.gaussian_filter(heat_map_traj, sigma=1)
 
 
-                fig = plt.figure(figsize=(15, 15))
+                fig = plt.figure(figsize=(12, 10))
                 fig.tight_layout()
                 for k in range(10):
                     ax = fig.add_subplot(4, 5, k + 1)
                     ax.set_title('prior' + str(k % 5 + 1))
                     if k < 5:
                         a = mm[k][i, 0].detach().cpu().numpy().copy()
-                        a = a / (10*a.max())
                         ax.imshow(np.stack([env*(1-heat_map_traj), env * (1-a *5),  env],axis=2))
                     else:
                         ax.imshow(mm[k % 5][i, 0])
@@ -426,7 +397,6 @@ class Solver(object):
                     ax.set_title('prior' + str(k % 5 + 6))
                     if k < 5:
                         a = mmm[k][i, 0].detach().cpu().numpy().copy()
-                        a = a /(10* a.max())
                         ax.imshow(np.stack([env*(1-heat_map_traj), env * (1-a * 5),  env],axis=2))
                         # ax.imshow(np.stack([1-env, 1-heat_map_traj, 1 - mmm[k][i, 0] / (0.1*mmm[k][i, 0].max())],axis=2))
                     else:
@@ -1387,11 +1357,10 @@ class Solver(object):
                  local_map, local_ic, local_homo) = batch
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
-
                 for m in map_path:
                     scene_name.append(int(m.split('/')[-1].split('.')[0])// 10)
 
-                obs_heat_map, _= self.make_heatmap(local_ic, local_map)
+                obs_heat_map, _, _= self.make_heatmap(local_ic, local_map)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 predictions = []
@@ -1498,17 +1467,29 @@ class Solver(object):
                 ##### trajectories per long&short goal ####
 
                 # -------- trajectories --------
+                (hx, mux, log_varx) \
+                    = self.encoderMx(obs_traj_st, seq_start_end)
+
+                p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
+                z_priors = []
+                for _ in range(traj_num):
+                    z_priors.append(p_dist.sample())
+
                 for pred_sg_wc in pred_sg_wcs:
-                    # -------- trajectories --------
-                    # NO TF, pred_goals, z~prior
-                    micro_pred = self.decoderMy.make_prediction(
-                        seq_start_end,
-                        obs_traj_st[-1],
-                        obs_traj[-1, :, :2],
-                        pred_sg_wc,  # goal
-                        self.sg_idx
-                    )
-                    predictions.append(micro_pred)
+                    for z_prior in z_priors:
+                        # -------- trajectories --------
+                        # NO TF, pred_goals, z~prior
+                        micro_pred = self.decoderMy.make_prediction(
+                            seq_start_end,
+                            obs_traj_st[-1],
+                            obs_traj[-1, :, :2],
+                            hx,
+                            z_prior,
+                            pred_sg_wc,  # goal
+                            self.sg_idx
+                        )
+                        predictions.append(micro_pred)
+
 
                 ade, fde = [], []
                 multi_coll5 = []
@@ -1517,6 +1498,7 @@ class Solver(object):
                 multi_coll20 = []
                 multi_coll25 = []
                 multi_coll30 = []
+                n_scene += sum([e-s for s, e in seq_start_end])
                 pred=[]
                 for vel_pred in predictions:
                     pred_fut_traj=integrate_samples(vel_pred, obs_traj[-1, :, :2], dt=self.dt)
@@ -1571,6 +1553,8 @@ class Solver(object):
                 pred = np.stack(pred, 1)
                 total_ecfl.append(compute_ECFL(pred, local_map, local_homo.cpu().numpy()))
 
+
+
                 # ade / fde
                 all_ade.append(torch.stack(ade))
                 all_fde.append(torch.stack(fde))
@@ -1585,19 +1569,14 @@ class Solver(object):
                 n_scene += sum([e-s for s, e in seq_start_end])
 
 
+
             print("PRED ECFLS: ", np.array(total_ecfl).mean())
-
-
 
 
             all_ade=torch.cat(all_ade, dim=1).cpu().numpy()
             all_fde=torch.cat(all_fde, dim=1).cpu().numpy()
             sg_ade=torch.cat(sg_ade, dim=1).cpu().numpy()
             lg_fde=torch.cat(lg_fde, dim=1).cpu().numpy() # all batches are concatenated
-
-
-            # all_feat = np.stack([scene_name, np.min(all_ade, axis=0)/self.pred_len, np.min(all_fde, axis=0)]).T
-            # np.save('large_k0_ade.npy', all_feat)
 
             ade_min = np.min(all_ade, axis=0).mean()/self.pred_len
             fde_min = np.min(all_fde, axis=0).mean()
@@ -1630,14 +1609,16 @@ class Solver(object):
 
             print(n_scene)
 
+            import pickle5
             dec_path = self.dec_path.split('/')[1]
 
             # all_data = {'seq_s_e': seq, 'pred': all_pred}
-            all_data = {'seq_s_e': seq, 'gt': all_gt, 'pred': all_pred, 'scene_name' :scene_name}
+            all_data = {'seq_s_e': seq, 'gt': all_gt, 'pred': all_pred, 'scene_name': scene_name}
 
-            save_path = os.path.join('./'+ dec_path + '_' + str(lg_num) + '.pkl')
+            save_path = os.path.join('./' + dec_path + '_' + str(lg_num) + '.pkl')
             with open(save_path, 'wb') as handle:
                 pickle5.dump(all_data, handle, protocol=pickle5.HIGHEST_PROTOCOL)
+
         self.set_mode(train=True)
         return ade_min, fde_min, \
                ade_avg, fde_avg, \
@@ -1679,7 +1660,7 @@ class Solver(object):
                 batch_size = obs_traj.size(1)
                 total_traj += fut_traj.size(1)
 
-                obs_heat_map, _= self.make_heatmap(local_ic, local_map)
+                obs_heat_map, _, _= self.make_heatmap(local_ic, local_map)
 
                 self.lg_cvae.forward(obs_heat_map, None, training=False)
                 fut_rel_pos_dists = []
@@ -1747,18 +1728,15 @@ class Solver(object):
                     pred_sg_wcs.append(pred_sg_wc)
 
                 ##### trajectories per long&short goal ####
+
                 # -------- trajectories --------
-                for pred_sg_wc in pred_sg_wcs:
-                    # -------- trajectories --------
-                    # NO TF, pred_goals, z~prior
-                    micro_pred = self.decoderMy.make_prediction(
-                        seq_start_end,
-                        obs_traj_st[-1],
-                        obs_traj[-1, :, :2],
-                        pred_sg_wc,  # goal
-                        self.sg_idx
-                    )
-                    predictions.append(micro_pred)
+                (hx, mux, log_varx) \
+                    = self.encoderMx(obs_traj_st, seq_start_end)
+
+                p_dist = Normal(mux, torch.sqrt(torch.exp(log_varx)))
+                z_priors = []
+                for _ in range(traj_num):
+                    z_priors.append(p_dist.sample())
 
                 for pred_sg_wc in pred_sg_wcs:
                     for z_prior in z_priors:
@@ -2668,10 +2646,14 @@ class Solver(object):
         if train:
             self.lg_cvae.train()
             self.sg_unet.train()
+            self.encoderMx.train()
+            self.encoderMy.train()
             self.decoderMy.train()
         else:
             self.lg_cvae.eval()
             self.sg_unet.eval()
+            self.encoderMx.eval()
+            self.encoderMy.eval()
             self.decoderMy.eval()
 
 
@@ -2685,21 +2667,33 @@ class Solver(object):
             sg['ckpt_dir'],
             'iter_%s_sg_unet.pt' % sg['iter']
         )
-
+        encoderMx_path = os.path.join(
+            traj['ckpt_dir'],
+            'iter_%s_encoderMx.pt' % traj['iter']
+        )
+        encoderMy_path = os.path.join(
+            traj['ckpt_dir'],
+            'iter_%s_encoderMy.pt' % traj['iter']
+        )
         decoderMy_path = os.path.join(
             traj['ckpt_dir'],
             'iter_%s_decoderMy.pt' %  traj['iter']
         )
-        self.dec_path = decoderMy_path
 
+
+        self.dec_path = decoderMy_path
 
         if self.device == 'cuda':
             self.lg_cvae = torch.load(lg_cvae_path)
             self.sg_unet = torch.load(sg_unet_path)
+            self.encoderMx = torch.load(encoderMx_path)
+            self.encoderMy = torch.load(encoderMy_path)
             self.decoderMy = torch.load(decoderMy_path)
 
 
         else:
             self.lg_cvae = torch.load(lg_cvae_path, map_location='cpu')
             self.sg_unet = torch.load(sg_unet_path, map_location='cpu')
+            self.encoderMx = torch.load(encoderMx_path, map_location='cpu')
+            self.encoderMy = torch.load(encoderMy_path, map_location='cpu')
             self.decoderMy = torch.load(decoderMy_path, map_location='cpu')
